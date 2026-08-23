@@ -87,6 +87,30 @@ function parseCliArgs(value) {
   return args.every((arg) => /^[\w.:=@/\\-]+$/.test(arg)) ? args : null;
 }
 
+// /model and /effort are answered locally by the CLI -- the reply carries
+// model: "<synthetic>" and cost 0, meaning no API call happened -- as plain
+// confirmation text with no structured field for the new value. The 'system'
+// init frame does repeat the model, but only once the next turn starts, and
+// never carries effort at all, so without this the pane's own badge either
+// lags a full turn behind or never reflects an effort change.
+function claudeSyntheticReplyUpdate(text) {
+  const value = String(text || '').trim();
+  const current = /^Current model:\s*(.+?)\s*\(effort:\s*(auto|low|medium|high|xhigh|max)\)/i.exec(value);
+  if (current) {
+    return { model: current[1].trim(), effort: current[2].toLowerCase() };
+  }
+  const update = {};
+  const setEffort = /^Set effort level to (auto|low|medium|high|xhigh|max)\b/i.exec(value);
+  if (setEffort) {
+    update.effort = setEffort[1].toLowerCase();
+  }
+  const setModel = /^Set model to (.+?)(?: for this session only)?[.:]?\s*$/i.exec(value.split('\n')[0]);
+  if (setModel) {
+    update.model = setModel[1].trim();
+  }
+  return Object.keys(update).length ? update : null;
+}
+
 function claudeEffort(value) {
   const effort = String(value || '').trim().toLowerCase();
   return CLAUDE_EFFORTS.has(effort) ? effort : '';
@@ -352,6 +376,14 @@ class ClaudeAdapter {
         }
       } else if (block.type === 'text') {
         if (block.text) {
+          if (message.message?.model === '<synthetic>') {
+            const update = claudeSyntheticReplyUpdate(block.text);
+            if (update) {
+              this.model = update.model || this.model;
+              this.effort = update.effort || this.effort;
+              this.onStatus({ model: this.model, effort: this.effort });
+            }
+          }
           const key = String(index);
           // A block that streamed deltas is finished by this same full text,
           // which arrives once content_block_stop has already fired; a block
@@ -1977,5 +2009,6 @@ module.exports = {
   parseCliArgs,
   resolveClaudeModel,
   resolveClaudeEffort,
+  claudeSyntheticReplyUpdate,
   CODEX_MUTED_NOTIFICATIONS
 };

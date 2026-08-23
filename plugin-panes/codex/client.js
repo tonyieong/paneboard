@@ -22,13 +22,15 @@
       return `
         <div class="ai-surface ${tab.showThinking === false ? 'hide-thinking' : ''} ${tab.showTools === false ? 'hide-tools' : ''}"
              data-ai-tab="${tab.id}" data-ai-pane="${pane.id}" data-ai-provider="${provider}" ${isActive ? '' : 'hidden'}>
+          <div class="ai-meta">
+            <span class="ai-runtime" data-ai-runtime></span>
+            <button type="button" class="ai-folder" data-ai-folder title="${escapeAttr(tab.cwd || '')}" aria-label="Working folder">${escapeHtml(aiFolderLabel(tab.cwd))}</button>
+          </div>
           <div class="ai-scroll" data-ai-scroll>
             <div class="ai-log" data-ai-log role="log" aria-live="polite" aria-label="Conversation"></div>
           </div>
           <div class="ai-composer">
             <div class="ai-toolbar">
-              <span class="ai-runtime" data-ai-runtime></span>
-              <button type="button" class="ai-folder" data-ai-folder title="${escapeAttr(tab.cwd || '')}" aria-label="Working folder">${escapeHtml(aiFolderLabel(tab.cwd))}</button>
               <span class="ai-status" data-ai-status aria-live="polite"></span>
               <button type="button" class="ai-toggle" data-ai-toggle="thinking" aria-pressed="${tab.showThinking !== false}" aria-label="${escapeAttr(aiText('Show thinking'))}" title="${escapeAttr(aiText('Show thinking'))}">${fileActionIcon('thinking')}</button>
               <button type="button" class="ai-toggle" data-ai-toggle="tools" aria-pressed="${tab.showTools !== false}" aria-label="${escapeAttr(aiText('Show tool calls'))}" title="${escapeAttr(aiText('Show tool calls'))}">${fileActionIcon('tools')}</button>

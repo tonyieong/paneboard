@@ -2624,12 +2624,12 @@ test('an AI tab keeps its current model and reasoning visible', () => {
   assert.match(styles, /\.ai-runtime \{/);
 });
 
-test('AI metadata and controls share the bottom toolbar with history at the right edge', () => {
+test('the model/effort and working folder sit in their own row under the title, and the bottom toolbar keeps the rest', () => {
   const surface = appSource.slice(appSource.indexOf('function renderAiSurface'), appSource.indexOf('function renderMarkdown'));
   const surfaceStyles = styles.slice(styles.indexOf('.ai-surface {'), styles.indexOf('.ai-surface[hidden]'));
-  assert.match(surface, /ai-scroll[\s\S]*ai-toolbar[\s\S]*data-ai-runtime[\s\S]*data-ai-folder[\s\S]*data-ai-toggle="thinking"[\s\S]*data-ai-toggle="tools"[\s\S]*data-ai-sessions/);
+  assert.match(surface, /ai-meta[\s\S]*data-ai-runtime[\s\S]*data-ai-folder[\s\S]*ai-scroll[\s\S]*ai-toolbar[\s\S]*data-ai-toggle="thinking"[\s\S]*data-ai-toggle="tools"[\s\S]*data-ai-sessions/);
   assert.doesNotMatch(surface, /ai-context-toolbar/);
-  assert.match(surfaceStyles, /grid-template-rows: minmax\(0, 1fr\) auto/);
+  assert.match(surfaceStyles, /grid-template-rows: auto minmax\(0, 1fr\) auto/);
   assert.match(surface, /data-ai-provider="\$\{provider\}"/);
   assert.doesNotMatch(styles, /\.ai-context-toolbar \{/);
   assert.match(surface, /data-ai-input[^>]+aria-label=/);

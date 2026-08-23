@@ -9,13 +9,34 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   /* The composer keeps its natural height, so a short pane shrinks the
-     transcript rather than pushing the input box out of sight. */
-  grid-template-rows: minmax(0, 1fr) auto;
+     transcript rather than pushing the input box out of sight; the meta row
+     above the transcript is fixed too, same as the toolbar below it. */
+  grid-template-rows: auto minmax(0, 1fr) auto;
   background: var(--terminal-bg);
 }
 
 .ai-surface[hidden] {
   display: none;
+}
+
+/* Sits directly under the pane's own title bar: the model/effort the CLI is
+   running with on the left, the working folder on the right, since that is
+   the one of the two a click actually changes. */
+.ai-meta {
+  height: var(--pane-toolbar-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+  /* Same column as the transcript and the composer beneath it, so the two
+     values do not drift to the far edge of a very wide pane. */
+  width: 100%;
+  max-width: var(--ai-reading-width);
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* A pane on this board is often far wider than a comfortable reading measure.
@@ -317,6 +338,7 @@
 /* Which folder the CLI is running in. It reads as a value rather than a
    button until you reach for it, because it is mostly there to be checked. */
 .ai-folder {
+  min-width: 0;
   max-width: 32ch;
   padding: 1px 6px;
   border: 1px solid transparent;
@@ -471,7 +493,8 @@
 }
 
 .ai-runtime {
-  max-width: min(50%, 36ch);
+  min-width: 0;
+  max-width: min(60%, 36ch);
   color: var(--text);
   font-family: "Cascadia Mono", Consolas, monospace;
   font-size: 12px;

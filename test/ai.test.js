@@ -264,6 +264,77 @@ test('claude reports the active model and configured reasoning effort', () => {
   );
 });
 
+// /model and /effort are dispatched as plain text and answered the same way --
+// the CLI marks its reply model: "<synthetic>" rather than routing it through
+// the model, and the confirmation carries no structured field for the new
+// value, unlike the 'system' init frame, which only repeats it on the next
+// turn. Without parsing this text the pane's own badge never learns of an
+// effort change at all, and lags a full turn behind for a model change.
+test('a /model reply updates the reported model immediately, without waiting for the next turn', () => {
+  const statuses = [];
+  const adapter = new ClaudeAdapter({
+    config: { ai: {} }, write: () => {}, onEvent: () => {}, onSession: () => {},
+    onStatus: (status) => statuses.push(status)
+  });
+  adapter.handleLine(JSON.stringify({
+    type: 'system', subtype: 'init', session_id: 'session-1', model: 'claude-sonnet-5'
+  }));
+  const effortBefore = adapter.effort;
+  adapter.handleLine(JSON.stringify({
+    type: 'assistant',
+    message: { model: '<synthetic>', role: 'assistant', content: [{ type: 'text', text: 'Set model to Opus 5 for this session only' }] }
+  }));
+
+  assert.equal(adapter.model, 'Opus 5');
+  // /model does not touch the reasoning effort, so it must survive untouched.
+  assert.deepEqual(statuses.at(-1), { model: 'Opus 5', effort: effortBefore });
+});
+
+test('a /effort reply updates the reported effort, which the init frame never carries', () => {
+  const statuses = [];
+  const adapter = new ClaudeAdapter({
+    config: { ai: {} }, write: () => {}, onEvent: () => {}, onSession: () => {},
+    onStatus: (status) => statuses.push(status)
+  });
+  adapter.handleLine(JSON.stringify({
+    type: 'system', subtype: 'init', session_id: 'session-1', model: 'claude-sonnet-5'
+  }));
+  adapter.handleLine(JSON.stringify({
+    type: 'assistant',
+    message: {
+      model: '<synthetic>',
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Set effort level to high (this session only): burns fastest' }]
+    }
+  }));
+
+  assert.equal(adapter.effort, 'high');
+  assert.deepEqual(statuses.at(-1), { model: 'claude-sonnet-5', effort: 'high' });
+
+  adapter.handleLine(JSON.stringify({
+    type: 'assistant',
+    message: {
+      model: '<synthetic>',
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Current model: Opus 5 (effort: medium)\nUsage: /model <name>.' }]
+    }
+  }));
+  assert.equal(adapter.model, 'Opus 5');
+  assert.equal(adapter.effort, 'medium');
+
+  // A real assistant reply that merely mentions models must never be mistaken
+  // for the CLI's own local confirmation.
+  adapter.handleLine(JSON.stringify({
+    type: 'assistant',
+    message: {
+      model: 'claude-sonnet-5',
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Current model: Opus 5 (effort: max)' }]
+    }
+  }));
+  assert.equal(adapter.effort, 'medium');
+});
+
 test('claude resolves the effective effort from its environment and scoped settings', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-claude-effort-'));
   const home = path.join(root, 'home');
