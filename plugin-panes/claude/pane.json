@@ -1,0 +1,7 @@
+{
+  "name": "Claude",
+  "type": "ai",
+  "provider": "claude",
+  "implementation": "claude",
+  "icon": "ai"
+}

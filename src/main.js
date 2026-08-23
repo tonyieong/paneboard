@@ -5,17 +5,21 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 const express = require('express');
 const http = require('http');
+const https = require('https');
+const selfsigned = require('selfsigned');
 const { WebSocketServer } = require('ws');
 const { appRoot, loadConfig, updateConfigFile } = require('./config');
 const { createSessionToken, hashPassword, validatePassword, verifyPassword, verifySessionToken } = require('./auth');
 const files = require('./files');
-const { resolveShell } = require('./shell');
+const { resolveShell, normalizeCwd } = require('./shell');
+const { listAiSessions } = require('./ai-sessions');
 const { StateStore } = require('./state');
 const { TerminalManager } = require('./terminal');
 const { startTray } = require('./tray');
 const { loadOrCreateControlToken, requireRuntimeControl } = require('./runtime-control');
 const { createUploadParser } = require('./upload');
 const usage = require('./usage');
+const { getPluginPane, listPluginPanes, loadAiPluginPanes, pluginPaneUrl, resolvePluginPaneAsset, resolveTrustedPluginPaneAsset } = require('./plugin-panes');
 const { BrowserManager, isOwnServerWebsite } = require('./browser');
 const { createRateLimiter, isSameOrigin, isTrustedHost } = require('./request-guard');
 
@@ -23,6 +27,15 @@ const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const REMEMBER_TOKEN_TTL_MS = 30 * TOKEN_TTL_MS;
 const LOGIN_ATTEMPT_LIMIT = 10;
 const LOGIN_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+
+function parseCliArgs(value) {
+  const text = String(value ?? '').trim();
+  if (!text) {
+    return [];
+  }
+  const args = text.split(/\s+/);
+  return args.every((arg) => /^[\w.:=@/\\-]+$/.test(arg)) ? args : null;
+}
 
 function clientKey(req) {
   return req.socket.remoteAddress || 'unknown';
@@ -65,9 +78,35 @@ function writeRuntimeInfo(root, config) {
   fs.writeFileSync(path.join(targetDir, 'runtime.json'), JSON.stringify({
     host: config.server.host,
     port: config.server.port,
+    protocol: config.server.protocol,
     pid: process.pid,
     updatedAt: new Date().toISOString()
   }, null, 2));
+}
+
+// The certificate is generated once and reused, so a browser only has to
+// trust it after the first https launch, not after every restart.
+function ensureTlsCredentials(root) {
+  const targetDir = path.join(root, 'data');
+  fs.mkdirSync(targetDir, { recursive: true });
+  const keyPath = path.join(targetDir, 'tls-key.pem');
+  const certPath = path.join(targetDir, 'tls-cert.pem');
+  if (!fs.existsSync(keyPath) || !fs.existsSync(certPath)) {
+    const pems = selfsigned.generate([{ name: 'commonName', value: 'localhost' }], {
+      days: 3650,
+      keySize: 2048,
+      extensions: [{
+        name: 'subjectAltName',
+        altNames: [
+          { type: 2, value: 'localhost' },
+          { type: 7, ip: '127.0.0.1' }
+        ]
+      }]
+    });
+    fs.writeFileSync(keyPath, pems.private);
+    fs.writeFileSync(certPath, pems.cert);
+  }
+  return { key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) };
 }
 
 function readRuntimeInfo(root) {
@@ -168,6 +207,7 @@ function publicConfig(config, shell, restartRequired, reloadError) {
       minimax_configured: Boolean(process.env.MINIMAX_CODING_API_KEY || process.env.MINIMAX_API_KEY || config.usage.minimax_api_key),
       minimax_region: config.usage.minimax_region
     },
+    ai: aiSettings(config),
     custom_theme: config.custom_theme,
     restartRequired,
     reloadError
@@ -179,6 +219,7 @@ function settingsConfig(config, runtimeConfig) {
     server: {
       host: typeof config.server.host === 'string' ? config.server.host : runtimeConfig.server.host,
       port: validPort(config.server.port) ? Number(config.server.port) : Number(runtimeConfig.server.port),
+      protocol: config.server.protocol === 'https' ? 'https' : 'http',
       open_browser: Boolean(config.server.open_browser),
       allowed_hosts: Array.isArray(config.server.allowed_hosts)
         ? config.server.allowed_hosts.map((entry) => String(entry))
@@ -232,7 +273,54 @@ function settingsConfig(config, runtimeConfig) {
       codex_home: typeof config.usage.codex_home === 'string' ? config.usage.codex_home : '',
       claude_home: typeof config.usage.claude_home === 'string' ? config.usage.claude_home : ''
     },
+    ai: aiSettings(config),
     custom_theme: config.custom_theme
+  };
+}
+
+// The folder an AI tab launches its CLI in. It reaches a spawn, so it is
+// resolved and checked here rather than trusted; an empty result means "leave
+// it as it was".
+function aiWorkingFolder(value) {
+  const normalized = files.normalizeLocalPath(String(value || ''));
+  if (!normalized) {
+    return '';
+  }
+  try {
+    return fs.statSync(normalized).isDirectory() ? normalized : '';
+  } catch (error) {
+    return '';
+  }
+}
+
+// A tab without its transcript: the messages reach the pane over its own
+// socket, so a tab route that carried them would send the same bytes twice.
+function aiTabSummary(tab) {
+  return {
+    id: tab.id,
+    title: tab.title,
+    provider: tab.provider,
+    cwd: tab.cwd,
+    showThinking: tab.showThinking,
+    showTools: tab.showTools
+  };
+}
+
+// Both the public config and the settings form report the same AI defaults,
+// and both have to be sure the values are ones the CLIs actually accept.
+function aiSettings(config) {
+  const ai = config.ai || {};
+  return {
+    default_provider: ai.default_provider === 'codex' ? 'codex' : 'claude',
+    show_thinking: ai.show_thinking !== false,
+    show_tools: ai.show_tools !== false,
+    claude_model: typeof ai.claude_model === 'string' ? ai.claude_model : '',
+    claude_effort: typeof ai.claude_effort === 'string' ? ai.claude_effort : '',
+    claude_args: typeof ai.claude_args === 'string' ? ai.claude_args : '',
+    codex_model: typeof ai.codex_model === 'string' ? ai.codex_model : '',
+    codex_effort: typeof ai.codex_effort === 'string' ? ai.codex_effort : '',
+    codex_args: typeof ai.codex_args === 'string' ? ai.codex_args : '',
+    debug_log: ai.debug_log === true
   };
 }
 
@@ -284,7 +372,7 @@ function sanitizeMobileKeybarButtons(buttons) {
     return [];
   }
   return buttons.slice(0, 24).flatMap((button) => {
-    const label = typeof button?.label === 'string' ? button.label.trim().slice(0, 5) : '';
+    const label = typeof button?.label === 'string' ? button.label.trim().slice(0, 15) : '';
     const action = typeof button?.action === 'string' ? button.action : '';
     const value = typeof button?.value === 'string' ? button.value.slice(0, 256) : '';
     if (!label || !actions.has(action) || !value) {
@@ -305,6 +393,11 @@ function sanitizeSettingsUpdates(updates) {
     }
     if (validPort(updates.server.port)) {
       next.server.port = Number(updates.server.port);
+    }
+    if (updates.server.protocol === 'http' || updates.server.protocol === 'https') {
+      next.server.protocol = updates.server.protocol;
+    } else if (Object.prototype.hasOwnProperty.call(updates.server, 'protocol')) {
+      throw new Error('Server protocol must be http or https.');
     }
     if (typeof updates.server.open_browser === 'boolean') {
       next.server.open_browser = updates.server.open_browser;
@@ -454,6 +547,31 @@ function sanitizeSettingsUpdates(updates) {
       }
     }
   }
+  if (updates.ai) {
+    next.ai = {};
+    if (updates.ai.default_provider === 'claude' || updates.ai.default_provider === 'codex') {
+      next.ai.default_provider = updates.ai.default_provider;
+    }
+    for (const key of ['show_thinking', 'show_tools', 'debug_log']) {
+      if (typeof updates.ai[key] === 'boolean') {
+        next.ai[key] = updates.ai[key];
+      }
+    }
+    for (const key of ['claude_model', 'claude_effort', 'codex_model', 'codex_effort']) {
+      if (Object.prototype.hasOwnProperty.call(updates.ai, key)) {
+        next.ai[key] = String(updates.ai[key] || '').trim();
+      }
+    }
+    for (const key of ['claude_args', 'codex_args']) {
+      if (Object.prototype.hasOwnProperty.call(updates.ai, key)) {
+        const value = String(updates.ai[key] || '').trim().slice(0, 1000);
+        if (parseCliArgs(value) === null) {
+          throw new Error(`Invalid ${key.replace(/_/g, ' ')}.`);
+        }
+        next.ai[key] = value;
+      }
+    }
+  }
   if (updates.custom_theme) {
     next.custom_theme = {};
     const lightThemeIds = ['wps-light', 'slate-light', 'ember-light', 'forest-light', 'custom-light'];
@@ -592,14 +710,19 @@ function main() {
   const config = loadConfig(root).config;
   const startedAt = Date.now();
   const controlToken = loadOrCreateControlToken(root);
+  const pluginPaneAccessToken = crypto.randomBytes(32).toString('hex');
   let shell = resolveShell(config);
   let configReloadError = '';
   let restartRequired = false;
+  const pluginPaneMigrations = Object.fromEntries(listPluginPanes(root).flatMap((pane) => pane.legacy
+    ? [[pane.legacy.paneType, { pluginPaneId: pane.id, dataField: pane.legacy.dataField }]]
+    : []));
   const store = new StateStore(root, {
     gridSize: config.ui.grid_size,
     verticalSlots: config.ui.vertical_slots,
     defaultPaneWidth: config.ui.default_pane_width,
-    defaultPaneHeight: config.ui.default_pane_height
+    defaultPaneHeight: config.ui.default_pane_height,
+    pluginPaneMigrations
   });
   store.load();
 
@@ -622,8 +745,23 @@ function main() {
   process.on('unhandledRejection', handleFatalError('unhandledRejection'));
 
   const app = express();
-  const server = http.createServer(app);
+  const server = config.server.protocol === 'https'
+    ? https.createServer(ensureTlsCredentials(root), app)
+    : http.createServer(app);
   const terminalManager = new TerminalManager({ config, root, store, shell });
+  const loadedAiPlugins = loadAiPluginPanes(root);
+  const aiManagers = new Map();
+  for (const plugin of loadedAiPlugins) {
+    try {
+      aiManagers.set(plugin.pane.provider, new plugin.AiManager({ config, root, store }));
+    } catch (error) {
+      appendRuntimeLog(root, `AI plugin ${plugin.pane.id} failed to start: ${error.message}`);
+    }
+  }
+  const aiManagerForTab = (tabId) => {
+    const provider = store.findAiTabById(tabId)?.tab.provider;
+    return aiManagers.get(provider);
+  };
   const browserManager = new BrowserManager({
     root,
     store,
@@ -645,12 +783,15 @@ function main() {
 
   function applyLoadedConfig(nextConfig) {
     const passwordChanged = nextConfig.auth.password_hash !== config.auth.password_hash;
-    restartRequired = nextConfig.server.host !== config.server.host || nextConfig.server.port !== config.server.port;
+    restartRequired = nextConfig.server.host !== config.server.host
+      || nextConfig.server.port !== config.server.port
+      || nextConfig.server.protocol !== config.server.protocol;
     if (restartRequired) {
       nextConfig.server = {
         ...nextConfig.server,
         host: config.server.host,
-        port: config.server.port
+        port: config.server.port,
+        protocol: config.server.protocol
       };
     }
     replaceObject(config, nextConfig);
@@ -659,6 +800,7 @@ function main() {
     // fresh layout rather than repaint the one it already has.
     const layoutChanged = store.applyGrid(config.ui.grid_size, config.ui.vertical_slots, config.ui.default_pane_width, config.ui.default_pane_height);
     terminalManager.updateConfig(config, shell);
+    aiManagers.forEach((manager) => manager.updateConfig(config));
     clearInterval(autosaveTimer);
     autosaveTimer = startAutosave(store, config);
     configReloadError = '';
@@ -684,6 +826,10 @@ function main() {
     }
     stopping = true;
     appendRuntimeLog(root, `stopping pid=${process.pid} restart=${restart}`);
+    // The AI CLIs are grandchildren of this process, so they are stopped before
+    // the server goes: an orphan keeps an API session open and holds files the
+    // packaged build has to replace on the next upgrade.
+    aiManagers.forEach((manager) => manager.shutdown());
     store.save();
     terminalManager.shutdown();
     browserManager.shutdown();
@@ -733,6 +879,93 @@ function main() {
       res.setHeader('Cache-Control', 'no-store');
     }
   }));
+
+  app.get('/api/plugin-panes', requireAuth(config), (req, res) => {
+    const panes = listPluginPanes(root).filter((pane) => pane.type !== 'ai' || aiManagers.has(pane.provider)).map((pane) => pane.type === 'ai'
+      ? {
+          id: pane.id,
+          name: pane.name,
+          type: pane.type,
+          provider: pane.provider,
+          implementation: pane.implementation,
+          icon: pane.icon,
+          clientUrl: `/plugin-panes/${encodeURIComponent(pane.id)}/client.js`,
+          styleUrl: `/plugin-panes/${encodeURIComponent(pane.id)}/styles.css`
+        }
+      : pane.type === 'host'
+        ? {
+            id: pane.id,
+            name: pane.name,
+            type: pane.type,
+            icon: pane.icon,
+            translations: pane.translations,
+            clientUrl: `/plugin-panes/${encodeURIComponent(pane.id)}/client.js`,
+            styleUrl: `/plugin-panes/${encodeURIComponent(pane.id)}/styles.css`,
+            assetBaseUrl: `/plugin-panes/${encodeURIComponent(pane.id)}/assets/`
+          }
+        : { id: pane.id, name: pane.name, type: pane.type, url: pluginPaneUrl(pluginPaneAccessToken, pane), icon: pane.icon });
+    res.json({ panes });
+  });
+
+  app.get('/plugin-panes/:paneId/:assetName', (req, res, next) => {
+    const asset = resolveTrustedPluginPaneAsset(root, req.params.paneId, req.params.assetName);
+    if (!asset && !['client.js', 'styles.css', 'server.js'].includes(req.params.assetName)) {
+      next();
+      return;
+    }
+    if (!asset) {
+      res.status(404).type('text/plain').send('Plugin pane asset not found.');
+      return;
+    }
+    res.sendFile(asset.path, (error) => {
+      if (error && !res.headersSent) {
+        res.status(error.statusCode || 404).type('text/plain').send('Plugin pane asset not found.');
+      }
+    });
+  });
+
+  app.get('/plugin-panes/:paneId/*assetPath', (req, res, next) => {
+    const assetPath = Array.isArray(req.params.assetPath)
+      ? req.params.assetPath.join('/')
+      : req.params.assetPath;
+    const asset = resolveTrustedPluginPaneAsset(root, req.params.paneId, assetPath);
+    if (!asset) {
+      next();
+      return;
+    }
+    res.sendFile(asset.path, (error) => {
+      if (error && !res.headersSent) {
+        res.status(error.statusCode || 404).type('text/plain').send('Plugin pane asset not found.');
+      }
+    });
+  });
+
+  app.get('/plugin-panes/:accessToken/:paneId/*assetPath', (req, res) => {
+    const assetPath = Array.isArray(req.params.assetPath)
+      ? req.params.assetPath.join('/')
+      : req.params.assetPath;
+    const asset = req.params.accessToken === pluginPaneAccessToken
+      ? resolvePluginPaneAsset(root, req.params.paneId, assetPath)
+      : null;
+    if (!asset) {
+      res.status(404).type('text/plain').send('Plugin pane asset not found.');
+      return;
+    }
+    res.sendFile(asset.path, {
+      headers: {
+        'Cache-Control': 'no-store',
+        'Content-Disposition': 'inline',
+        'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-scripts allow-forms",
+        'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'SAMEORIGIN',
+        'Referrer-Policy': 'no-referrer'
+      }
+    }, (error) => {
+      if (error && !res.headersSent) {
+        handleRouteError(res, error);
+      }
+    });
+  });
 
   app.get('/api/config', (req, res) => {
     res.json(publicConfig(config, shell, restartRequired, configReloadError));
@@ -886,6 +1119,7 @@ function main() {
     if (ok) {
       terminalManager.killSession(session);
       browserManager.killSession(session);
+      aiManagers.forEach((manager) => manager.killSession(session));
     }
     res.json({ ok });
   });
@@ -941,7 +1175,7 @@ function main() {
       res.status(404).json({ error: 'Pane not found.' });
       return;
     }
-    const pane = store.splitPane(req.params.paneId, req.body.direction);
+    const pane = store.splitPane(req.params.paneId, req.body.direction, req.body.shell);
     if (!pane) {
       res.status(400).json({ error: 'Unable to create pane.' });
       return;
@@ -1026,13 +1260,24 @@ function main() {
     });
   });
 
-  app.post('/api/panes/:paneId/whiteboard', requireAuth(config), (req, res) => {
+  app.post('/api/panes/:paneId/plugin', requireAuth(config), (req, res) => {
     const found = store.findPane(req.params.paneId);
     if (!found) {
       res.status(404).json({ error: 'Pane not found.' });
       return;
     }
-    const pane = store.createWhiteboardPane(req.params.paneId);
+    const definition = getPluginPane(root, req.body.pluginPaneId);
+    if (!definition) {
+      res.status(404).json({ error: 'Plugin pane not found.' });
+      return;
+    }
+    if (definition.type === 'ai' && !aiManagers.has(definition.provider)) {
+      res.status(404).json({ error: 'AI plugin is not available.' });
+      return;
+    }
+    const pane = definition.type === 'ai'
+      ? store.createAiPane(req.params.paneId, definition.provider, aiWorkingFolder(req.body.cwd))
+      : store.createPluginPane(req.params.paneId, definition.id, definition.name);
     if (!pane) {
       res.status(400).json({ error: 'Unable to create pane.' });
       return;
@@ -1044,9 +1289,138 @@ function main() {
     });
   });
 
-  app.patch('/api/panes/:paneId/whiteboard', requireAuth(config), (req, res) => {
-    if (!store.setWhiteboard(req.params.paneId, req.body.whiteboard)) {
-      res.status(404).json({ error: 'Whiteboard pane not found.' });
+  app.patch('/api/panes/:paneId/plugin-data', requireAuth(config), (req, res) => {
+    if (!store.setPluginPaneData(req.params.paneId, req.body.pluginData)) {
+      res.status(404).json({ error: 'Plugin pane not found.' });
+      return;
+    }
+    res.json({ ok: true });
+  });
+
+  app.post('/api/panes/:paneId/ai', requireAuth(config), (req, res) => {
+    const found = store.findPane(req.params.paneId);
+    if (!found) {
+      res.status(404).json({ error: 'Pane not found.' });
+      return;
+    }
+    const provider = req.body.provider || config.ai.default_provider;
+    if (!aiManagers.has(provider)) {
+      res.status(404).json({ error: 'AI plugin is not available.' });
+      return;
+    }
+    const pane = store.createAiPane(
+      req.params.paneId,
+      provider,
+      aiWorkingFolder(req.body.cwd)
+    );
+    if (!pane) {
+      res.status(400).json({ error: 'Unable to create pane.' });
+      return;
+    }
+    res.status(201).json({
+      ...pane,
+      paneLayouts: found.tab.panes.map((candidate) => ({ id: candidate.id, layout: candidate.layout })),
+      columns: found.tab.columns
+    });
+  });
+
+  // The tab routes mirror the terminal ones, which is what lets the pane reuse
+  // the existing tab strip wiring unchanged.
+  app.post('/api/panes/:paneId/ai/tabs', requireAuth(config), (req, res) => {
+    const found = store.findPane(req.params.paneId);
+    const active = found?.pane.aiTabs?.find((tab) => tab.id === found.pane.activeAiTabId);
+    const provider = req.body.provider || active?.provider;
+    if (!aiManagers.has(provider)) {
+      res.status(404).json({ error: 'AI plugin is not available.' });
+      return;
+    }
+    const tab = store.createAiTab(req.params.paneId, provider, aiWorkingFolder(req.body.cwd));
+    if (!tab) {
+      res.status(404).json({ error: 'AI pane not found.' });
+      return;
+    }
+    res.status(201).json({ tab: aiTabSummary(tab) });
+  });
+
+  app.post('/api/panes/:paneId/ai/tabs/:tabId/activate', requireAuth(config), (req, res) => {
+    if (!store.activateAiTab(req.params.paneId, req.params.tabId)) {
+      res.status(404).json({ error: 'AI tab not found.' });
+      return;
+    }
+    res.json({ ok: true });
+  });
+
+  app.patch('/api/panes/:paneId/ai/tabs/:tabId', requireAuth(config), (req, res) => {
+    const { title, showThinking, showTools, cwd } = req.body || {};
+    let ok = false;
+    let folder = '';
+    if (title !== undefined) {
+      ok = store.renameAiTab(req.params.paneId, req.params.tabId, title);
+    }
+    if (showThinking !== undefined || showTools !== undefined) {
+      ok = store.setAiVisibility(req.params.paneId, req.params.tabId, { showThinking, showTools }) || ok;
+    }
+    if (cwd !== undefined) {
+      folder = aiWorkingFolder(cwd);
+      if (!folder) {
+        res.status(400).json({ error: 'That folder does not exist on this machine.' });
+        return;
+      }
+      ok = store.setAiTabCwd(req.params.paneId, req.params.tabId, folder) || ok;
+    }
+    if (!ok) {
+      res.status(404).json({ error: 'AI tab not found.' });
+      return;
+    }
+    if (folder) {
+      // The working folder is fixed when the process is spawned, so the CLI has
+      // to be restarted for the change to mean anything.
+      aiManagerForTab(req.params.tabId)?.restartTab(req.params.tabId, `The working folder is now ${folder}. The agent was restarted there.`);
+    }
+    res.json({ ok: true, cwd: folder || undefined });
+  });
+
+  app.delete('/api/panes/:paneId/ai/tabs/:tabId', requireAuth(config), (req, res) => {
+    const manager = aiManagerForTab(req.params.tabId);
+    const result = store.closeAiTab(req.params.paneId, req.params.tabId);
+    if (!result) {
+      res.status(404).json({ error: 'AI tab not found.' });
+      return;
+    }
+    manager?.killTab(req.params.tabId);
+    res.json({ ok: true, tab: result.replacement ? aiTabSummary(result.replacement) : null });
+  });
+
+  // The conversations this CLI has already recorded for the tab's folder. They
+  // are read from the CLI's own session files, so the list is there whether or
+  // not the tab is running.
+  app.get('/api/panes/:paneId/ai/tabs/:tabId/sessions', requireAuth(config), (req, res) => {
+    const found = store.findAiTab(req.params.paneId, req.params.tabId);
+    if (!found) {
+      res.status(404).json({ error: 'AI tab not found.' });
+      return;
+    }
+    const cwd = normalizeCwd(found.tab.cwd || found.pane.cwd, root);
+    res.json({ sessions: listAiSessions(found.tab.provider, cwd), cwd });
+  });
+
+  app.post('/api/panes/:paneId/ai/tabs/:tabId/session', requireAuth(config), (req, res) => {
+    const sessionId = String(req.body?.sessionId || '').trim();
+    if (!sessionId) {
+      res.status(400).json({ error: 'A session id is required.' });
+      return;
+    }
+    const label = String(req.body?.title || '').trim().slice(0, 120);
+    if (!aiManagerForTab(req.params.tabId)?.resumeSession(req.params.paneId, req.params.tabId, sessionId, label)) {
+      res.status(404).json({ error: 'AI tab not found.' });
+      return;
+    }
+    res.json({ ok: true });
+  });
+
+  app.delete('/api/panes/:paneId/ai/tabs/:tabId/messages', requireAuth(config), (req, res) => {
+    if (!aiManagerForTab(req.params.tabId)?.clearTab(req.params.paneId, req.params.tabId)) {
+      res.status(404).json({ error: 'AI tab not found.' });
       return;
     }
     res.json({ ok: true });
@@ -1102,7 +1476,7 @@ function main() {
       res.status(404).json({ error: 'Terminal pane not found.' });
       return;
     }
-    res.status(201).json({ tab: { id: tab.id, title: tab.title, cwd: tab.cwd } });
+    res.status(201).json({ tab: { id: tab.id, title: tab.title, cwd: tab.cwd, shell: tab.shell } });
   });
 
   app.post('/api/panes/:paneId/terminal/tabs/:tabId/activate', requireAuth(config), (req, res) => {
@@ -1153,7 +1527,7 @@ function main() {
     const { replacement } = result;
     res.json({
       ok: true,
-      tab: replacement ? { id: replacement.id, title: replacement.title, cwd: replacement.cwd } : null
+      tab: replacement ? { id: replacement.id, title: replacement.title, cwd: replacement.cwd, shell: replacement.shell } : null
     });
   });
 
@@ -1345,10 +1719,14 @@ function main() {
   });
 
   app.delete('/api/panes/:paneId', requireAuth(config), (req, res) => {
+    // Read before closing: an AI pane's CLI processes are keyed by its tabs,
+    // which are gone once the pane is removed from the store.
+    const pane = store.findPane(req.params.paneId)?.pane;
     const ok = store.closePane(req.params.paneId);
     if (ok) {
       terminalManager.killPane(req.params.paneId);
       browserManager.killPane(req.params.paneId);
+      aiManagers.forEach((manager) => manager.killPane(pane));
     }
     res.json({ ok });
   });
@@ -1741,8 +2119,18 @@ function main() {
       ws.close(1008, 'Login required');
       return;
     }
-    if (url.searchParams.get('mode') === 'browser') {
+    const mode = url.searchParams.get('mode');
+    if (mode === 'browser') {
       browserManager.attach(paneId, ws);
+    } else if (mode === 'ai') {
+      // As with terminals, paneId carries the tab id: one conversation, one
+      // CLI process, one socket.
+      const manager = aiManagerForTab(paneId);
+      if (manager) {
+        manager.attach(paneId, ws);
+      } else {
+        ws.close(1008, 'AI plugin is not installed.');
+      }
     } else {
       terminalManager.attach(paneId, ws);
     }
@@ -1778,7 +2166,8 @@ function main() {
         && runtimeInfo.pid !== process.pid
         && isProcessAlive(runtimeInfo.pid);
       if (sameInstanceAlreadyRunning) {
-        const url = `http://${config.server.host === '0.0.0.0' ? '127.0.0.1' : config.server.host}:${port}`;
+        const runningProtocol = runtimeInfo.protocol === 'https' ? 'https' : 'http';
+        const url = `${runningProtocol}://${config.server.host === '0.0.0.0' ? '127.0.0.1' : config.server.host}:${port}`;
         if (config.server.open_browser) {
           openBrowser(url);
         }
@@ -1801,8 +2190,8 @@ function main() {
         appendRuntimeLog(root, `requested port ${requestedPort} unavailable, listening on ${port} instead`);
       }
       writeRuntimeInfo(root, config);
-      appendRuntimeLog(root, `listening pid=${process.pid} host=${config.server.host} port=${port}`);
-      const url = `http://${config.server.host === '0.0.0.0' ? '127.0.0.1' : config.server.host}:${port}`;
+      appendRuntimeLog(root, `listening pid=${process.pid} host=${config.server.host} port=${port} protocol=${config.server.protocol}`);
+      const url = `${config.server.protocol === 'https' ? 'https' : 'http'}://${config.server.host === '0.0.0.0' ? '127.0.0.1' : config.server.host}:${port}`;
       trayController = startTray({
         root,
         url,

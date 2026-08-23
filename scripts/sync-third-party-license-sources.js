@@ -27,7 +27,7 @@ const LICENSE_SOURCES = [
     id: 'excalidraw-webpack-notice',
     name: 'Excalidraw webpack notices',
     version: '0.17.1',
-    destination: 'public/vendor/excalidraw/excalidraw-with-preact.production.min.js.LICENSE.txt',
+    destination: 'plugin-panes/whiteboard/assets/excalidraw/excalidraw-with-preact.production.min.js.LICENSE.txt',
     url: 'https://unpkg.com/@excalidraw/excalidraw@0.17.1/dist/excalidraw-with-preact.production.min.js.LICENSE.txt',
     sha256: '6f041978ab638280d73d266251fa50856e40e4b6e9d8ef9652026c7d4fac9518'
   }

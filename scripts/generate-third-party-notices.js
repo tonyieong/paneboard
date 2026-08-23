@@ -18,14 +18,14 @@ const sourceById = new Map(LICENSE_SOURCES.map((source) => [source.id, source]))
 const VENDORED = [
   {
     name: 'Excalidraw',
-    location: 'public/vendor/excalidraw/excalidraw.js',
+    location: 'plugin-panes/whiteboard/assets/excalidraw/excalidraw.js',
     license: 'MIT',
     copyright: 'Copyright (c) 2020 Excalidraw',
     homepage: 'https://github.com/excalidraw/excalidraw'
   },
   {
     name: 'React / ReactDOM',
-    location: 'public/vendor/excalidraw/react.js, react-dom.js, jsx-runtime.js',
+    location: 'plugin-panes/whiteboard/assets/excalidraw/react.js, react-dom.js, jsx-runtime.js',
     license: 'MIT',
     copyright: 'Copyright (c) Meta Platforms, Inc. and affiliates.',
     homepage: 'https://github.com/facebook/react'
@@ -39,21 +39,21 @@ const VENDORED = [
   },
   {
     name: 'Assistant (font)',
-    location: 'public/vendor/excalidraw/excalidraw-assets/Assistant-*.woff2',
+    location: 'plugin-panes/whiteboard/assets/excalidraw/excalidraw-assets/Assistant-*.woff2',
     license: 'SIL Open Font License 1.1',
     copyright: 'Copyright (c) 2016 The Assistant Project Authors',
     homepage: 'https://fonts.google.com/specimen/Assistant'
   },
   {
     name: 'Cascadia Code (font)',
-    location: 'public/vendor/excalidraw/excalidraw-assets/Cascadia.woff2',
+    location: 'plugin-panes/whiteboard/assets/excalidraw/excalidraw-assets/Cascadia.woff2',
     license: 'SIL Open Font License 1.1',
     copyright: 'Copyright (c) Microsoft Corporation',
     homepage: 'https://github.com/microsoft/cascadia-code'
   },
   {
     name: 'Virgil (font)',
-    location: 'public/vendor/excalidraw/excalidraw-assets/Virgil.woff2',
+    location: 'plugin-panes/whiteboard/assets/excalidraw/excalidraw-assets/Virgil.woff2',
     license: 'MIT',
     copyright: 'Copyright (c) 2020 Excalidraw',
     homepage: 'https://github.com/excalidraw/excalidraw'
@@ -141,7 +141,7 @@ function render(packages) {
   const nodeRuntime = sourceById.get('node-runtime');
   const fontLicense = sourceById.get('ofl-1.1');
   const excalidrawNotice = sourceById.get('excalidraw-webpack-notice');
-  const excalidrawLicense = fs.readFileSync(path.join(root, 'public', 'vendor', 'excalidraw', 'LICENSE'), 'utf8').trim();
+  const excalidrawLicense = fs.readFileSync(path.join(root, 'plugin-panes', 'whiteboard', 'assets', 'excalidraw', 'LICENSE'), 'utf8').trim();
   const xtermLicense = fs.readFileSync(path.join(root, 'public', 'vendor', 'xterm', 'LICENSE'), 'utf8').trim();
   const lines = [
     '# Third-Party Licenses',
@@ -150,7 +150,7 @@ function render(packages) {
     '',
     'wps7 is distributed under the MIT License (see `LICENSE`). The packaged',
     '`wps7.exe` embeds the Node.js runtime and every production dependency listed',
-    'below, and `public/vendor/` ships pre-built front-end code. Their notices are',
+    'below, and `public/vendor/` plus tracked plugin folders ship pre-built front-end code. Their notices are',
     'reproduced here as those licenses require.',
     '',
     '## Embedded Node.js runtime',

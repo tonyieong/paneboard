@@ -1,6 +1,14 @@
 node_modules/
 dist/
 data/
+local-panes/
+plugin-panes/*
+!plugin-panes/claude/
+!plugin-panes/claude/**
+!plugin-panes/codex/
+!plugin-panes/codex/**
+!plugin-panes/whiteboard/
+!plugin-panes/whiteboard/**
 tmp-file-pane-test/
 qa-backup-*/
 config.toml
@@ -31,4 +39,3 @@ CLAUDE.md
 # 5000/5001 split, the worktree layout, and the control-token shutdown path.
 .claude/
 .codex/
-

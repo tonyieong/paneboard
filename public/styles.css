@@ -1629,6 +1629,7 @@ textarea {
   --ease-out: cubic-bezier(.23, 1, .32, 1);
   --dur-fast: 120ms;
   --dur-base: 180ms;
+  --dur-cursor: 0.8s;
 }
 
 :root[data-theme="light"] {
@@ -3318,14 +3319,6 @@ textarea:focus-visible {
 .terminal {
   padding: 0;
   background: var(--terminal-bg);
-}
-
-/* Excalidraw measures its own canvas, so the host has to be a real box. */
-.whiteboard {
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-  overflow: hidden;
 }
 
 .terminal .xterm,
@@ -5958,6 +5951,21 @@ a:focus-visible {
 
 .pane-kind-icon {
   cursor: pointer;
+}
+
+.plugin-pane-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--terminal-bg);
+}
+
+.plugin-pane-unavailable {
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  color: var(--muted);
+  text-align: center;
 }
 
 .pane-focus-backdrop {

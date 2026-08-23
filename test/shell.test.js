@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { shellEnv } = require('../src/shell');
+const { resolveCmdShell, shellEnv, shellKind, shellTitle } = require('../src/shell');
 
 test('extra_path folders are appended to PATH for the shell', () => {
   const env = shellEnv(
@@ -33,4 +33,22 @@ test('shell env extends the PATH variable Windows actually set', () => {
 
   assert.equal(env.Path, `C:\\Windows\\system32${path.delimiter}C:\\tools`);
   assert.equal('PATH' in env, false);
+});
+
+test('shell kind only accepts the two shells a pane can run', () => {
+  assert.equal(shellKind('cmd'), 'cmd');
+  assert.equal(shellKind('powershell'), 'powershell');
+  assert.equal(shellKind('bash'), 'powershell');
+  assert.equal(shellKind(undefined), 'powershell');
+  assert.equal(shellTitle('cmd'), 'CMD');
+  assert.equal(shellTitle('powershell'), 'PowerShell');
+});
+
+// shell.preferred, shell.fallback and shell.args all describe PowerShell
+// switches, so a cmd pane must ignore them rather than hand them to cmd.exe.
+test('cmd panes run cmd.exe with no arguments of their own', () => {
+  const cmd = resolveCmdShell();
+
+  assert.match(cmd.command, /cmd\.exe$/i);
+  assert.deepEqual(cmd.args, []);
 });

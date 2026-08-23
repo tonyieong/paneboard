@@ -5,13 +5,24 @@ const test = require('node:test');
 const vm = require('node:vm');
 const { Terminal: HeadlessTerminal } = require('@xterm/headless');
 
-const appSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
-const styles = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+const coreAppSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+const aiClientSource = fs.readFileSync(path.join(__dirname, '..', 'plugin-panes', 'claude', 'client.js'), 'utf8');
+const codexClientSource = fs.readFileSync(path.join(__dirname, '..', 'plugin-panes', 'codex', 'client.js'), 'utf8');
+const whiteboardClientPath = path.join(__dirname, '..', 'plugin-panes', 'whiteboard', 'client.js');
+const whiteboardClientSource = fs.existsSync(whiteboardClientPath) ? fs.readFileSync(whiteboardClientPath, 'utf8') : '';
+const appSource = `${coreAppSource}\n${aiClientSource}`;
+const coreStyles = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+const aiStyles = fs.readFileSync(path.join(__dirname, '..', 'plugin-panes', 'claude', 'styles.css'), 'utf8');
+const styles = `${coreStyles}\n${aiStyles}`;
 const mainSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
+const claudeSource = fs.readFileSync(path.join(__dirname, '..', 'plugin-panes', 'claude', 'server.js'), 'utf8');
+const codexSource = fs.readFileSync(path.join(__dirname, '..', 'plugin-panes', 'codex', 'server.js'), 'utf8');
+const aiSource = `${claudeSource}\n${codexSource}`;
 const configSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'config.js'), 'utf8');
 const browserSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'browser.js'), 'utf8');
 const manifest = fs.readFileSync(path.join(__dirname, '..', 'public', 'manifest.webmanifest'), 'utf8');
 const indexSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+const i18nSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'i18n.js'), 'utf8');
 
 function settingsSection(id) {
   const start = appSource.indexOf(`<section class="settings-section`, appSource.indexOf(`id="${id}"`) - 200);
@@ -265,14 +276,14 @@ test('sidebar keeps only a divider above pane tabs and lists every tab on a flat
 });
 
 test('sidebar actions use shared icons for new PowerShell and new file', () => {
-  assert.match(appSource, /data-action="new-powershell"[^>]+aria-label="New PowerShell"[^>]*>\s*<span class="rail-icon" aria-hidden="true">\$\{fileActionIcon\('terminal'\)\}<\/span><span class="rail-label">New PowerShell<\/span>/);
-  assert.match(appSource, /data-action="files"[^>]+aria-label="New file"[^>]*>\s*<span class="rail-icon" aria-hidden="true">\$\{fileActionIcon\('file'\)\}<\/span><span class="rail-label">New file<\/span>/);
+  assert.match(appSource, /data-action="new-powershell"[^>]+aria-label="New PowerShell pane"[^>]*>\s*<span class="rail-icon" aria-hidden="true">\$\{fileActionIcon\('terminal'\)\}<\/span><span class="rail-label">New PowerShell pane<\/span>/);
+  assert.match(appSource, /data-action="files"[^>]+aria-label="New file pane"[^>]*>\s*<span class="rail-icon" aria-hidden="true">\$\{fileActionIcon\('file'\)\}<\/span><span class="rail-label">New file pane<\/span>/);
   assert.match(appSource, /\[data-action="new-powershell"\][^\n]+createPane/);
 });
 
 test('pane titles reuse the same pane-type icons as the sidebar', () => {
-  assert.match(appSource, /class="pane-kind-icon"[^>]*>\$\{fileActionIcon\(pane\.type === 'whiteboard' \? 'line' : 'usage'\)\}<\/span>/);
-  assert.match(appSource, /class="pane-kind-icon"[^>]*>\$\{fileActionIcon\(pane\.type === 'files' \? 'file' : 'terminal'\)\}<\/span>/);
+  assert.match(appSource, /class="pane-kind-icon"[^>]*>\$\{fileActionIcon\(paneKindIcon\(pane\)\)\}<\/span>/);
+  assert.match(appSource, /class="pane-kind-icon"[^>]*>\$\{fileActionIcon\(pane\.type === 'files' \? 'file' : pane\.type === 'ai' \? 'ai' : paneShell\(pane\) === 'cmd' \? 'cmd' : 'terminal'\)\}<\/span>/);
   assert.match(styles, /\.pane-kind-icon \.file-action-icon\s*\{[^}]*width:\s*14px[^}]*height:\s*14px/s);
   assert.match(styles, /\.pane-title::before\s*\{[^}]*content:\s*none/s);
 });
@@ -357,7 +368,7 @@ test('TUI output hides intermediate cursor positions until a redraw burst settle
 });
 
 test('workspace exposes browser panes with URL history, bookmarks and an embedded viewport', () => {
-  assert.match(appSource, /data-action="browser"[^>]+aria-label="New browser"/);
+  assert.match(appSource, /data-action="browser"[^>]+aria-label="New browser pane"/);
   assert.match(appSource, /function renderBrowserPane\(pane\)/);
   assert.match(appSource, /data-browser-url-form/);
   assert.match(appSource, /Current[\s\S]*History[\s\S]*Bookmark/);
@@ -477,7 +488,7 @@ test('browser panes coalesce pointer moves to one per frame', () => {
 });
 
 test('workspace exposes multi-tab notepad panes with line numbers and text-file save support', () => {
-  assert.match(appSource, /data-action="notepad"[^>]+aria-label="New notepad"/);
+  assert.match(appSource, /data-action="notepad"[^>]+aria-label="New notepad pane"/);
   assert.match(appSource, /function renderNotepadPane\(pane\)/);
   assert.match(appSource, /function renderNotepadTabs\(pane\)/);
   assert.match(appSource, /class="notepad-tab-strip" data-notepad-tab-strip/);
@@ -540,7 +551,7 @@ test('sidebar, theme, and same-session pane activation avoid full workspace rend
 });
 
 test('workspace motion is responsive, consistent, and reduced-motion safe', () => {
-  for (const token of ['--ease-out', '--dur-fast', '--dur-base']) {
+  for (const token of ['--ease-out', '--dur-fast', '--dur-base', '--dur-cursor']) {
     assert.match(styles, new RegExp(`${token}:`));
   }
   assert.match(styles, /@media \(prefers-reduced-motion: no-preference\)[\s\S]*?\.pane\s*\{[^}]*transition:\s*box-shadow var\(--dur-fast\) var\(--ease-out\)/);
@@ -551,6 +562,11 @@ test('workspace motion is responsive, consistent, and reduced-motion safe', () =
   assert.match(styles, /:root\.theme-changing[\s\S]*?transition:\s*none !important/);
   assert.match(appSource, /function applyTheme[\s\S]*?classList\.add\('theme-changing'\)[\s\S]*?requestAnimationFrame/);
   assert.match(styles, /button:focus-visible,[\s\S]*?outline:\s*2px solid var\(--accent\)/);
+});
+
+test('the AI typing cursor blink uses a duration token and honours reduced motion', () => {
+  assert.match(styles, /\.ai-bubble\.typing::after\s*\{[^}]*vertical-align:\s*text-bottom;\s*\}/);
+  assert.match(styles, /@media \(prefers-reduced-motion: no-preference\)\s*\{\s*\.ai-bubble\.typing::after\s*\{[^}]*animation:\s*ai-cursor-blink var\(--dur-cursor\) step-end infinite/);
 });
 
 test('mobile workspace keeps only the brand icon and closes the sidebar after an action', () => {
@@ -801,8 +817,9 @@ test('usage panes auto-refresh on the configured interval and stop when set to z
   // 0 (and any non-positive value) must leave no timer scheduled.
   assert.match(appSource, /function scheduleUsageRefresh\(paneId\)[\s\S]*?if \(!Number\.isFinite\(minutes\) \|\| minutes <= 0\) return;/);
   assert.match(appSource, /setTimeout\(\(\) => loadUsagePane\(paneId, true, false\), minutes \* 60000\)/);
-  // Closing a pane must not leave its timer running.
-  assert.match(appSource, /clearUsageRefresh\(paneId\);\s*const index = found\.tab\.panes\.findIndex/);
+  // Closing a pane must not leave its timer running. Other pane types clean up
+  // between these two lines, so only the order matters here.
+  assert.match(appSource, /clearUsageRefresh\(paneId\);[\s\S]{0,400}?const index = found\.tab\.panes\.findIndex/);
   assert.match(mainSource, /function usageRefreshMinutes\(config\)[\s\S]*?minutes >= 0 && minutes <= 999 \? minutes : 10/);
 });
 
@@ -1026,8 +1043,11 @@ test('keybar editor supports recording, duplicating, resetting and drag reorderi
 });
 
 test('mobile PowerShell toolbar stays compact at the bottom without hiding the keyboard', () => {
-  assert.match(appSource, /data-mobile-keybar-label maxlength="5"/);
-  assert.match(mainSource, /button\.label\.trim\(\)\.slice\(0, 5\)/);
+  // A button sizes itself to its label, so the cap is what keeps a long name
+  // from paging the toolbar down to one button: 15 characters fits a name like
+  // "Ctrl+Shift+Esc" and still leaves room for two buttons per page on a phone.
+  assert.match(appSource, /data-mobile-keybar-label maxlength="15"/);
+  assert.match(mainSource, /button\.label\.trim\(\)\.slice\(0, 15\)/);
   assert.match(appSource, /keybar\.querySelectorAll\('button'\)\.forEach\(\(button\) => \{\s*button\.onpointerdown = \(event\) => event\.preventDefault\(\)/s);
   assert.match(styles, /\.app\.mode-mobile \.pane\[data-pane-type="terminal"\],[\s\S]*?grid-template-rows:\s*auto minmax\(0, 1fr\) auto/s);
   assert.match(styles, /\.app\.mode-mobile \.mobile-keybar,[\s\S]*?grid-row:\s*3/s);
@@ -1269,38 +1289,37 @@ test('a zoomed pane scales the remote browser instead of handing it more room', 
   assert.match(appSource, /\(event\.clientX - rect\.left\) \/ zoom, viewport\.offsetWidth - 120/);
 });
 
-test('the whiteboard pane lazy-loads a fully offline Excalidraw', () => {
+test('the whiteboard host plugin lazy-loads a fully offline Excalidraw', () => {
   // Without EXCALIDRAW_ASSET_PATH the bundle silently falls back to unpkg.com,
   // which would break a portable, offline install.
-  assert.match(appSource, /window\.EXCALIDRAW_ASSET_PATH = '\/vendor\/excalidraw\/'/);
-  assert.match(appSource, /\['react\.js', 'react-dom\.js', 'jsx-runtime\.js', 'excalidraw\.js'\]/);
-  assert.match(appSource, /window\.ReactDOM\.createRoot\(host\)/);
-  assert.match(appSource, /window\.ExcalidrawLib\.Excalidraw/);
-  // 4 MB of vendor code must not load until a whiteboard pane exists
-  assert.match(appSource, /if \(!excalidrawLoader\)/);
-  assert.match(appSource, /else if \(pane\.type === 'whiteboard'\) mountWhiteboard\(pane\)/);
-  assert.match(appSource, /disposeWhiteboards\(\);/);
+  assert.match(whiteboardClientSource, /window\.EXCALIDRAW_ASSET_PATH = `\$\{assetBaseUrl\}excalidraw\/`/);
+  assert.match(whiteboardClientSource, /\['react\.js', 'react-dom\.js', 'jsx-runtime\.js', 'excalidraw\.js'\]/);
+  assert.match(whiteboardClientSource, /window\.ReactDOM\.createRoot\(host\)/);
+  assert.match(whiteboardClientSource, /window\.ExcalidrawLib\.Excalidraw/);
+  assert.match(whiteboardClientSource, /Wps7HostPanePlugins\.whiteboard/);
+  assert.match(coreAppSource, /loadHostPanePlugins\(state\.pluginPanes\)/);
+  assert.doesNotMatch(coreAppSource, /mountWhiteboard|loadExcalidraw|state\.whiteboards/);
   for (const file of ['excalidraw.js', 'react.js', 'react-dom.js', 'jsx-runtime.js']) {
     assert.ok(
-      fs.existsSync(path.join(__dirname, '..', 'public', 'vendor', 'excalidraw', file)),
+      fs.existsSync(path.join(__dirname, '..', 'plugin-panes', 'whiteboard', 'assets', 'excalidraw', file)),
       `vendored ${file} is missing`
     );
   }
 });
 
-test('a whiteboard that slides re-reads its screen offsets', () => {
+test('host panes can refresh cached offsets after their pane slides', () => {
   // Excalidraw only re-reads its container offsets when the container resizes,
   // so scrolling the board, dragging a pane to other cells, or opening the
   // sidebar used to leave the pointer mapped to the pane's old position.
-  assert.match(appSource, /excalidrawAPI: \(api\) => \{ entry\.api = api; \}/);
-  assert.match(appSource, /for \(const entry of state\.whiteboards\.values\(\)\) \{\s*entry\.api\?\.refresh\(\);/);
+  assert.match(whiteboardClientSource, /excalidrawAPI: \(api\) => \{ entry\.api = api; \}/);
+  assert.match(whiteboardClientSource, /for \(const entry of whiteboards\.values\(\)\) \{\s*entry\.api\?\.refresh\(\);/);
 
   const grid = appSource.slice(appSource.indexOf('function wirePaneGrid'), appSource.indexOf('function wireBoardScroll'));
-  assert.match(grid, /grid\.addEventListener\('scroll', refreshWhiteboardOffsets, \{ passive: true \}\)/);
-  assert.match(grid, /new ResizeObserver\(refreshWhiteboardOffsets\)\.observe\(grid\)/);
+  assert.match(grid, /grid\.addEventListener\('scroll', refreshHostPaneOffsets, \{ passive: true \}\)/);
+  assert.match(grid, /new ResizeObserver\(refreshHostPaneOffsets\)\.observe\(grid\)/);
 
   const layout = appSource.slice(appSource.indexOf('function applyPaneLayoutStyle'), appSource.indexOf('function applyPaneLayoutUpdates'));
-  assert.match(layout, /refreshWhiteboardOffsets\(\);/);
+  assert.match(layout, /refreshHostPaneOffsets\(\);/);
 });
 
 test('the freeform canvas, its camera, and the in-house drawing layer are gone', () => {
@@ -2150,7 +2169,7 @@ test('image pane offers stepping, rotation, zoom, fit, download and delete', () 
 test('an image pane opened from the sidebar can browse for a picture itself', () => {
   // A file pane used to be the only thing that could set an image pane's path,
   // so a sidebar button on its own would hand out a pane with no way to fill it.
-  assert.match(appSource, /data-action="image"[^>]+aria-label="New image"/);
+  assert.match(appSource, /data-action="image"[^>]+aria-label="New image pane"/);
   assert.match(appSource, /\[data-action="image"\][^\n]+openImagePane\(\)/);
   assert.ok(appSource.includes('data-image-open'), 'image pane is missing its open control');
   assert.match(appSource, /o: \(\) => chooseImageForPane\(paneId\)/);
@@ -2160,6 +2179,9 @@ test('an image pane opened from the sidebar can browse for a picture itself', ()
   assert.match(styles, /\.image-open-list\s*\{[^}]*overflow:\s*auto/s);
   // The load error writes to its own element so the open button survives it.
   assert.match(appSource, /emptyText\.textContent = 'Could not load image\.'/);
+  // The button sits inside the stage, whose pointer capture retargets pointerup
+  // and the click that follows it. Without this the button did nothing at all.
+  assert.match(appSource, /event\.button !== 0 \|\| event\.target\.closest\?\.\('\[data-image-open\]'\)/);
 });
 
 test('image zoom and rotation are applied as one transform on the picture', () => {
@@ -2398,7 +2420,359 @@ test('allowed hosts round-trips through the settings API and the Server section'
   // drops the write after both other layers have already accepted it.
   assert.match(mainSource, /allowed_hosts:\s*Array\.isArray\(config\.server\.allowed_hosts\)/);
   assert.match(mainSource, /next\.server\.allowed_hosts\s*=\s*updates\.server\.allowed_hosts/);
-  assert.match(configSource, /server:\s*\['host', 'port', 'open_browser', 'allowed_hosts'\]/);
+  assert.match(configSource, /server:\s*\['host', 'port', 'protocol', 'open_browser', 'allowed_hosts'\]/);
   assert.match(appSource, /<textarea name="server\.allowed_hosts"/);
   assert.match(appSource, /allowed_hosts:\s*lines\(form\.get\('server\.allowed_hosts'\)\)/);
+});
+
+// A cmd pane is a terminal pane that spawns cmd.exe, so it reuses the pane
+// chrome, the tab strip and the shortcut toolbar rather than duplicating them.
+test('the sidebar opens a cmd pane through the same terminal pane path', () => {
+  assert.match(appSource, /data-action="new-cmd"[^>]+aria-label="New CMD pane"[^>]*>\s*<span class="rail-icon" aria-hidden="true">\$\{fileActionIcon\('cmd'\)\}<\/span><span class="rail-label">New CMD pane<\/span>/);
+  assert.match(appSource, /\[data-action="new-cmd"\][^\n]+createPane\(null, 'cmd'\)/);
+  assert.match(appSource, /body: JSON\.stringify\(\{ direction: 'auto', shell: shell \|\| 'powershell' \}\)/);
+  // Only one terminal renderer exists, so the keybar and surfaces are shared.
+  assert.equal(appSource.match(/renderMobileKeybar\(\)\}/g).length, 1);
+  assert.match(i18nSource, /'New CMD pane': '新增 CMD 面板'/);
+});
+
+test('the sidebar opens an AI pane backed by its own manager and socket mode', () => {
+  // Provider registration and the shared implementation both live in
+  // plugin-panes, while the application keeps only the integration hooks.
+  assert.doesNotMatch(appSource, /data-action="ai-(claude|codex)"/);
+  assert.doesNotMatch(appSource, /async function openAiPane\(/);
+  assert.match(appSource, /fileActionIcon\(pluginPane\.icon \|\| 'external'\)/);
+  assert.match(mainSource, /app\.post\('\/api\/panes\/:paneId\/ai'/);
+  assert.match(mainSource, /mode === 'ai'[\s\S]{0,300}?const manager = aiManagerForTab\(paneId\)[\s\S]{0,100}?manager\.attach\(paneId, ws\)/);
+  assert.match(appSource, /mode=ai&token=/);
+  assert.match(styles, /\.ai-surface\s*\{/);
+  assert.match(i18nSource, /'New AI pane': '新增 AI 面板'/);
+});
+
+test('AI conversations keep a visible scrollbar and a readable line length', () => {
+  assert.match(styles, /\.ai-surface\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s);
+  const scroll = styles.slice(styles.indexOf('.ai-scroll {'));
+  const scrollBody = scroll.slice(0, scroll.indexOf('}'));
+  assert.match(scrollBody, /overflow-y:\s*scroll/);
+  assert.match(scrollBody, /scrollbar-gutter:\s*stable/);
+  assert.match(scrollBody, /min-width:\s*0/);
+  assert.match(styles, /\.ai-composer\s*\{[^}]*min-width:\s*0/s);
+  assert.match(styles, /\.ai-surface\s*\{[^}]*--ai-reading-width:\s*720px/s);
+  for (const selector of ['.ai-log', '.ai-toolbar', '.ai-commands', '.ai-input-row']) {
+    assert.match(styles, new RegExp(`${selector.replace('.', '\\.')}\\s*\\{[^}]*max-width:\\s*var\\(--ai-reading-width\\)`, 's'));
+  }
+});
+
+test('plugin pane manifests become isolated first-class panes', () => {
+  assert.match(appSource, /pluginPanes:\s*\[\]/);
+  assert.match(appSource, /data-plugin-pane-id="\$\{escapeAttr\(pluginPane\.id\)\}"/);
+  assert.match(appSource, /pluginPaneLabel\(pluginPane\)/);
+  assert.match(appSource, /openPluginPane\(button\.dataset\.pluginPaneId\)/);
+  assert.match(appSource, /\/api\/panes\/\$\{basePaneId\}\/plugin/);
+  assert.match(appSource, /class="plugin-pane-frame"[^>]*sandbox="allow-scripts allow-forms"/);
+  assert.match(appSource, /pane\.type === 'plugin' \? renderPluginPane\(pane\)/);
+  assert.match(styles, /\.plugin-pane-frame\s*\{[^}]*width:\s*100%[^}]*height:\s*100%[^}]*border:\s*0/s);
+  assert.match(mainSource, /app\.get\('\/api\/plugin-panes'/);
+  assert.match(mainSource, /app\.post\('\/api\/panes\/:paneId\/plugin'/);
+});
+
+test('Claude and Codex load independent implementations from their plugin folders', () => {
+  assert.doesNotMatch(coreAppSource, /function renderAiSurface/);
+  assert.doesNotMatch(coreStyles, /\.ai-surface/);
+  for (const provider of ['claude', 'codex']) {
+    assert.doesNotMatch(indexSource, new RegExp(`/plugin-panes/${provider}/`));
+    assert.doesNotMatch(mainSource, new RegExp(`plugin-panes/${provider}/server`));
+  }
+  assert.match(coreAppSource, /loadAiPanePlugins\(state\.pluginPanes\)/);
+  assert.match(coreAppSource, /definition\.clientUrl/);
+  assert.match(coreAppSource, /definition\.styleUrl/);
+  assert.match(aiClientSource, /Wps7AiPanePlugins\.claude/);
+  assert.match(codexClientSource, /Wps7AiPanePlugins\.codex/);
+  assert.match(mainSource, /loadAiPluginPanes\(root\)/);
+});
+
+// An AI pane holds one conversation per tab, so it reuses the terminal pane's
+// tab strip rather than growing a second tab implementation.
+test('AI panes reuse the shared pane tab strip and its routes', () => {
+  assert.match(appSource, /function paneTabKind\(pane\)[\s\S]{0,200}?pane\.type === 'ai'\) return 'ai'/);
+  assert.match(appSource, /function paneTabs\(pane\)[\s\S]{0,200}?pane\.type === 'ai'\) return pane\.aiTabs/);
+  assert.match(appSource, /activePaneTabId[\s\S]{0,300}?pane\.activeAiTabId/);
+  assert.match(appSource, /function sidebarPaneTabs\(pane\)[\s\S]{0,160}?pane\.type === 'ai'/);
+  for (const route of ['tabs', 'tabs/:tabId/activate', 'tabs/:tabId']) {
+    assert.match(mainSource, new RegExp(`/api/panes/:paneId/ai/${route.replace(/\//g, '\\/')}'`));
+  }
+  // The pane title chain is untouched: an AI pane falls through to the strip.
+  assert.doesNotMatch(appSource, /pane\.type === 'ai'[^\n]*data-pane-title/);
+});
+
+// Both wiring entry points have to know about the pane, or a freshly created
+// one has no listeners until the next full render.
+test('AI panes are wired on first render and when added incrementally', () => {
+  assert.match(coreAppSource, /aiPane\.wire\(app\);/);
+  assert.match(coreAppSource, /aiPane\.wire\(paneElement\);/);
+  assert.match(coreAppSource, /aiPane\.disposeAll\(\);/);
+  assert.match(aiClientSource, /aiConnections\.get\(tabId\)\?\.dispose\(\)/);
+});
+
+// The transcript is the user's and the agent's own words; running the UI phrase
+// dictionary over it would rewrite them.
+test('the conversation is excluded from automatic UI translation', () => {
+  assert.match(i18nSource, /function shouldSkip\(node\)[\s\S]{0,200}?\.ai-log/);
+  assert.match(appSource, /function aiText\(value\)[\s\S]{0,120}?Wps7I18n\?\.t\(value\)/);
+});
+
+// Markdown is rendered after escaping, never before, and tool output is never
+// treated as markup at all.
+test('agent markdown is escaped before it is formatted', () => {
+  assert.match(appSource, /function renderMarkdown\(value\)[\s\S]{0,200}?escapeHtml\(String\(value \|\| ''\)\)/);
+  assert.match(appSource, /kind === 'tool_use' \? event\.tool\?\.input : event\.result\?\.output[\s\S]{0,300}?<code>\$\{escapeHtml\(body/);
+  // No dependency was added for this: the CSP forbids remote script anyway, so
+  // a renderer would have to be vendored and licence-tracked as well.
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+  for (const name of Object.keys(manifest.dependencies)) {
+    assert.doesNotMatch(name, /^(marked|markdown-it|remark|dompurify)$/i);
+  }
+});
+
+test('AI defaults are configurable and reach the settings form', () => {
+  const section = settingsSection('settings-ai');
+  for (const key of ['default_provider', 'show_thinking', 'show_tools', 'claude_model', 'claude_args', 'codex_args', 'debug_log']) {
+    assert.match(section, new RegExp(`name="ai\\.${key}"`));
+    assert.match(appSource, new RegExp(`${key}: `));
+  }
+  assert.match(configSource, /claude_args: '--dangerously-skip-permissions'/);
+  assert.match(configSource, /codex_args: '--yolo'/);
+  // Shell metacharacters cannot be stored as CLI arguments.
+  assert.match(mainSource, /parseCliArgs\(value\)/);
+  assert.match(mainSource, /Invalid \$\{key\.replace/);
+});
+
+
+// The folder an agent runs in is the thing you check before letting it touch
+// files, so it lives in the toolbar rather than behind a settings page.
+test('an AI tab shows the folder it runs in and can be pointed somewhere else', () => {
+  assert.match(appSource, /data-ai-folder/);
+  assert.match(appSource, /function aiFolderLabel\(cwd\)/);
+  assert.match(appSource, /function openFolderDialog\(/);
+  assert.match(appSource, /async function changeAiFolder\(surface\)/);
+  assert.match(appSource, /JSON\.stringify\(\{ cwd: chosen \}\)/);
+  assert.match(styles, /\.folder-picker-list \{/);
+  assert.match(styles, /\.ai-folder \{/);
+  // The picker browses with the endpoints the file pane already exposes,
+  // rather than adding a second way to list folders.
+  const picker = appSource.slice(appSource.indexOf('function openFolderDialog'), appSource.indexOf('async function changeAiFolder'));
+  assert.ok(picker.includes('/api/files/drives'), 'the picker should list drives');
+  assert.ok(picker.includes('/api/files?path='), 'the picker should list folders');
+  // Typing a path while a listing is still in flight must not be overwritten
+  // when that listing arrives.
+  assert.ok(picker.includes('pathInput.value === typedBefore'), 'the picker must not clobber typing');
+  assert.ok(picker.includes('request !== loadToken'), 'a stale listing must not win');
+  assert.match(i18nSource, /'Working folder': '工作資料夾'/);
+});
+
+// Changing it has to relaunch the CLI: the working directory is fixed when the
+// process is spawned.
+test('changing the folder restarts the CLI in it', () => {
+  assert.match(mainSource, /function aiWorkingFolder\(value\)/);
+  assert.match(mainSource, /isDirectory\(\)/);
+  assert.match(mainSource, /aiManagerForTab\(req\.params\.tabId\)\?\.restartTab\(req\.params\.tabId/);
+  assert.match(aiSource, /restartTab\(tabId, notice\)/);
+  // A folder that is not there is refused rather than silently ignored.
+  assert.match(mainSource, /That folder does not exist on this machine\./);
+});
+
+
+// AskUserQuestion always offers "Other" and never lists it, so the pane has to
+// supply it or the user cannot answer in their own words.
+test('an agent question offers a typed answer alongside its listed options', () => {
+  assert.match(appSource, /data-ai-other/);
+  assert.match(appSource, /data-ai-other-input/);
+  assert.match(appSource, /question\.allowFreeText && !answered/);
+  // The typed text travels as text, not as a fake option id.
+  assert.match(appSource, /sendAnswer\(input, \{ text: input\.value\.trim\(\) \}\)/);
+  assert.match(aiSource, /allowFreeText: true/);
+  assert.match(styles, /\.ai-other-input \{/);
+  assert.match(i18nSource, /'Other': '其他'/);
+});
+
+// A crashed CLI used to leave the pane reading "Stopped" with nothing to press.
+test('a stopped AI tab offers a retry', () => {
+  assert.match(appSource, /data-ai-retry/);
+  assert.match(appSource, /retry\.hidden = status !== 'stopped'/);
+  assert.match(appSource, /send\(\{ type: 'restart' \}\)/);
+  assert.match(styles, /\.ai-retry \{/);
+  assert.match(i18nSource, /'Retry': '重試'/);
+});
+
+
+// The automatic DOM translation only reaches elements added to the page, so a
+// label written with textContent stays in English unless it translates itself.
+// The status line is the one the user sees most.
+test('the AI status line is translated like the rest of the pane', () => {
+  const wording = appSource.slice(appSource.indexOf('const wording = {'), appSource.indexOf('const wording = {') + 220);
+  assert.match(wording, /aiText\('Working…'\)/);
+  assert.match(wording, /aiText\('Waiting for you'\)/);
+  assert.match(wording, /aiText\('Stopped'\)/);
+  assert.match(i18nSource, /'Stopped': '已停止'/);
+  assert.match(i18nSource, /'Waiting for you': '等待你的選擇'/);
+});
+
+test('an AI tab keeps its current model and reasoning visible', () => {
+  assert.match(appSource, /data-ai-runtime/);
+  assert.match(appSource, /function setAiRuntime\(tabId, model, effort\)/);
+  assert.match(appSource, /setAiRuntime\(tabId, message\.model, message\.effort\)/);
+  assert.match(styles, /\.ai-runtime \{/);
+});
+
+test('AI metadata and controls share the bottom toolbar with history at the right edge', () => {
+  const surface = appSource.slice(appSource.indexOf('function renderAiSurface'), appSource.indexOf('function renderMarkdown'));
+  const surfaceStyles = styles.slice(styles.indexOf('.ai-surface {'), styles.indexOf('.ai-surface[hidden]'));
+  assert.match(surface, /ai-scroll[\s\S]*ai-toolbar[\s\S]*data-ai-runtime[\s\S]*data-ai-folder[\s\S]*data-ai-toggle="thinking"[\s\S]*data-ai-toggle="tools"[\s\S]*data-ai-sessions/);
+  assert.doesNotMatch(surface, /ai-context-toolbar/);
+  assert.match(surfaceStyles, /grid-template-rows: minmax\(0, 1fr\) auto/);
+  assert.match(surface, /data-ai-provider="\$\{provider\}"/);
+  assert.doesNotMatch(styles, /\.ai-context-toolbar \{/);
+  assert.match(surface, /data-ai-input[^>]+aria-label=/);
+  assert.match(i18nSource, /'Message': '訊息'/);
+});
+
+test('thinking and tool visibility use persistent icon toggles', () => {
+  const surface = appSource.slice(appSource.indexOf('function renderAiSurface'), appSource.indexOf('function renderMarkdown'));
+  assert.match(surface, /data-ai-toggle="thinking"[^>]*aria-label=[^>]*>[\s\S]*fileActionIcon\('thinking'\)/);
+  assert.match(surface, /data-ai-toggle="tools"[^>]*aria-label=[^>]*>[\s\S]*fileActionIcon\('tools'\)/);
+  assert.doesNotMatch(surface, /data-ai-toggle="thinking"[^>]*hidden/);
+  assert.doesNotMatch(appSource, /function syncAiThinkingToggle\(surface\)/);
+});
+
+
+// A reply's tokens arrive as its own 'event' (streaming: true) followed by
+// 'patch' messages that grow the same bubble; only a reply with no streaming
+// flag (history replay, or a turn that never sent deltas) gets the fake
+// typewriter reveal.
+test('a streaming reply grows in place instead of animating after the fact', () => {
+  assert.match(appSource, /function appendAiEvent\(tabId, event, streaming\)/);
+  assert.match(appSource, /if \(streaming\) \{[\s\S]{0,200}?bubble\.textContent = event\.text/);
+  assert.match(appSource, /appendAiEvent\(tabId, message\.event, message\.streaming\)/);
+
+  assert.match(appSource, /function patchAiEvent\(tabId, id, patch\)/);
+  assert.match(appSource, /if \(patch\.text !== undefined\)[\s\S]{0,300}?renderMarkdown\(patch\.text\)/);
+  assert.match(appSource, /patchAiEvent\(tabId, message\.id, message\)/);
+});
+
+// Typing a slash used to offer nothing, so a terminal-only command like /plan
+// was sent as text and came back as "that is not available in this
+// environment", which reads as the whole feature being broken.
+test('the composer offers the slash commands the CLI can dispatch', () => {
+  assert.match(appSource, /function updateAiCommandMenu\(surface\)/);
+  assert.match(appSource, /state\.aiCommands/);
+  assert.match(appSource, /data-ai-commands/);
+  assert.match(appSource, /data-ai-command=/);
+  // Completing a choice leaves room for arguments rather than submitting it.
+  assert.match(appSource, /input\.value = chosen\.dataset\.aiCompletion/);
+  assert.match(styles, /\.ai-command \{/);
+  assert.match(i18nSource, /'Commands': '指令'/);
+});
+
+test('the codex composer completes dynamic command arguments and skills', () => {
+  assert.match(appSource, /state\.aiCapabilities/);
+  assert.match(appSource, /message\.type === 'capabilities'/);
+  assert.match(appSource, /capabilities\.models/);
+  assert.match(appSource, /capabilities\.skills/);
+  assert.match(appSource, /capabilities\.collaborationModes/);
+  assert.match(appSource, /\$\(\[\\w:-\]\*\)\$/);
+  assert.match(appSource, /data-ai-completion=/);
+  assert.match(styles, /\.ai-command-description \{/);
+});
+
+test('completing a slash command immediately opens its argument choices', () => {
+  const takeChoice = appSource.slice(appSource.indexOf('function takeAiCommandChoice'), appSource.indexOf('async function openAiSessions'));
+  assert.match(takeChoice, /input\.value = chosen\.dataset\.aiCompletion/);
+  assert.match(takeChoice, /updateAiCommandMenu\(surface\)/);
+});
+
+test('a command the CLI cannot dispatch is called out before it is sent', () => {
+  assert.match(appSource, /ai-command-note/);
+  assert.match(appSource, /is not a command here, and will be sent as plain text/);
+  assert.match(i18nSource, /在這裡不是指令/);
+});
+
+// The list comes from the CLI, and the terminal-only entries are dropped.
+test('the AI pane takes its command list from the CLI', () => {
+  assert.match(aiSource, /terminal_slash_commands/);
+  assert.match(aiSource, /slash_commands/);
+  assert.match(aiSource, /type: 'commands'/);
+  assert.match(aiSource, /commands: runtime\.commands/);
+});
+
+
+// A conversation the pane has forgotten is still in the CLI, and both CLIs
+// take an id to continue one, so the tab can be pointed back at it.
+test('an AI tab can be pointed back at an earlier conversation', () => {
+  assert.match(appSource, /data-ai-sessions/);
+  assert.match(appSource, /async function openAiSessions\(surface\)/);
+  assert.match(appSource, /function pickAiSession\(sessions/);
+  assert.match(mainSource, /'\/api\/panes\/:paneId\/ai\/tabs\/:tabId\/sessions'/);
+  assert.match(mainSource, /'\/api\/panes\/:paneId\/ai\/tabs\/:tabId\/session'/);
+  assert.match(aiSource, /resumeSession\(paneId, tabId, sessionId, label\)/);
+  assert.match(styles, /\.ai-session-list \{/);
+  assert.match(i18nSource, /'Earlier conversations': '較早的對話'/);
+});
+
+// The messages on screen belong to the conversation being left behind.
+test('resuming says the earlier messages live in the CLI, not the pane', () => {
+  assert.match(aiSource, /Now continuing an earlier conversation/);
+  assert.match(appSource, /The agent keeps these messages/);
+  assert.match(i18nSource, /AI 仍然記得這些訊息/);
+});
+
+
+// The list used to appear only after the first reply, and then showed eight
+// entries out of sixty-five with nothing to say the rest existed.
+test('the command menu is complete and available before the first reply', () => {
+  const menu = appSource.slice(appSource.indexOf('function updateAiCommandMenu'),
+    appSource.indexOf('function moveAiCommandChoice'));
+  // Every match is rendered; the box scrolls instead.
+  assert.doesNotMatch(menu, /slice\(0, 8\)/);
+  assert.match(menu, /commands\.filter/);
+  assert.match(menu, /command\.argumentHint/);
+  assert.match(menu, /command\.description/);
+  // Asked for up front rather than waiting for the init frame.
+  assert.match(aiSource, /subtype: 'initialize'/);
+  assert.match(aiSource, /handleControlResponse\(message\)/);
+  assert.match(styles, /\.ai-command-args \{/);
+  assert.match(styles, /\.ai-command-about \{/);
+});
+
+
+// claude takes several seconds to answer with its list, so an empty menu had
+// to be told apart from a CLI that simply has no commands.
+test('the command menu says when the list has not arrived yet', () => {
+  assert.match(appSource, /Loading commands…/);
+  assert.match(appSource, /known\.ready/);
+  assert.match(aiSource, /commandsReady/);
+  assert.match(i18nSource, /'Loading commands…': '正在載入指令…'/);
+});
+
+// The answer is the same for every tab, so the first one pays for all of them,
+// and a list that lands while the menu is open redraws it.
+test('a command list is cached and redraws an open menu', () => {
+  assert.match(aiSource, /commandCache/);
+  assert.match(aiSource, /commandCache\.set/);
+  const branch = appSource.slice(appSource.indexOf("if (message.type === 'commands')"),
+    appSource.indexOf("if (message.type === 'commands')") + 400);
+  assert.match(branch, /updateAiCommandMenu\(surface\)/);
+});
+
+// /reasoning used to autocomplete with the union of every known model's
+// levels (e.g. offering "max"/"ultra" from one model while another was
+// selected), so picking one the active model does not support made the CLI
+// reject it with a "Usage: /reasoning <...>" error.
+test('the /reasoning autocomplete only offers levels the active model supports', () => {
+  const branch = appSource.slice(appSource.indexOf("if (command === 'reasoning')"),
+    appSource.indexOf("if (command === 'personality')"));
+  assert.doesNotMatch(branch, /flatMap/);
+  assert.match(branch, /capabilities\.currentModel/);
+  // The backend must publish which model is active alongside the catalog,
+  // or the frontend has nothing to match against.
+  assert.match(aiSource, /currentModel:\s*runtime\.model/);
 });

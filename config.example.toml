@@ -1,12 +1,16 @@
 # Settings saved in the web UI update this file.
 # Hot reload: [auth], [shell], [persistence], [ui]
-# Restart wps7.exe: server.host, server.port
+# Restart wps7.exe: server.host, server.port, server.protocol
 
 [server]
-# Requires restart: host and port are bound when wps7.exe starts.
+# Requires restart: host, port and protocol are bound when wps7.exe starts.
 # Hot reload: open_browser only affects future browser opens.
 host = "127.0.0.1"
 port = 5000
+# "http" or "https". "https" serves a self-signed certificate generated on
+# first use (data/tls-cert.pem, data/tls-key.pem); browsers warn until you
+# trust it.
+protocol = "http"
 open_browser = true
 # Extra Host header values to accept, for a reverse proxy that forwards its own
 # hostname. Addresses and "localhost" are always accepted; any other name is
@@ -94,3 +98,29 @@ show_credits = true
 # first. Set it only to pin one, e.g. "C:\\Users\\yourname\\.codex".
 codex_home = ""
 claude_home = ""
+
+[ai]
+# The AI pane drives the Claude Code and Codex CLIs signed in on this server.
+# Each tab in the pane is a separate conversation with its own CLI process.
+default_provider = "claude"
+# Whether new tabs start with the agent's thinking and tool calls visible.
+show_thinking = true
+show_tools = true
+# Defaults for new tabs only; use the CLI's own /model command to change a
+# conversation already in progress. Blank means "whatever the CLI defaults to".
+claude_model = ""
+claude_effort = ""
+codex_model = ""
+codex_effort = ""
+# Permissions default to not interrupting, because a terminal pane in this same
+# app already runs any command you ask it to -- the AI pane is not handing out
+# access that was not there already. The password and allowed_hosts checks in
+# [auth] and [server] are what actually guard this, so keep a strong password
+# set, especially when server.host is 0.0.0.0.
+# Extra CLI arguments for each provider. Codex global flags are placed before
+# app-server, so codex_args = "--yolo" launches codex --yolo app-server.
+claude_args = "--dangerously-skip-permissions"
+codex_args = "--yolo"
+# Write every raw CLI protocol frame to data/ai-debug.log. Only for diagnosing
+# a pane that misreads its CLI; the log records whole conversations.
+debug_log = false

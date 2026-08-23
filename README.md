@@ -129,6 +129,12 @@ console-subsystem Node binary, which would give the server a console window for
 as long as it runs, so packaging rewrites the PE subsystem to `windows`. Double
 clicking `dist/wps7.exe` starts it with no console.
 
+## Plugin panes
+
+Plugin panes are self-contained private extensions that can be installed or
+shared without editing the application source. See [Plugin panes](docs/plugin-panes.md)
+for the directory format, manifest, installation steps, and sandbox limits.
+
 ## Restore model
 
 Windows cannot resume arbitrary process memory after reboot. wps7 saves sessions, panes, cwd metadata, terminal scrollback, and the last command hint. On restart it recreates panes and automatically reruns only commands in `restore.allowlist`.
@@ -136,6 +142,70 @@ Windows cannot resume arbitrary process memory after reboot. wps7 saves sessions
 ## PowerShell
 
 wps7 prefers `pwsh.exe` and falls back to `powershell.exe`. If fallback is used, the web UI shows a PowerShell 7 install warning.
+
+## AI pane
+
+The AI pane drives the Claude Code or Codex CLI already signed in on this
+machine and renders the conversation as messages instead of terminal output.
+The agent's thinking and its tool calls each fold away behind a toggle, and when
+it asks for permission or asks you a question, the options it offers become
+buttons — the same choices its own prompt would have shown, not a generic
+yes/no.
+
+Typing `/` lists the slash commands this CLI can actually run, with what each
+one does and the arguments it takes — the session reports them itself, so it
+covers your own skills and commands as well as the built-in `/compact`,
+`/context` and `/model`. The hint matters: `/model` and `/effort` change the
+session only when given a value, as in `/model haiku` or `/effort high`, and on
+their own they do nothing at all here because they would open a picker the
+terminal draws. Commands whose behaviour belongs
+to the CLI's own terminal, such as `/plan` and `/status`, are not dispatchable
+outside it: they are left out of the list, and typing one says so rather than
+sending it and letting the model answer that it is unavailable. Codex publishes
+no such list, so its tabs offer no completions.
+
+The sidebar has an entry for each CLI, so a Claude or a Codex pane is one
+click away. Like a PowerShell pane it holds several tabs, and each tab is a
+separate conversation with its own CLI process; a tab opened beside another
+continues with the same CLI, so one pane can hold several Claude conversations
+and the next pane can hold Codex.
+
+Each tab also has its own working folder, shown in the toolbar next to the CLI
+name. The agent starts there and runs its commands there, so one tab can be
+pointed at a repository and another at somewhere else entirely. Click the
+folder to browse for a different one; that restarts the tab's CLI in the new
+folder, keeping the conversation.
+
+Conversations are saved with the workspace and reconnect to the CLI's own
+session, so a restart picks up where you left off. Each tab has a Clear button
+that deletes its messages and starts the agent over with no memory of them.
+
+The clock button lists the conversations the CLI has already recorded for that
+folder — including ones started in a terminal, or ones this pane has since
+forgotten — and continuing one hands the tab back to it. `/resume` itself is
+not dispatchable outside the CLI's own terminal, which is why the pane offers
+the list instead. The messages from before stay with the agent rather than
+being redrawn here, so the tab shows a line saying which conversation it is now
+following and then carries on.
+
+When the agent asks you something, its own options become buttons, plus an
+"Other" that takes an answer in your own words — the CLIs always accept one and
+never list it themselves. If a CLI stops, the tab says so and offers a Retry.
+
+Permission prompts are off by default. That is deliberate: a terminal pane in
+the same workspace already runs any command you type, so the AI pane is not
+granting access that was not there already — what guards it is the password and
+`server.allowed_hosts`, which matter more than usual when `server.host` is
+`0.0.0.0`. Settings exposes each provider's extra CLI arguments directly. The
+defaults launch Claude Code with `--permission-mode bypassPermissions
+--allow-dangerously-skip-permissions` and Codex as `codex --yolo app-server`;
+remove or replace those arguments if you want the CLIs to ask for permission.
+The agent's own questions are always shown either way. New arguments apply when
+a new AI tab starts.
+
+The pane needs the CLI on the PATH wps7 inherited at logon; if `claude` or
+`codex` lives in npm's global folder and the pane cannot find it, add that
+folder to `shell.extra_path` in `config.toml`.
 
 ## Usage pane
 
@@ -170,8 +240,8 @@ repository conventions. Report security issues privately through the process in
 MIT — see [LICENSE](LICENSE).
 
 wps7 redistributes third-party code: the packaged executable embeds every
-production dependency, and `public/vendor/` ships pre-built Excalidraw, React,
-and xterm.js along with their fonts. Their notices are collected in
+production dependency, while `public/vendor/` and tracked plugin folders ship
+pre-built Excalidraw, React, and xterm.js with their fonts. Their notices are collected in
 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md), regenerated with
 `npm run licenses:generate`. Pinned upstream license files can be refreshed and
 hash-verified first with `npm run licenses:sync`.

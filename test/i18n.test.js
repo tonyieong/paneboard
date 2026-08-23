@@ -71,6 +71,13 @@ test('the image pane sidebar button and its open dialog are translated', () => {
   }
 });
 
+test('plugin pane names are interpolated into the translated sidebar label', () => {
+  const { i18n } = loadI18n({ savedLocale: 'zh-HK' });
+
+  assert.equal(i18n.t('New {name} pane', { name: 'Private' }), '新增 Private 面板');
+  assert.equal(i18n.t('This plugin pane is not installed on this device.'), '此裝置未安裝這個插件面板。');
+});
+
 test('every terminal context menu label has a zh-HK translation', () => {
   const { i18n } = loadI18n();
   i18n.setLocale('zh-HK');

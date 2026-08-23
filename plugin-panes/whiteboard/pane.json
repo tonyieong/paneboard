@@ -1,0 +1,12 @@
+{
+  "name": "Whiteboard",
+  "type": "host",
+  "icon": "line",
+  "translations": {
+    "zh-HK": "白板"
+  },
+  "legacy": {
+    "paneType": "whiteboard",
+    "dataField": "whiteboard"
+  }
+}

@@ -20,6 +20,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const net = require('node:net');
 const http = require('node:http');
+const https = require('node:https');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const WebSocket = require('ws');
@@ -30,6 +31,11 @@ const dataDir = path.join(root, 'data');
 const statePath = path.join(dataDir, 'state.json');
 const stateBakPath = path.join(dataDir, 'state.json.bak');
 const controlTokenPath = path.join(dataDir, 'control-token');
+const pluginPaneFixtureId = `http-route-fixture-${process.pid}`;
+const aiPluginFixtureId = `http-route-ai-${process.pid}`;
+const pluginPaneFixtureRoot = path.join(root, 'plugin-panes');
+const pluginPaneFixtureDir = path.join(pluginPaneFixtureRoot, pluginPaneFixtureId);
+const aiPluginFixtureDir = path.join(pluginPaneFixtureRoot, aiPluginFixtureId);
 
 let port;
 let child;
@@ -191,6 +197,36 @@ before(async () => {
   stateBackup = backupAside(statePath);
   stateBakBackup = backupAside(stateBakPath);
 
+  fs.mkdirSync(pluginPaneFixtureDir, { recursive: true });
+  fs.writeFileSync(path.join(pluginPaneFixtureDir, 'pane.json'), JSON.stringify({
+    name: 'HTTP route fixture',
+    entry: 'index.html'
+  }));
+  fs.writeFileSync(path.join(pluginPaneFixtureDir, 'index.html'), '<!doctype html><title>Private fixture</title>');
+  fs.mkdirSync(aiPluginFixtureDir, { recursive: true });
+  fs.writeFileSync(path.join(aiPluginFixtureDir, 'pane.json'), JSON.stringify({
+    name: 'Drop-in AI fixture',
+    type: 'ai',
+    provider: aiPluginFixtureId,
+    implementation: aiPluginFixtureId
+  }));
+  fs.writeFileSync(path.join(aiPluginFixtureDir, 'server.js'), [
+    'class AiManager {',
+    '  updateConfig() {}',
+    '  shutdown() {}',
+    '  killSession() {}',
+    '  killPane() {}',
+    '  killTab() {}',
+    '  attach(tabId, socket) { socket.send(JSON.stringify({ type: "hello", provider: "drop-in", events: [], pending: [], commands: [] })); }',
+    '  restartTab() {}',
+    '  resumeSession() { return true; }',
+    '  clearTab() { return true; }',
+    '}',
+    'module.exports = { AiManager };'
+  ].join('\n'));
+  fs.writeFileSync(path.join(aiPluginFixtureDir, 'client.js'), `window.Wps7AiPanePlugins = window.Wps7AiPanePlugins || {}; window.Wps7AiPanePlugins['${aiPluginFixtureId}'] = { create() {} };`);
+  fs.writeFileSync(path.join(aiPluginFixtureDir, 'styles.css'), '.drop-in-ai-fixture {}');
+
   fs.writeFileSync(configPath, [
     '[server]',
     'host = "127.0.0.1"',
@@ -237,6 +273,12 @@ after(async () => {
   restoreFrom(configPath, configBackup);
   restoreFrom(statePath, stateBackup);
   restoreFrom(stateBakPath, stateBakBackup);
+  if (path.dirname(pluginPaneFixtureDir) === pluginPaneFixtureRoot) {
+    fs.rmSync(pluginPaneFixtureDir, { recursive: true, force: true });
+  }
+  if (path.dirname(aiPluginFixtureDir) === pluginPaneFixtureRoot) {
+    fs.rmSync(aiPluginFixtureDir, { recursive: true, force: true });
+  }
 });
 
 test('serves the app shell over plain HTTP', async () => {
@@ -274,6 +316,116 @@ test('the default workspace state is reachable with no password set', async () =
   const res = await request('/api/state');
   assert.equal(res.status, 200);
   assert.ok(res.json.sessions[0].tabs[0].panes[0].id);
+});
+
+test('plugin pane assets and pane creation work through the HTTP layer', async () => {
+  const listed = await request('/api/plugin-panes');
+  assert.equal(listed.status, 200);
+  const definition = listed.json.panes.find((pane) => pane.id === pluginPaneFixtureId);
+  assert.equal(definition.name, 'HTTP route fixture');
+  assert.match(definition.url, new RegExp(`^/plugin-panes/[a-f0-9]{64}/${pluginPaneFixtureId}/index\\.html$`));
+
+  const asset = await request(definition.url);
+  assert.equal(asset.status, 200);
+  assert.match(asset.text, /Private fixture/);
+  assert.equal(asset.headers['x-frame-options'], 'SAMEORIGIN');
+  assert.match(asset.headers['content-security-policy'], /sandbox allow-scripts allow-forms/);
+
+  const dropIn = listed.json.panes.find((pane) => pane.id === aiPluginFixtureId);
+  assert.deepEqual(dropIn, {
+    id: aiPluginFixtureId,
+    name: 'Drop-in AI fixture',
+    type: 'ai',
+    provider: aiPluginFixtureId,
+    implementation: aiPluginFixtureId,
+    icon: 'external',
+    clientUrl: `/plugin-panes/${aiPluginFixtureId}/client.js`,
+    styleUrl: `/plugin-panes/${aiPluginFixtureId}/styles.css`
+  });
+  assert.equal((await request(dropIn.clientUrl)).status, 200);
+  assert.equal((await request(dropIn.styleUrl)).status, 200);
+  assert.equal((await request(`/plugin-panes/${aiPluginFixtureId}/server.js`)).status, 404);
+
+  const whiteboard = listed.json.panes.find((pane) => pane.id === 'whiteboard');
+  assert.deepEqual(whiteboard, {
+    id: 'whiteboard',
+    name: 'Whiteboard',
+    type: 'host',
+    icon: 'line',
+    translations: { 'zh-HK': '白板' },
+    clientUrl: '/plugin-panes/whiteboard/client.js',
+    styleUrl: '/plugin-panes/whiteboard/styles.css',
+    assetBaseUrl: '/plugin-panes/whiteboard/assets/'
+  });
+  assert.equal((await request(whiteboard.clientUrl)).status, 200);
+  assert.equal((await request('/plugin-panes/whiteboard/assets/excalidraw/react.js')).status, 200);
+  assert.equal((await request('/plugin-panes/whiteboard/server.js')).status, 404);
+
+  const loaded = await request('/api/state');
+  const basePaneId = loaded.json.sessions[0].tabs[0].panes[0].id;
+  const created = await request(`/api/panes/${basePaneId}/plugin`, {
+    method: 'POST',
+    body: { pluginPaneId: pluginPaneFixtureId }
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.json.type, 'plugin');
+  assert.equal(created.json.pluginPaneId, pluginPaneFixtureId);
+  assert.equal(created.json.pluginData, '{}');
+
+  const pluginData = JSON.stringify({ widgets: [{ id: 'clock' }] });
+  const savedPluginData = await request(`/api/panes/${created.json.id}/plugin-data`, {
+    method: 'PATCH',
+    body: { pluginData }
+  });
+  assert.equal(savedPluginData.status, 200);
+  assert.equal((await request('/api/state')).json.sessions[0].tabs[0].panes
+    .find((pane) => pane.id === created.json.id).pluginData, pluginData);
+
+  for (const provider of ['claude', 'codex']) {
+    const builtIn = listed.json.panes.find((pane) => pane.id === provider);
+    assert.deepEqual(builtIn, {
+      id: provider,
+      name: provider === 'claude' ? 'Claude' : 'Codex',
+      type: 'ai',
+      provider,
+      implementation: provider,
+      icon: provider === 'claude' ? 'ai' : 'codex',
+      clientUrl: `/plugin-panes/${provider}/client.js`,
+      styleUrl: `/plugin-panes/${provider}/styles.css`
+    });
+    for (const assetName of ['client.js', 'styles.css']) {
+      const builtInAsset = await request(`/plugin-panes/${provider}/${assetName}`);
+      assert.equal(builtInAsset.status, 200);
+    }
+    const serverSource = await request(`/plugin-panes/${provider}/server.js`);
+    assert.equal(serverSource.status, 404);
+    const aiPane = await request(`/api/panes/${basePaneId}/plugin`, {
+      method: 'POST',
+      body: { pluginPaneId: provider }
+    });
+    assert.equal(aiPane.status, 201);
+    assert.equal(aiPane.json.type, 'ai');
+    assert.equal(aiPane.json.aiTabs[0].provider, provider);
+    await request(`/api/panes/${aiPane.json.id}`, { method: 'DELETE' });
+  }
+
+  const dropInPane = await request(`/api/panes/${basePaneId}/plugin`, {
+    method: 'POST',
+    body: { pluginPaneId: aiPluginFixtureId }
+  });
+  assert.equal(dropInPane.status, 201);
+  assert.equal(dropInPane.json.aiTabs[0].provider, aiPluginFixtureId);
+  await request(`/api/panes/${dropInPane.json.id}`, { method: 'DELETE' });
+
+  const missing = await request(`/api/panes/${basePaneId}/plugin`, {
+    method: 'POST',
+    body: { pluginPaneId: 'missing-plugin-pane' }
+  });
+  assert.equal(missing.status, 404);
+  assert.deepEqual(missing.json, { error: 'Plugin pane not found.' });
+
+  const closed = await request(`/api/panes/${created.json.id}`, { method: 'DELETE' });
+  assert.equal(closed.status, 200);
 });
 
 test('file and notepad panes open with no password set', async () => {
@@ -493,5 +645,55 @@ test('a genuine duplicate launch on the same port still exits instead of hopping
   } finally {
     first.kill();
     await waitForExit(first, 3000);
+  }
+});
+
+test('protocol = "https" serves the app shell over TLS with a generated self-signed certificate', async () => {
+  const tlsPort = await freePort();
+  const keyPath = path.join(dataDir, 'tls-key.pem');
+  const certPath = path.join(dataDir, 'tls-cert.pem');
+  const keyBackup = backupAside(keyPath);
+  const certBackup = backupAside(certPath);
+  fs.writeFileSync(configPath, [
+    '[server]',
+    'host = "127.0.0.1"',
+    `port = ${tlsPort}`,
+    'protocol = "https"',
+    'open_browser = false',
+    '',
+    '[auth]',
+    'password_hash = ""',
+    ''
+  ].join('\n'));
+
+  const tlsChild = spawn(process.execPath, [path.join(root, 'src', 'main.js')], {
+    cwd: root,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  try {
+    await waitForRuntimeInfo((candidate) => candidate.pid === tlsChild.pid && candidate.port === tlsPort, 20000);
+    assert.ok(fs.existsSync(keyPath), 'expected data/tls-key.pem to be generated');
+    assert.ok(fs.existsSync(certPath), 'expected data/tls-cert.pem to be generated');
+
+    const res = await new Promise((resolve, reject) => {
+      const req = https.get({ host: '127.0.0.1', port: tlsPort, path: '/', rejectUnauthorized: false, timeout: 5000 }, (response) => {
+        let body = '';
+        response.on('data', (chunk) => { body += chunk; });
+        response.on('end', () => resolve({ status: response.statusCode, headers: response.headers, body }));
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('https request timed out')); });
+    });
+    assert.equal(res.status, 200);
+    assert.match(res.headers['content-type'], /text\/html/);
+
+    // Plain HTTP against the same port must not be answered by the TLS server.
+    await assert.rejects(waitForHttpOnPort(tlsPort, 1500));
+  } finally {
+    tlsChild.kill();
+    await waitForExit(tlsChild, 3000);
+    restoreFrom(keyPath, keyBackup);
+    restoreFrom(certPath, certBackup);
   }
 });

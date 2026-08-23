@@ -1,0 +1,7 @@
+{
+  "name": "Codex",
+  "type": "ai",
+  "provider": "codex",
+  "implementation": "codex",
+  "icon": "codex"
+}

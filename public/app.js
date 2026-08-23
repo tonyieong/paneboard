@@ -41,6 +41,7 @@
   const state = {
     token: localStorage.getItem('wps7.token') || sessionStorage.getItem('wps7.token') || '',
     config: null,
+    pluginPanes: [],
     sessions: [],
     activeSessionId: '',
     activePaneId: '',
@@ -74,13 +75,139 @@
     suppressSessionClickUntil: 0,
     theme: ({ dark: 'wps-dark', light: 'wps-light', custom: 'custom-dark' })[localStorage.getItem('wps7.theme')] || localStorage.getItem('wps7.theme') || 'wps-dark',
     customThemeDraft: null,
-    whiteboards: new Map(),
     focusedPaneId: '',
     paneFocusEscapeAt: 0,
     workspaceStripScroll: 0
   };
 
   const app = document.getElementById('app');
+  const aiPaneContext = {
+    app,
+    api,
+    showToast,
+    clearToken,
+    renderLogin,
+    paneTabs,
+    activePaneTabId,
+    findPaneState,
+    confirmDialog,
+    escapeHtml,
+    escapeAttr,
+    fileActionIcon,
+    getToken: () => state.token
+  };
+  const aiPanes = {};
+  const hostPanes = {};
+  const pluginAssetLoads = new Map();
+  const unavailableAiPane = {
+    renderSurface: (pane, tab, active) => `<div class="plugin-pane-unavailable" data-ai-tab="${escapeAttr(tab.id)}" ${active ? '' : 'hidden'} role="status">This AI plugin is not installed on this device.</div>`,
+    mountTab() {},
+    wire() {},
+    disposeAll() {},
+    disposeTab() {},
+    surface: (tabId) => document.querySelector(`[data-ai-tab="${CSS.escape(tabId)}"]`)
+  };
+
+  function loadPluginAsset(type, url) {
+    if (pluginAssetLoads.has(url)) {
+      return pluginAssetLoads.get(url);
+    }
+    const loading = new Promise((resolve, reject) => {
+      const element = document.createElement(type === 'style' ? 'link' : 'script');
+      if (type === 'style') {
+        element.rel = 'stylesheet';
+        element.href = url;
+      } else {
+        element.src = url;
+      }
+      element.onload = resolve;
+      element.onerror = () => reject(new Error(`Unable to load plugin asset: ${url}`));
+      document.head.appendChild(element);
+    });
+    pluginAssetLoads.set(url, loading);
+    return loading;
+  }
+
+  async function loadAiPanePlugins(definitions) {
+    window.Wps7AiPanePlugins = window.Wps7AiPanePlugins || {};
+    await Promise.all(definitions.filter((definition) => definition.type === 'ai').map(async (definition) => {
+      try {
+        await Promise.all([
+          loadPluginAsset('style', definition.styleUrl),
+          loadPluginAsset('script', definition.clientUrl)
+        ]);
+        const plugin = window.Wps7AiPanePlugins[definition.provider];
+        if (typeof plugin?.create !== 'function') {
+          throw new Error(`AI plugin ${definition.id} did not register its renderer.`);
+        }
+        aiPanes[definition.provider] = plugin.create({ ...aiPaneContext, provider: definition.provider });
+      } catch (error) {
+        console.error(error);
+      }
+    }));
+  }
+
+  async function loadHostPanePlugins(definitions) {
+    window.Wps7HostPanePlugins = window.Wps7HostPanePlugins || {};
+    await Promise.all(definitions.filter((definition) => definition.type === 'host').map(async (definition) => {
+      try {
+        await Promise.all([
+          loadPluginAsset('style', definition.styleUrl),
+          loadPluginAsset('script', definition.clientUrl)
+        ]);
+        const plugin = window.Wps7HostPanePlugins[definition.id];
+        if (typeof plugin?.create !== 'function') {
+          throw new Error(`Host plugin ${definition.id} did not register its renderer.`);
+        }
+        hostPanes[definition.id] = plugin.create({
+          assetBaseUrl: definition.assetBaseUrl,
+          getTheme: themeMode,
+          saveData: savePluginPaneData
+        });
+      } catch (error) {
+        console.error(error);
+      }
+    }));
+  }
+
+  async function savePluginPaneData(paneId, data) {
+    const pluginData = typeof data === 'string' ? data : JSON.stringify(data ?? {});
+    const found = findPaneState(paneId);
+    if (found?.pane.type === 'plugin') {
+      found.pane.pluginData = pluginData;
+    }
+    await api(`/api/panes/${paneId}/plugin-data`, {
+      method: 'PATCH',
+      body: JSON.stringify({ pluginData })
+    });
+  }
+
+  const hostPane = {
+    render: (pane) => hostPanes[pane.pluginPaneId]?.render(pane),
+    mount: (pane) => hostPanes[pane.pluginPaneId]?.mount(pane),
+    disposeAll: () => Object.values(hostPanes).forEach((pane) => pane.disposeAll?.()),
+    refreshOffsets: () => Object.values(hostPanes).forEach((pane) => pane.refreshOffsets?.()),
+    setTheme: () => Object.values(hostPanes).forEach((pane) => pane.setTheme?.(themeMode()))
+  };
+
+  const aiPaneFor = (pane, tab) => aiPanes[tab?.provider || paneTabs(pane)[0]?.provider] || unavailableAiPane;
+  const aiPane = {
+    renderSurfaces: (pane) => {
+      const activeId = activePaneTabId(pane);
+      return paneTabs(pane).map((tab) => aiPaneFor(pane, tab).renderSurface(pane, tab, tab.id === activeId)).join('');
+    },
+    renderSurface: (pane, tab, active) => aiPaneFor(pane, tab).renderSurface(pane, tab, active),
+    mountPane: (pane) => paneTabs(pane).forEach((tab) => aiPaneFor(pane, tab).mountTab(pane.id, tab.id)),
+    mountTab: (paneId, tabId) => {
+      const pane = findPaneState(paneId)?.pane;
+      const tab = paneTabs(pane).find((candidate) => candidate.id === tabId);
+      aiPaneFor(pane, tab).mountTab(paneId, tabId);
+    },
+    wire: (root) => Object.values(aiPanes).forEach((pane) => pane.wire(root)),
+    disposeAll: () => Object.values(aiPanes).forEach((pane) => pane.disposeAll()),
+    disposeTab: (tabId) => Object.values(aiPanes).forEach((pane) => pane.disposeTab(tabId)),
+    surface: (tabId) => Object.values(aiPanes).map((pane) => pane.surface(tabId)).find(Boolean) || unavailableAiPane.surface(tabId)
+  };
   document.addEventListener('pointerdown', closeFloatingSidebarFromOutside);
   document.addEventListener('pointerdown', closeNotepadPopoversFromOutside);
   document.addEventListener('pointerdown', closePaneFocusFromOutside);
@@ -446,7 +573,7 @@
   }
 
   function sidebarPaneTabs(pane) {
-    if (pane.type === 'terminal' || pane.type === 'files') {
+    if (pane.type === 'terminal' || pane.type === 'files' || pane.type === 'ai') {
       return paneTabs(pane).map((tab) => ({ tabId: tab.id, tabKind: paneTabKind(pane), label: paneTabLabel(pane, tab) }));
     }
     if (pane.type === 'browser') {
@@ -476,7 +603,10 @@
   }
 
   function sidebarPaneIcon(pane) {
-    return pane.type === 'whiteboard' ? 'line' : pane.type === 'files' ? 'file' : pane.type || 'terminal';
+    if (pane.type === 'plugin') return pluginPaneDefinition(pane)?.icon || 'external';
+    if (pane.type === 'files') return 'file';
+    if ((pane.type || 'terminal') === 'terminal') return paneShell(pane) === 'cmd' ? 'cmd' : 'terminal';
+    return pane.type;
   }
 
   function renderSidebarPaneItem({ session, pane, tabId, tabKind, label }) {
@@ -662,7 +792,16 @@
   }
 
   function paneTabs(pane) {
-    return (pane.type === 'files' ? pane.filesTabs : pane.terminalTabs) || [];
+    if (pane.type === 'files') return pane.filesTabs || [];
+    if (pane.type === 'ai') return pane.aiTabs || [];
+    return pane.terminalTabs || [];
+  }
+
+  // Which shell a terminal pane runs, taken from the tab on screen: every tab in
+  // a pane is opened with the pane's own shell.
+  function paneShell(pane) {
+    const tabs = paneTabs(pane);
+    return (tabs.find((tab) => tab.id === activePaneTabId(pane)) || tabs[0])?.shell === 'cmd' ? 'cmd' : 'powershell';
   }
 
   function paneTerminal(paneId) {
@@ -677,13 +816,19 @@
 
   function activePaneTabId(pane) {
     const tabs = paneTabs(pane);
-    const activeId = pane.type === 'files' ? pane.activeFilesTabId : pane.activeTerminalTabId;
+    const activeId = pane.type === 'files' ? pane.activeFilesTabId
+      : pane.type === 'ai' ? pane.activeAiTabId
+        : pane.activeTerminalTabId;
     return tabs.some((tab) => tab.id === activeId) ? activeId : tabs[0]?.id || '';
   }
 
   function paneTabLabel(pane, tab) {
+    if (pane.type === 'ai') {
+      const plugin = state.pluginPanes.find((candidate) => candidate.type === 'ai' && candidate.provider === tab.provider);
+      return tab.title || plugin?.name || tab.provider || 'AI';
+    }
     if (pane.type !== 'files') {
-      return tab.title || 'PowerShell';
+      return tab.title || (tab.shell === 'cmd' ? 'CMD' : 'PowerShell');
     }
     const trimmed = String(tab.path || '').replace(/[\\/]+$/, '');
     return trimmed ? trimmed.split(/[\\/]/).pop() || trimmed : 'This PC';
@@ -696,7 +841,7 @@
       ? `<span class="pane-upload-status" data-pane-upload-status="${pane.id}" aria-live="polite"></span>`
       : '';
     return `
-      <span class="pane-kind-icon" aria-hidden="true">${fileActionIcon(pane.type === 'files' ? 'file' : 'terminal')}</span>
+      <span class="pane-kind-icon" aria-hidden="true">${fileActionIcon(pane.type === 'files' ? 'file' : pane.type === 'ai' ? 'ai' : paneShell(pane) === 'cmd' ? 'cmd' : 'terminal')}</span>
       <div class="pane-tab-list" role="tablist">
         ${tabs.map((tab) => {
           const label = paneTabLabel(pane, tab);
@@ -717,13 +862,41 @@
       <div class="terminal" id="terminal-${tab.id}" data-terminal-tab="${tab.id}" ${tab.id === activeId ? '' : 'hidden'}></div>`).join('');
   }
 
+  function renderPluginPane(pane) {
+    const definition = pluginPaneDefinition(pane);
+    if (!definition) {
+      return '<div class="plugin-pane-unavailable" role="status">This plugin pane is not installed on this device.</div>';
+    }
+    if (definition.type === 'host') {
+      return hostPane.render(pane) || '<div class="plugin-pane-unavailable" role="status">This plugin pane could not be loaded.</div>';
+    }
+    return `<iframe class="plugin-pane-frame" src="${escapeAttr(definition.url)}" sandbox="allow-scripts allow-forms" title="${escapeAttr(definition.name)}"></iframe>`;
+  }
+
+  function pluginPaneDefinition(pane) {
+    return state.pluginPanes.find((candidate) => candidate.id === pane?.pluginPaneId);
+  }
+
+  function paneKindIcon(pane) {
+    if (pane.type === 'plugin') return pluginPaneDefinition(pane)?.icon || 'external';
+    return pane.type === 'usage' ? 'usage' : pane.type;
+  }
+
+  function pluginPaneLabel(pluginPane) {
+    const key = 'New {name} pane';
+    const locale = window.Wps7I18n?.getLocale();
+    const translatedName = pluginPane.translations?.[locale] || pluginPane.name;
+    return window.Wps7I18n?.t(key, { name: translatedName }) ?? key.replace('{name}', translatedName);
+  }
+
   function renderPane(pane) {
     const body = pane.type === 'files' ? renderFilesPane(pane)
       : pane.type === 'browser' ? renderBrowserPane(pane)
         : pane.type === 'notepad' ? renderNotepadPane(pane)
           : pane.type === 'image' ? renderImagePane(pane)
             : pane.type === 'usage' ? renderUsagePane(pane)
-              : pane.type === 'whiteboard' ? `<div class="whiteboard" id="whiteboard-${pane.id}" data-whiteboard="${pane.id}"></div>` : `
+              : pane.type === 'ai' ? aiPane.renderSurfaces(pane)
+                : pane.type === 'plugin' ? renderPluginPane(pane) : `
           ${renderMobileKeybar()}
           ${renderTerminalSurfaces(pane)}`;
     const header = pane.type === 'browser'
@@ -740,9 +913,9 @@
             <span class="pane-kind-icon" aria-hidden="true">${fileActionIcon('image')}</span>
             <span data-image-title title="${escapeAttr(pane.path)}">${escapeHtml(imageFileName(pane.path) || pane.title)}</span>
           </div>`
-          : pane.type === 'usage' || pane.type === 'whiteboard'
+          : pane.type === 'usage' || pane.type === 'plugin'
             ? `<div class="pane-title" data-pane-title="${pane.id}">
-            <span class="pane-kind-icon" aria-hidden="true">${fileActionIcon(pane.type === 'whiteboard' ? 'line' : 'usage')}</span>
+            <span class="pane-kind-icon" aria-hidden="true">${fileActionIcon(paneKindIcon(pane))}</span>
             <span data-rename-pane="${pane.id}">${escapeHtml(pane.title)}</span>
           </div>`
             : `<div class="pane-tab-strip" data-pane-tab-strip data-pane-title="${pane.id}">
@@ -785,6 +958,7 @@
     close: '<path d="M6 6l12 12M18 6 6 18"/>',
     'chevron-down': '<path d="m7 10 5 5 5-5"/>',
     terminal: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/>',
+    cmd: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m8 10 3 2-3 2"/>',
     appearance: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
     workspace: '<rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/>',
     persistence: '<path d="M4 5h13l3 3v11H4z"/><path d="M8 5v6h8V5M8 19v-5h8v5"/>',
@@ -792,6 +966,13 @@
     server: '<rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01M11 7h7M11 17h7"/>',
     security: '<path d="M12 3 5 6v5c0 4.6 2.9 8.1 7 10 4.1-1.9 7-5.4 7-10V6z"/><path d="m9 12 2 2 4-4"/>',
     usage: '<path d="M4 19V9M10 19V5M16 19v-7M22 19V3"/>',
+    ai: '<path d="M20 4H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3v4l5-4h8a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1z"/><path d="M9 10h.01M12 10h.01M15 10h.01"/>',
+    codex: '<path d="M20 4H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3v4l5-4h8a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1z"/><path d="m10 8-2 2 2 2M14 8l2 2-2 2"/>',
+    thinking: '<path d="M9 18h6M10 21h4"/><path d="M8.5 15.5a7 7 0 1 1 7 0c-.7.5-1.1 1.2-1.3 2.5H9.8c-.2-1.3-.6-2-1.3-2.5z"/>',
+    tools: '<path d="M14.7 6.3a4 4 0 0 0-5-5L12 4 9 7 6.3 4.3a4 4 0 0 0 5 5L18 15.6a2.8 2.8 0 1 1-4 4l-6.3-6.3a4 4 0 0 1-5-5L5 11l3-3-2.7-2.7"/>',
+    send: '<path d="M4 12h13M12 6l6 6-6 6"/>',
+    history: '<path d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4"/><path d="M12 8v4l3 2"/>',
+    interrupt: '<rect x="6" y="6" width="12" height="12" rx="1"/>',
     pin: '<path d="M9 3h6l1 7 3 3v2H5v-2l3-3zM12 15v6"/>',
     'pin-off': '<path d="M9 3h6l1 7 3 3v2H8M12 15v6M4 4l16 16"/>',
     up: '<path d="M9 6 4 11l5 5"/><path d="M4 11h10a6 6 0 0 1 6 6v1"/>',
@@ -2013,7 +2194,10 @@
       });
     }, { passive: false });
     stage.onpointerdown = (event) => {
-      if (event.button !== 0) {
+      // The empty state's Open button sits inside the stage. Capturing the
+      // pointer for panning retargets the pointerup, and with it the click, to
+      // the stage, so the button would never fire.
+      if (event.button !== 0 || event.target.closest?.('[data-image-open]')) {
         return;
       }
       const data = imagePaneData(paneId);
@@ -2071,120 +2255,21 @@
     }
     else if (pane.type === 'image') mountImagePane(pane);
     else if (pane.type === 'usage') loadUsagePane(pane.id);
-    else if (pane.type === 'whiteboard') mountWhiteboard(pane);
+    else if (pane.type === 'ai') aiPane.mountPane(pane);
+    else if (pane.type === 'plugin') hostPane.mount(pane);
     else {
       loadFilesPane(pane);
     }
   }
 
-  // Excalidraw and React are 4 MB of vendor code, so they are only fetched once
-  // a whiteboard pane actually exists.
-  let excalidrawLoader = null;
-  function loadExcalidraw() {
-    if (!excalidrawLoader) {
-      // Excalidraw resolves its fonts and vendor chunk against this path. Left
-      // unset it falls back to unpkg.com, which breaks an offline install.
-      window.EXCALIDRAW_ASSET_PATH = '/vendor/excalidraw/';
-      excalidrawLoader = ['react.js', 'react-dom.js', 'jsx-runtime.js', 'excalidraw.js']
-        .reduce(
-          (chain, file) => chain.then(() => loadVendorScript(`/vendor/excalidraw/${file}`)),
-          Promise.resolve()
-        );
-    }
-    return excalidrawLoader;
-  }
-
-  function loadVendorScript(src) {
-    return new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = src;
-      script.onload = resolve;
-      script.onerror = () => reject(new Error(`Failed to load ${src}`));
-      document.head.appendChild(script);
-    });
-  }
-
-  function parseWhiteboard(content) {
-    try {
-      const data = JSON.parse(content || '{}');
-      return { elements: data.elements || [], appState: data.appState || {} };
-    } catch {
-      return { elements: [], appState: {} };
-    }
-  }
-
-  async function mountWhiteboard(pane) {
-    const host = document.getElementById(`whiteboard-${pane.id}`);
-    if (!host || state.whiteboards.has(pane.id)) {
+  let hostPaneOffsetFrame = 0;
+  function refreshHostPaneOffsets() {
+    if (hostPaneOffsetFrame) {
       return;
     }
-    try {
-      await loadExcalidraw();
-    } catch (error) {
-      host.textContent = error.message;
-      return;
-    }
-    if (!document.body.contains(host)) {
-      return; // the pane was closed while the vendor bundle was loading
-    }
-    const root = window.ReactDOM.createRoot(host);
-    const entry = { root, api: null };
-    state.whiteboards.set(pane.id, entry);
-    root.render(window.React.createElement(window.ExcalidrawLib.Excalidraw, {
-      initialData: parseWhiteboard(pane.whiteboard),
-      theme: state.theme.includes('light') ? 'light' : 'dark',
-      excalidrawAPI: (api) => { entry.api = api; },
-      // appState carries live-session values (collaborators is a Map), so only
-      // the few fields worth restoring are persisted.
-      onChange: (elements, appState) => saveWhiteboardSoon(pane.id, {
-        elements,
-        appState: {
-          viewBackgroundColor: appState.viewBackgroundColor,
-          gridSize: appState.gridSize
-        }
-      })
-    }));
-  }
-
-  const whiteboardSaveTimers = new Map();
-  function saveWhiteboardSoon(paneId, data) {
-    window.clearTimeout(whiteboardSaveTimers.get(paneId));
-    whiteboardSaveTimers.set(paneId, window.setTimeout(() => {
-      const found = findPaneState(paneId);
-      const whiteboard = JSON.stringify(data);
-      if (found) {
-        found.pane.whiteboard = whiteboard;
-      }
-      api(`/api/panes/${paneId}/whiteboard`, {
-        method: 'PATCH',
-        body: JSON.stringify({ whiteboard })
-      }).catch(() => {});
-    }, 600));
-  }
-
-  function disposeWhiteboards() {
-    for (const entry of state.whiteboards.values()) {
-      entry.root.unmount();
-    }
-    state.whiteboards.clear();
-  }
-
-  // Excalidraw caches its container's screen offsets and only re-reads them when
-  // the container resizes, so a whiteboard that merely slides -- the board
-  // scrolling sideways, a drag onto other cells, the sidebar opening -- keeps
-  // mapping the pointer to where the canvas used to be. Its own scroll
-  // detection cannot help here: it only follows a vertically scrolling
-  // ancestor, and the board scrolls horizontally.
-  let whiteboardOffsetFrame = 0;
-  function refreshWhiteboardOffsets() {
-    if (whiteboardOffsetFrame || state.whiteboards.size === 0) {
-      return;
-    }
-    whiteboardOffsetFrame = window.requestAnimationFrame(() => {
-      whiteboardOffsetFrame = 0;
-      for (const entry of state.whiteboards.values()) {
-        entry.api?.refresh();
-      }
+    hostPaneOffsetFrame = window.requestAnimationFrame(() => {
+      hostPaneOffsetFrame = 0;
+      hostPane.refreshOffsets();
     });
   }
 
@@ -2203,7 +2288,8 @@
     applyUiTypography();
     disposeTerminals();
     disposeBrowsers();
-    disposeWhiteboards();
+    hostPane.disposeAll();
+    aiPane.disposeAll();
     app.innerHTML = `
       <main class="app ${state.sidebarOpen ? '' : 'sidebar-closed'} ${state.sidebarPinned ? 'sidebar-pinned' : ''} ${isMobileLayout() ? 'mobile-device' : ''} mode-${state.displayMode} density-${state.mobileTerminalDensity}" style="--sidebar-width: ${sidebarWidth}px">
         <aside class="sidebar">
@@ -2212,23 +2298,29 @@
               <button class="rail-button sidebar-brand" data-action="toggle" aria-label="Toggle sidebar" aria-expanded="${state.sidebarOpen}" title="${state.sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}"><span class="rail-brand-mark" aria-hidden="true">W7</span><span class="rail-label">WPS7</span></button>
               <button class="sidebar-pin" type="button" data-sidebar-pin aria-label="${state.sidebarPinned ? 'Unpin' : 'Pin'} sidebar" aria-pressed="${state.sidebarPinned}" title="${state.sidebarPinned ? 'Unpin sidebar' : 'Pin sidebar'}"><span class="rail-icon" aria-hidden="true">${fileActionIcon(state.sidebarPinned ? 'pin-off' : 'pin')}</span></button>
             </div>
-            <button class="rail-button" data-action="new-powershell" aria-label="New PowerShell" title="New PowerShell">
-              <span class="rail-icon" aria-hidden="true">${fileActionIcon('terminal')}</span><span class="rail-label">New PowerShell</span>
+            <button class="rail-button" data-action="new-powershell" aria-label="New PowerShell pane" title="New PowerShell pane">
+              <span class="rail-icon" aria-hidden="true">${fileActionIcon('terminal')}</span><span class="rail-label">New PowerShell pane</span>
             </button>
-            <button class="rail-button" data-action="files" aria-label="New file" title="New file">
-              <span class="rail-icon" aria-hidden="true">${fileActionIcon('file')}</span><span class="rail-label">New file</span>
+            <button class="rail-button" data-action="new-cmd" aria-label="New CMD pane" title="New CMD pane">
+              <span class="rail-icon" aria-hidden="true">${fileActionIcon('cmd')}</span><span class="rail-label">New CMD pane</span>
             </button>
-            <button class="rail-button" data-action="browser" aria-label="New browser" title="New browser">
-              <span class="rail-icon" aria-hidden="true">${fileActionIcon('browser')}</span><span class="rail-label">New browser</span>
+            <button class="rail-button" data-action="files" aria-label="New file pane" title="New file pane">
+              <span class="rail-icon" aria-hidden="true">${fileActionIcon('file')}</span><span class="rail-label">New file pane</span>
             </button>
-            <button class="rail-button" data-action="notepad" aria-label="New notepad" title="New notepad">
-              <span class="rail-icon" aria-hidden="true">${fileActionIcon('notepad')}</span><span class="rail-label">New notepad</span>
+            <button class="rail-button" data-action="browser" aria-label="New browser pane" title="New browser pane">
+              <span class="rail-icon" aria-hidden="true">${fileActionIcon('browser')}</span><span class="rail-label">New browser pane</span>
             </button>
-            <button class="rail-button" data-action="image" aria-label="New image" title="New image">
-              <span class="rail-icon" aria-hidden="true">${fileActionIcon('image')}</span><span class="rail-label">New image</span>
+            <button class="rail-button" data-action="notepad" aria-label="New notepad pane" title="New notepad pane">
+              <span class="rail-icon" aria-hidden="true">${fileActionIcon('notepad')}</span><span class="rail-label">New notepad pane</span>
             </button>
-            <button class="rail-button" data-action="usage" aria-label="New usage pane" title="New usage pane"><span class="rail-icon" aria-hidden="true">${fileActionIcon('usage')}</span><span class="rail-label">Usage pane</span></button>
-            <button class="rail-button" data-action="whiteboard" aria-label="New whiteboard" title="New whiteboard"><span class="rail-icon" aria-hidden="true">${fileActionIcon('line')}</span><span class="rail-label">New whiteboard</span></button>
+            <button class="rail-button" data-action="image" aria-label="New image pane" title="New image pane">
+              <span class="rail-icon" aria-hidden="true">${fileActionIcon('image')}</span><span class="rail-label">New image pane</span>
+            </button>
+            <button class="rail-button" data-action="usage" aria-label="New usage pane" title="New usage pane"><span class="rail-icon" aria-hidden="true">${fileActionIcon('usage')}</span><span class="rail-label">New usage pane</span></button>
+            ${state.pluginPanes.map((pluginPane) => {
+              const label = pluginPaneLabel(pluginPane);
+              return `<button class="rail-button" data-plugin-pane-id="${escapeAttr(pluginPane.id)}" aria-label="${escapeAttr(label)}" title="${escapeAttr(label)}"><span class="rail-icon" aria-hidden="true">${fileActionIcon(pluginPane.icon || 'external')}</span><span class="rail-label">${escapeHtml(label)}</span></button>`;
+            }).join('')}
           </nav>
           <div class="sidebar-inner">
             <div class="sidebar-divider" aria-hidden="true"></div>
@@ -2553,12 +2645,13 @@
       await loadState();
     });
     app.querySelectorAll('[data-action="new-powershell"]').forEach((button) => button.onclick = () => createPane());
+    app.querySelectorAll('[data-action="new-cmd"]').forEach((button) => button.onclick = () => createPane(null, 'cmd'));
     app.querySelectorAll('[data-action="files"]').forEach((button) => button.onclick = openFilesPane);
     app.querySelectorAll('[data-action="browser"]').forEach((button) => button.onclick = openBrowserPane);
     app.querySelectorAll('[data-action="notepad"]').forEach((button) => button.onclick = () => openNotepadPane());
     app.querySelectorAll('[data-action="image"]').forEach((button) => button.onclick = () => openImagePane());
     app.querySelectorAll('[data-action="usage"]').forEach((button) => button.onclick = openUsagePane);
-    app.querySelectorAll('[data-action="whiteboard"]').forEach((button) => button.onclick = openWhiteboardPane);
+    app.querySelectorAll('[data-plugin-pane-id]').forEach((button) => button.onclick = () => openPluginPane(button.dataset.pluginPaneId));
     app.querySelectorAll('[data-action="settings"]').forEach((button) => button.onclick = openSettings);
     app.querySelector('[data-action="resize-sidebar"]').onpointerdown = startSidebarResize;
     app.querySelector('[data-switch-mobile]')?.addEventListener('click', () => setDisplayMode('mobile'));
@@ -2613,6 +2706,7 @@
     wireBrowserPane(app);
     wireNotepadPane(app);
     wireImagePane(app);
+    aiPane.wire(app);
     wirePaneTabStrips(app);
     app.querySelectorAll('[data-rename-session]').forEach((label) => {
       label.ondblclick = (event) => {
@@ -2862,13 +2956,16 @@
     }
   }
 
-  async function openWhiteboardPane() {
+  async function openPluginPane(pluginPaneId) {
     const session = activeSession();
     const tab = activeTab(session);
     const basePaneId = state.activePaneId || tab?.activePaneId || tab?.panes[0]?.id;
     if (!session || !tab || !basePaneId) return;
     try {
-      const pane = await api(`/api/panes/${basePaneId}/whiteboard`, { method: 'POST' });
+      const pane = await api(`/api/panes/${basePaneId}/plugin`, {
+        method: 'POST',
+        body: JSON.stringify({ pluginPaneId })
+      });
       appendPaneToWorkspace(session, tab, pane);
     } catch (error) {
       showToast(error.message);
@@ -3963,8 +4060,12 @@
     if (newTabButton) newTabButton.onclick = () => addNotepadTab(paneId, '');
   }
 
+  // Names the /api/panes/:paneId/<kind>/tabs family, which is why an AI pane
+  // gets tab add/close/activate for free.
   function paneTabKind(pane) {
-    return pane.type === 'files' ? 'files' : 'terminal';
+    if (pane.type === 'files') return 'files';
+    if (pane.type === 'ai') return 'ai';
+    return 'terminal';
   }
 
   function updatePaneTabStrip(paneId) {
@@ -4005,10 +4106,27 @@
       found.pane.path = found.pane.filesTabs.find((tab) => tab.id === tabId)?.path || '';
       updatePaneTabStrip(paneId);
       await loadFilesPane(found.pane);
+    } else if (found.pane.type === 'ai') {
+      found.pane.activeAiTabId = tabId;
+      updatePaneTabStrip(paneId);
+      showActiveAiTab(paneId);
     } else {
       found.pane.activeTerminalTabId = tabId;
       updatePaneTabStrip(paneId);
       showActiveTerminalTab(paneId);
+    }
+  }
+
+  function showActiveAiTab(paneId) {
+    const found = findPaneState(paneId);
+    if (!found) return;
+    const activeId = activePaneTabId(found.pane);
+    app.querySelectorAll(`[data-pane="${paneId}"] .ai-surface`).forEach((surface) => {
+      surface.hidden = surface.dataset.aiTab !== activeId;
+    });
+    const scroller = aiPane.surface(activeId)?.querySelector('[data-ai-scroll]');
+    if (scroller) {
+      scroller.scrollTop = scroller.scrollHeight;
     }
   }
 
@@ -4030,6 +4148,21 @@
       found.pane.path = result.tab.path;
       updatePaneTabStrip(paneId);
       await loadFilesPane(found.pane);
+      return;
+    }
+    if (found.pane.type === 'ai') {
+      found.pane.aiTabs.push(result.tab);
+      found.pane.activeAiTabId = result.tab.id;
+      const surfaces = app.querySelectorAll(`[data-pane="${paneId}"] .ai-surface`);
+      surfaces[surfaces.length - 1]?.insertAdjacentHTML('afterend', aiPane.renderSurface(found.pane, result.tab, true));
+      const added = aiPane.surface(result.tab.id);
+      if (added) {
+        // Only the new surface: the others are already wired.
+        aiPane.wire(added);
+      }
+      updatePaneTabStrip(paneId);
+      showActiveAiTab(paneId);
+      aiPane.mountTab(paneId, result.tab.id);
       return;
     }
     found.pane.terminalTabs.push(result.tab);
@@ -4065,6 +4198,32 @@
       found.pane.path = tabs.find((tab) => tab.id === found.pane.activeFilesTabId)?.path || '';
       updatePaneTabStrip(paneId);
       await loadFilesPane(found.pane);
+      return;
+    }
+    if (found.pane.type === 'ai') {
+      // The socket goes with the tab; the server has already stopped its CLI.
+      aiPane.disposeTab(tabId);
+      if (result.tab) {
+        tabs[index] = result.tab;
+      } else {
+        tabs.splice(index, 1);
+      }
+      if (!tabs.some((tab) => tab.id === found.pane.activeAiTabId)) {
+        found.pane.activeAiTabId = tabs[Math.min(index, tabs.length - 1)].id;
+      }
+      const surface = aiPane.surface(tabId);
+      if (result.tab && surface) {
+        // Closing the last tab replaces it with an empty conversation rather
+        // than leaving the pane blank.
+        surface.outerHTML = aiPane.renderSurface(found.pane, result.tab, true);
+        const replaced = aiPane.surface(result.tab.id);
+        if (replaced) aiPane.wire(replaced);
+        aiPane.mountTab(paneId, result.tab.id);
+      } else {
+        surface?.remove();
+      }
+      updatePaneTabStrip(paneId);
+      showActiveAiTab(paneId);
       return;
     }
     if (result.tab) {
@@ -4815,6 +4974,12 @@
     const computed = getComputedStyle(editor);
     const lineHeight = Number.parseFloat(computed.lineHeight) || Number.parseFloat(computed.fontSize) * 1.5;
     const heights = lines.map(() => lineHeight);
+    // The highlight layer sits behind the textarea at full stage width, but the textarea's own
+    // scrollbar (when content overflows vertically) narrows its clientWidth. Without matching
+    // that width here, wrapped text wraps later in the highlight layer than in the textarea,
+    // so painted glyphs drift out of step with the real caret and the gutter's line rows.
+    const highlight = paneElement.querySelector('.notepad-highlight');
+    if (highlight && editor.clientWidth) highlight.style.width = `${editor.clientWidth}px`;
     const measure = paneElement.querySelector('.notepad-wrap-measure');
     if (wrapped && measure && editor.clientWidth) {
       measure.style.width = `${editor.clientWidth}px`;
@@ -6639,7 +6804,7 @@
   }
 
   // Capture phase, so Escape leaves focus mode from every pane type instead of
-  // being swallowed by xterm or the whiteboard canvas. Rename fields and text
+  // being swallowed by xterm or a host canvas. Rename fields and text
   // inputs keep their own cancel meaning; xterm's helper textarea is neither.
   // A focused terminal keeps its Escape key, which vim, less and PSReadLine all
   // need, so there it takes a second Escape in quick succession to leave.
@@ -6867,6 +7032,9 @@
       exitPaneFocus();
     }
     clearUsageRefresh(paneId);
+    for (const tab of found.pane.type === 'ai' ? paneTabs(found.pane) : []) {
+      aiPane.disposeTab(tab.id);
+    }
     const index = found.tab.panes.findIndex((pane) => pane.id === paneId);
     found.tab.panes.splice(index, 1);
     const nextPane = found.tab.panes[Math.max(0, index - 1)] || found.tab.panes[0];
@@ -7241,6 +7409,7 @@
 
   async function setThemeLive(theme, persist = false) {
     applyTheme(theme);
+    hostPane.setTheme();
     for (const item of state.terminals.values()) {
       item.term.options.theme = terminalTheme();
     }
@@ -7283,8 +7452,8 @@
     // Scrolling the board, and anything that resizes the board itself (the
     // sidebar opening, the viewport changing), slides every pane sideways
     // without resizing it.
-    grid.addEventListener('scroll', refreshWhiteboardOffsets, { passive: true });
-    new ResizeObserver(refreshWhiteboardOffsets).observe(grid);
+    grid.addEventListener('scroll', refreshHostPaneOffsets, { passive: true });
+    new ResizeObserver(refreshHostPaneOffsets).observe(grid);
     grid.addEventListener('wheel', (event) => {
       const paneEl = event.ctrlKey && event.shiftKey ? event.target.closest?.('[data-pane]') : null;
       if (!paneEl) {
@@ -7367,7 +7536,7 @@
     updateThumb();
   }
 
-  async function createPane(preferredLayout) {
+  async function createPane(preferredLayout, shell) {
     const session = activeSession();
     const tab = activeTab(session);
     const basePaneId = state.activePaneId || tab?.activePaneId || tab?.panes[0]?.id;
@@ -7378,7 +7547,7 @@
     try {
       const pane = await api(`/api/panes/${basePaneId}/split`, {
         method: 'POST',
-        body: JSON.stringify({ direction: 'auto' })
+        body: JSON.stringify({ direction: 'auto', shell: shell || 'powershell' })
       });
       if (preferredLayout) {
         try {
@@ -7586,7 +7755,7 @@
     }
     paneElement.style.gridColumn = `${layout.x + 1} / span ${layout.w}`;
     paneElement.style.gridRow = `${layout.y + 1} / span ${layout.h}`;
-    refreshWhiteboardOffsets();
+    refreshHostPaneOffsets();
     syncPaneTitleWidth(paneElement);
     paneElement.querySelectorAll('[data-paged-toolbar]').forEach(updatePagedToolbar);
   }
@@ -7626,6 +7795,7 @@
       wireBrowserPane(paneElement);
       wireNotepadPane(paneElement);
       wireImagePane(paneElement);
+      aiPane.wire(paneElement);
       wirePaneTabStrips(paneElement);
       wireMobileKeybarButtons(paneElement);
     }
@@ -8355,6 +8525,11 @@
         renderLogin();
         return;
       }
+      state.pluginPanes = (await api('/api/plugin-panes')).panes;
+      await Promise.all([
+        loadAiPanePlugins(state.pluginPanes),
+        loadHostPanePlugins(state.pluginPanes)
+      ]);
       await loadState();
     } catch (error) {
       if (error.status === 401) {
@@ -8631,7 +8806,7 @@
       <div class="mobile-keybar-setting-row" data-mobile-keybar-row>
         <span class="mobile-keybar-drag" data-mobile-keybar-drag draggable="true" aria-hidden="true" title="Drag to reorder">⠿</span>
         <label class="mobile-keybar-visible" title="Show on the toolbar"><input type="checkbox" data-mobile-keybar-enabled ${button.enabled !== false ? 'checked' : ''}><span>Show</span></label>
-        <label><span>Label</span><input data-mobile-keybar-label maxlength="5" value="${escapeAttr(String(button.label || '').slice(0, 5))}"></label>
+        <label><span>Label</span><input data-mobile-keybar-label maxlength="15" value="${escapeAttr(String(button.label || '').slice(0, 15))}"></label>
         <label><span>Action</span><select data-mobile-keybar-action>
           <option value="shortcut" ${action === 'shortcut' ? 'selected' : ''}>Shortcut</option>
           <option value="modifier" ${action === 'modifier' ? 'selected' : ''}>Modifier</option>
@@ -8933,6 +9108,9 @@
             <a aria-label="Usage" href="#settings-usage">
               <span class="settings-nav-icon" aria-hidden="true">${fileActionIcon('usage')}</span><span class="settings-nav-label">Usage</span>
             </a>
+            <a aria-label="AI" href="#settings-ai">
+              <span class="settings-nav-icon" aria-hidden="true">${fileActionIcon('ai')}</span><span class="settings-nav-label">AI</span>
+            </a>
             <a aria-label="Server and security" href="#settings-server">
               <span class="settings-nav-icon" aria-hidden="true">${fileActionIcon('server')}</span><span class="settings-nav-label">Server</span>
             </a>
@@ -9124,11 +9302,38 @@
                 </div>
               </details>
             </section>
+            <section class="settings-section" id="settings-ai">
+              <div class="section-heading"><div><h2>AI</h2><p>Defaults for new AI tabs. Each tab is its own conversation with the Claude Code or Codex CLI signed in on this server.</p></div></div>
+              <div class="settings-grid">
+                <label>Default CLI<select name="ai.default_provider"><option value="claude" ${settings.ai?.default_provider !== 'codex' ? 'selected' : ''}>Claude Code</option><option value="codex" ${settings.ai?.default_provider === 'codex' ? 'selected' : ''}>Codex</option></select><small class="field-hint">Which CLI a new AI pane or tab starts.</small></label>
+                <label class="settings-check"><input name="ai.show_thinking" type="checkbox" ${settings.ai?.show_thinking !== false ? 'checked' : ''}> Show thinking<small class="field-hint">New tabs start with the agent's reasoning visible. Each tab can be toggled on its own.</small></label>
+                <label class="settings-check"><input name="ai.show_tools" type="checkbox" ${settings.ai?.show_tools !== false ? 'checked' : ''}> Show tool calls<small class="field-hint">New tabs start with the commands and file edits visible.</small></label>
+              </div>
+              <h3 class="settings-subhead">Claude Code<small>Blank model or effort uses whatever the CLI already defaults to. Use the CLI's own /model command to change a conversation in progress.</small></h3>
+              <div class="settings-grid">
+                <label>Model<input name="ai.claude_model" type="text" autocomplete="off" placeholder="CLI default" value="${escapeAttr(settings.ai?.claude_model || '')}"><small class="field-hint">An alias such as opus or sonnet, or a full model name.</small></label>
+                <label>Effort<select name="ai.claude_effort">${['', 'low', 'medium', 'high', 'xhigh', 'max'].map((level) => `<option value="${level}" ${(settings.ai?.claude_effort || '') === level ? 'selected' : ''}>${level || 'CLI default'}</option>`).join('')}</select><small class="field-hint">How much thinking the model does per turn.</small></label>
+                <label class="settings-wide">Extra CLI arguments<input name="ai.claude_args" type="text" autocomplete="off" value="${escapeAttr(settings.ai?.claude_args || '')}"><small class="field-hint">Appended to Claude Code when a new tab starts. Shell operators and quoted arguments are not accepted.</small></label>
+              </div>
+              <h3 class="settings-subhead">Codex</h3>
+              <div class="settings-grid">
+                <label>Model<input name="ai.codex_model" type="text" autocomplete="off" placeholder="CLI default" value="${escapeAttr(settings.ai?.codex_model || '')}"><small class="field-hint">A model name the Codex CLI accepts.</small></label>
+                <label>Effort<input name="ai.codex_effort" type="text" autocomplete="off" placeholder="CLI default" value="${escapeAttr(settings.ai?.codex_effort || '')}"><small class="field-hint">The reasoning effort the Codex CLI accepts.</small></label>
+                <label class="settings-wide">Extra CLI arguments<input name="ai.codex_args" type="text" autocomplete="off" value="${escapeAttr(settings.ai?.codex_args || '')}"><small class="field-hint">Placed before app-server when a new tab starts. For example, --yolo runs codex --yolo app-server.</small></label>
+              </div>
+              <details class="settings-advanced">
+                <summary>Advanced</summary>
+                <div class="settings-grid">
+                  <label class="settings-check"><input name="ai.debug_log" type="checkbox" ${settings.ai?.debug_log ? 'checked' : ''}> Log the raw CLI protocol<small class="field-hint">Writes every frame to data/ai-debug.log, whole conversations included. For diagnosing a pane that misreads its CLI.</small></label>
+                </div>
+              </details>
+            </section>
             <section class="settings-section restart" id="settings-server">
               <div class="section-heading"><div><h2>Server &amp; security</h2><p>Who can reach this workspace, and the password they need. Switching to LAN saves and restarts WPS7 for you.</p></div><span class="restart-badge">△ Restart required</span></div>
               <div class="settings-grid">
                 <label>Access<select name="server.host"><option value="127.0.0.1" ${settings.server.host === '127.0.0.1' ? 'selected' : ''}>Local</option><option value="0.0.0.0" ${settings.server.host === '0.0.0.0' ? 'selected' : ''}>LAN</option></select><small class="field-hint">Local: this machine only. LAN: any device on your network, which requires a password.</small></label>
-                <label>Port<input name="server.port" type="number" min="1" max="65535" value="${escapeAttr(settings.server.port)}"><small class="field-hint">The address becomes http://127.0.0.1:&lt;port&gt;/. Takes effect after a restart.</small></label>
+                <label>Port<input name="server.port" type="number" min="1" max="65535" value="${escapeAttr(settings.server.port)}"><small class="field-hint">The address becomes ${settings.server.protocol === 'https' ? 'https' : 'http'}://127.0.0.1:&lt;port&gt;/. Takes effect after a restart.</small></label>
+                <label>Protocol<select name="server.protocol"><option value="http" ${settings.server.protocol !== 'https' ? 'selected' : ''}>HTTP</option><option value="https" ${settings.server.protocol === 'https' ? 'selected' : ''}>HTTPS</option></select><small class="field-hint">HTTPS serves a self-signed certificate generated on first use; browsers warn until you trust it. Takes effect after a restart.</small></label>
                 <label class="settings-check"><input name="server.open_browser" type="checkbox" ${settings.server.open_browser ? 'checked' : ''}> Open browser on start<small class="field-hint">Open the workspace automatically when WPS7 launches.</small></label>
                 <label class="settings-wide">${settings.auth?.password_set ? 'New password' : 'Password'}<input name="auth.password" type="password" autocomplete="new-password" aria-describedby="settings-password-rule" placeholder="${settings.auth?.password_set ? 'Leave blank to keep the current password' : 'Not set — anyone reaching this port can sign in'}"><small class="field-hint" id="settings-password-rule">At least 12 characters, including an upper case letter, a lower case letter, a number and a symbol. Saving a new one signs every device out.</small></label>
               </div>
@@ -9366,7 +9571,7 @@
           }
           status.textContent = 'Saved. Restarting WPS7…';
           showToast(status.textContent, 'success');
-          const nextUrl = `${location.protocol}//${location.hostname}:${payload.server.port}/`;
+          const nextUrl = `${payload.server.protocol === 'https' ? 'https:' : 'http:'}//${location.hostname}:${payload.server.port}/`;
           window.setTimeout(() => location.assign(nextUrl), 1800);
           return;
         }
@@ -9399,6 +9604,7 @@
       server: {
         host: form.get('server.host'),
         port: numberOrUndefined(form.get('server.port')),
+        protocol: form.get('server.protocol'),
         open_browser: form.get('server.open_browser') === 'on',
         allowed_hosts: lines(form.get('server.allowed_hosts'))
       },
@@ -9454,6 +9660,18 @@
           : form.get('usage.notify_quota') === 'on',
         codex_home: String(form.get('usage.codex_home') || '').trim(),
         claude_home: String(form.get('usage.claude_home') || '').trim()
+      },
+      ai: {
+        default_provider: form.get('ai.default_provider'),
+        show_thinking: form.get('ai.show_thinking') === 'on',
+        show_tools: form.get('ai.show_tools') === 'on',
+        claude_model: String(form.get('ai.claude_model') || '').trim(),
+        claude_effort: String(form.get('ai.claude_effort') || '').trim(),
+        claude_args: String(form.get('ai.claude_args') || '').trim(),
+        codex_model: String(form.get('ai.codex_model') || '').trim(),
+        codex_effort: String(form.get('ai.codex_effort') || '').trim(),
+        codex_args: String(form.get('ai.codex_args') || '').trim(),
+        debug_log: form.get('ai.debug_log') === 'on'
       },
       custom_theme: customThemeFromForm(form)
     };

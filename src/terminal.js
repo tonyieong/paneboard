@@ -3,7 +3,7 @@ const { fork } = require('child_process');
 const pty = require('@homebridge/node-pty-prebuilt-multiarch');
 const { Terminal: HeadlessTerminal } = require('@xterm/headless');
 const { SerializeAddon } = require('@xterm/addon-serialize');
-const { normalizeCwd, shellEnv } = require('./shell');
+const { normalizeCwd, resolveCmdShell, shellEnv, shellKind } = require('./shell');
 
 const OUTPUT_FLUSH_MS = 16;
 const DEFAULT_COLS = 100;
@@ -110,6 +110,9 @@ class TerminalManager {
     this.root = root;
     this.store = store;
     this.shell = shell;
+    // cmd panes never follow the configured PowerShell, so this one is resolved
+    // here rather than reloaded with the settings.
+    this.cmdShell = resolveCmdShell();
     this.processes = new Map();
   }
 
@@ -118,10 +121,14 @@ class TerminalManager {
     this.shell = shell;
   }
 
+  shellFor(kind) {
+    return shellKind(kind) === 'cmd' ? this.cmdShell : this.shell;
+  }
+
   findTarget(id) {
     const terminalTab = this.store.findTerminalTab(id);
     if (terminalTab) {
-      return { pane: terminalTab.pane, cwd: terminalTab.terminalTab.cwd };
+      return { pane: terminalTab.pane, cwd: terminalTab.terminalTab.cwd, shell: terminalTab.terminalTab.shell };
     }
     const found = this.store.findPane(id);
     if (!found || found.pane.type !== 'terminal') {
@@ -154,8 +161,10 @@ class TerminalManager {
     });
     const serializer = new SerializeAddon();
     headless.loadAddon(serializer);
+    const shell = this.shellFor(target.shell);
     const runtime = {
       paneId: target.pane.id,
+      shellCommand: shell.command,
       proc: null,
       headless,
       serializer,
@@ -170,8 +179,8 @@ class TerminalManager {
     };
 
     const proc = pty.spawn(
-      this.shell.command,
-      this.shell.args,
+      shell.command,
+      shell.args,
       buildPtySpawnOptions({
         cols: DEFAULT_COLS,
         rows: DEFAULT_ROWS,
@@ -322,10 +331,11 @@ class TerminalManager {
       return null;
     }
     const runtime = this.processes.get(found.pane.activeTerminalTabId) || this.processes.get(paneId);
+    const activeTab = (found.pane.terminalTabs || []).find((tab) => tab.id === found.pane.activeTerminalTabId);
     return {
       id: found.pane.id,
       status: runtime?.status || 'idle',
-      shell: this.shell.command
+      shell: runtime?.shellCommand || this.shellFor(activeTab?.shell).command
     };
   }
 

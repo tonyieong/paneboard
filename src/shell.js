@@ -22,6 +22,25 @@ function resolveCommand(command) {
   return knownPaths.find((candidate) => path.basename(candidate).toLowerCase() === command.toLowerCase() && fs.existsSync(candidate)) || '';
 }
 
+const SHELL_KINDS = new Set(['powershell', 'cmd']);
+
+function shellKind(value) {
+  return SHELL_KINDS.has(value) ? value : 'powershell';
+}
+
+function shellTitle(kind) {
+  return shellKind(kind) === 'cmd' ? 'CMD' : 'PowerShell';
+}
+
+// A cmd pane runs the shell Windows ships. shell.preferred, shell.fallback and
+// shell.args all describe PowerShell, and cmd.exe would reject those switches.
+function resolveCmdShell() {
+  return {
+    command: resolveCommand('cmd.exe') || path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe'),
+    args: []
+  };
+}
+
 function resolveShell(config) {
   const preferred = resolveCommand(config.shell.preferred);
   if (preferred) {
@@ -71,6 +90,9 @@ function normalizeCwd(cwd, root) {
 
 module.exports = {
   normalizeCwd,
+  resolveCmdShell,
   resolveShell,
-  shellEnv
+  shellEnv,
+  shellKind,
+  shellTitle
 };

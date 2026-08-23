@@ -495,6 +495,53 @@ test('usage panes persist as workspace panes', () => {
   assert.equal(restoredPane.title, 'Usage 1');
 });
 
+test('plugin panes persist their manifest id and bounded JSON data', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const store = new StateStore(root);
+  store.load();
+  const firstPaneId = store.state.sessions[0].tabs[0].panes[0].id;
+
+  const pane = store.createPluginPane(firstPaneId, 'private-dashboard', 'Private dashboard');
+  assert.equal(pane.type, 'plugin');
+  assert.equal(pane.pluginPaneId, 'private-dashboard');
+  assert.equal(pane.pluginData, '{}');
+  assert.equal(pane.title, 'Private dashboard 1');
+
+  const pluginData = JSON.stringify({ widgets: [{ id: 'clock' }] });
+  assert.equal(store.setPluginPaneData(pane.id, pluginData), true);
+
+  const reloaded = new StateStore(root);
+  reloaded.load();
+  const saved = reloaded.findPane(pane.id).pane;
+  assert.equal(saved.type, 'plugin');
+  assert.equal(saved.pluginPaneId, 'private-dashboard');
+  assert.equal(saved.pluginData, pluginData);
+  assert.equal(reloaded.getPublicState().sessions[0].tabs[0].panes.find((item) => item.id === pane.id).pluginPaneId, 'private-dashboard');
+  assert.equal(store.setPluginPaneData(pane.id, 'not json'), true);
+  assert.equal(store.findPane(pane.id).pane.pluginData, '{}');
+  assert.equal(store.setPluginPaneData(firstPaneId, pluginData), false);
+});
+
+test('legacy local panes migrate to plugin panes on load', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const store = new StateStore(root);
+  store.load();
+  store.save();
+
+  const statePath = path.join(root, 'data', 'state.json');
+  const legacy = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  const pane = legacy.sessions[0].tabs[0].panes[0];
+  pane.type = 'local';
+  pane.localPaneId = 'private-dashboard';
+  fs.writeFileSync(statePath, JSON.stringify(legacy));
+
+  const reloaded = new StateStore(root);
+  reloaded.load();
+  const migrated = reloaded.findPane(pane.id).pane;
+  assert.equal(migrated.type, 'plugin');
+  assert.equal(migrated.pluginPaneId, 'private-dashboard');
+});
+
 test('browser and notepad panes persist their URL and file path', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
   const store = new StateStore(root);
@@ -830,28 +877,33 @@ test('loading legacy panes marks them as terminal', () => {
   assert.equal(store.state.sessions[0].tabs[0].panes[0].type, 'terminal');
 });
 
-test('whiteboard panes store their Excalidraw scene as bounded JSON', () => {
+test('legacy whiteboard panes migrate to the whiteboard plugin without losing their scene', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
-  const store = new StateStore(root);
-  store.load();
-  const terminalPaneId = store.state.sessions[0].tabs[0].panes[0].id;
-  const pane = store.createWhiteboardPane(terminalPaneId);
-
-  assert.equal(pane.type, 'whiteboard');
-  assert.equal(pane.whiteboard, '{}');
-
   const scene = JSON.stringify({ elements: [{ id: 'a', type: 'rectangle' }], appState: { gridSize: 20 } });
-  assert.equal(store.setWhiteboard(pane.id, scene), true);
+  const dataDir = path.join(root, 'data');
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({
+    activeSessionId: 'session-1',
+    sessions: [{
+      id: 'session-1',
+      name: 'Workspace 1',
+      tabs: [{
+        id: 'tab-1',
+        name: 'Main',
+        activePaneId: 'pane-1',
+        panes: [{ id: 'pane-1', type: 'whiteboard', title: 'Whiteboard 1', whiteboard: scene }]
+      }]
+    }]
+  }));
 
-  const reloaded = new StateStore(root);
-  reloaded.load();
-  assert.equal(reloaded.findPane(pane.id).pane.whiteboard, scene);
-
-  // a malformed payload falls back to an empty scene rather than being stored
-  assert.equal(store.setWhiteboard(pane.id, 'not json'), true);
-  assert.equal(store.findPane(pane.id).pane.whiteboard, '{}');
-  // and only whiteboard panes accept one at all
-  assert.equal(store.setWhiteboard(terminalPaneId, scene), false);
+  const store = new StateStore(root, {
+    pluginPaneMigrations: { whiteboard: { pluginPaneId: 'whiteboard', dataField: 'whiteboard' } }
+  });
+  store.load();
+  const pane = store.findPane('pane-1').pane;
+  assert.equal(pane.type, 'plugin');
+  assert.equal(pane.pluginPaneId, 'whiteboard');
+  assert.equal(pane.pluginData, scene);
 });
 
 test('saving keeps the previous file as a backup and leaves no temp file behind', () => {
@@ -924,4 +976,233 @@ test('image panes persist only their current picture path', () => {
   const restored = reloaded.findPane(pane.id).pane;
   assert.equal(restored.type, 'image');
   assert.equal(restored.path, 'C:\\pictures\\b.png');
+});
+
+test('a cmd pane names and stores its own shell, and its tabs inherit it', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const store = new StateStore(root);
+  store.load();
+  const paneId = store.state.sessions[0].tabs[0].panes[0].id;
+
+  const cmdPane = store.splitPane(paneId, 'horizontal', 'cmd');
+  assert.equal(cmdPane.title, 'CMD 1');
+  assert.equal(cmdPane.terminalTabs[0].shell, 'cmd');
+  // The PowerShell pane it was opened from is untouched.
+  assert.equal(store.findPane(paneId).pane.terminalTabs[0].shell, 'powershell');
+
+  // The pane's own "+" button opens another cmd tab, never a PowerShell one.
+  const secondTab = store.createTerminalTab(cmdPane.id);
+  assert.equal(secondTab.shell, 'cmd');
+  assert.equal(secondTab.title, 'CMD 2');
+
+  const nextPowerShell = store.splitPane(paneId, 'horizontal');
+  assert.equal(nextPowerShell.title, 'PowerShell 2');
+  assert.equal(nextPowerShell.terminalTabs[0].shell, 'powershell');
+
+  store.save();
+  const reloaded = new StateStore(root);
+  reloaded.load();
+  assert.equal(reloaded.findPane(cmdPane.id).pane.terminalTabs[0].shell, 'cmd');
+  assert.equal(reloaded.findPane(paneId).pane.terminalTabs[0].shell, 'powershell');
+});
+
+// Closing the last tab restarts the shell in place, so it has to restart the
+// same shell rather than falling back to PowerShell.
+test('closing the last cmd tab restarts cmd', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const store = new StateStore(root);
+  store.load();
+  const paneId = store.state.sessions[0].tabs[0].panes[0].id;
+  const cmdPane = store.splitPane(paneId, 'horizontal', 'cmd');
+
+  const { replacement } = store.closeTerminalTab(cmdPane.id, cmdPane.terminalTabs[0].id);
+
+  assert.equal(replacement.shell, 'cmd');
+  assert.equal(cmdPane.terminalTabs[0].shell, 'cmd');
+});
+
+// Each AI tab is its own conversation: its own CLI process, its own provider
+// and its own resume id, exactly like a terminal pane's tabs are separate
+// shells.
+test('ai panes persist a conversation per tab', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const store = new StateStore(root);
+  store.load();
+  const firstPane = store.state.sessions[0].tabs[0].panes[0];
+
+  const pane = store.createAiPane(firstPane.id, 'claude');
+  assert.equal(pane.type, 'ai');
+  assert.equal(pane.aiTabs.length, 1);
+  assert.equal(pane.aiTabs[0].provider, 'claude');
+  assert.equal(pane.activeAiTabId, pane.aiTabs[0].id);
+
+  const second = store.createAiTab(pane.id, 'codex');
+  assert.equal(second.provider, 'codex');
+  assert.equal(pane.aiTabs.length, 2);
+  assert.equal(pane.activeAiTabId, second.id);
+
+  store.appendAiMessages(pane.id, pane.aiTabs[0].id, [
+    { role: 'user', kind: 'text', text: 'hello claude' }
+  ]);
+  store.appendAiMessages(pane.id, second.id, [
+    { role: 'user', kind: 'text', text: 'hello codex' }
+  ]);
+  store.setAiSession(pane.id, pane.aiTabs[0].id, 'claude-session-1');
+  store.setAiSession(pane.id, second.id, 'codex-thread-1');
+  store.save();
+
+  const restored = new StateStore(root);
+  restored.load();
+  const restoredPane = restored.findPane(pane.id).pane;
+  assert.equal(restoredPane.aiTabs.length, 2);
+  assert.equal(restoredPane.aiTabs[0].sessionId, 'claude-session-1');
+  assert.equal(restoredPane.aiTabs[0].messages[0].text, 'hello claude');
+  assert.equal(restoredPane.aiTabs[1].sessionId, 'codex-thread-1');
+  assert.equal(restoredPane.aiTabs[1].messages[0].text, 'hello codex');
+});
+
+test('a drop-in AI plugin provider survives a state reload', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const store = new StateStore(root);
+  store.load();
+  const firstPane = store.state.sessions[0].tabs[0].panes[0];
+  const pane = store.createAiPane(firstPane.id, 'drop-in-agent');
+
+  assert.equal(pane.aiTabs[0].provider, 'drop-in-agent');
+
+  const restored = new StateStore(root);
+  restored.load();
+  assert.equal(restored.findPane(pane.id).pane.aiTabs[0].provider, 'drop-in-agent');
+});
+
+// The transcript is the one piece of pane state that grows without bound, so
+// /api/state must not carry it; the pane's socket replays it instead.
+test('ai transcripts are saved but kept out of the public state', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const store = new StateStore(root);
+  store.load();
+  const firstPane = store.state.sessions[0].tabs[0].panes[0];
+  const pane = store.createAiPane(firstPane.id, 'claude');
+  const tabId = pane.activeAiTabId;
+
+  store.appendAiMessages(pane.id, tabId, [{ role: 'assistant', kind: 'text', text: 'hi' }]);
+  store.save();
+
+  const saved = JSON.parse(fs.readFileSync(path.join(root, 'data', 'state.json'), 'utf8'));
+  const savedPane = saved.sessions[0].tabs[0].panes.find((candidate) => candidate.type === 'ai');
+  assert.equal(savedPane.aiTabs[0].messages[0].text, 'hi');
+
+  const publicPane = store.getPublicState().sessions[0].tabs[0].panes
+    .find((candidate) => candidate.type === 'ai');
+  assert.equal(publicPane.aiTabs[0].messages, undefined);
+  assert.equal(publicPane.aiTabs[0].provider, 'claude');
+});
+
+// Dropping half a turn would leave a tool result with no tool call above it, so
+// the oldest whole turns go instead.
+test('ai history is trimmed a whole turn at a time', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const store = new StateStore(root);
+  store.load();
+  const firstPane = store.state.sessions[0].tabs[0].panes[0];
+  const pane = store.createAiPane(firstPane.id, 'claude');
+  const tabId = pane.activeAiTabId;
+
+  for (let turn = 0; turn < 900; turn += 1) {
+    store.appendAiMessages(pane.id, tabId, [
+      { turnId: `turn-${turn}`, role: 'assistant', kind: 'tool_use', tool: { name: 'Bash', input: 'echo hi' } },
+      { turnId: `turn-${turn}`, role: 'user', kind: 'tool_result', result: { output: 'hi' } }
+    ]);
+  }
+
+  const messages = store.findPane(pane.id).pane.aiTabs[0].messages;
+  assert.ok(messages.length < 1800, 'history should have been trimmed');
+  const turnIds = [...new Set(messages.filter((event) => event.turnId).map((event) => event.turnId))];
+  for (const turnId of turnIds) {
+    const inTurn = messages.filter((event) => event.turnId === turnId);
+    assert.equal(inTurn.length, 2, `turn ${turnId} should keep both of its events`);
+  }
+  assert.equal(messages[0].kind, 'notice');
+});
+
+// Clearing has to drop the CLI session id too, or the next prompt resumes the
+// conversation the user just asked to forget.
+test('clearing an ai tab drops the transcript and the resume id', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const store = new StateStore(root);
+  store.load();
+  const firstPane = store.state.sessions[0].tabs[0].panes[0];
+  const pane = store.createAiPane(firstPane.id, 'claude');
+  const tabId = pane.activeAiTabId;
+
+  store.appendAiMessages(pane.id, tabId, [{ role: 'user', kind: 'text', text: 'remember this' }]);
+  store.setAiSession(pane.id, tabId, 'session-to-forget');
+
+  assert.equal(store.clearAiTab(pane.id, tabId), true);
+  assert.deepEqual(store.findPane(pane.id).pane.aiTabs[0].messages, []);
+  assert.equal(store.findPane(pane.id).pane.aiTabs[0].sessionId, '');
+});
+
+// A pending question that is answered later is patched in place, so a reload
+// shows the answer rather than a dead set of buttons.
+test('ai question events can be answered in place', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const store = new StateStore(root);
+  store.load();
+  const firstPane = store.state.sessions[0].tabs[0].panes[0];
+  const pane = store.createAiPane(firstPane.id, 'claude');
+  const tabId = pane.activeAiTabId;
+
+  const [question] = store.appendAiMessages(pane.id, tabId, [{
+    role: 'assistant',
+    kind: 'question',
+    question: {
+      requestId: 'req-1',
+      prompt: 'Allow Write?',
+      options: [{ id: 'allow', label: 'Allow' }, { id: 'deny', label: 'Deny' }]
+    }
+  }]);
+
+  assert.equal(store.patchAiMessage(pane.id, tabId, question.id, {
+    answer: { optionIds: ['allow'], labels: ['Allow'] }
+  }), true);
+  const stored = store.findPane(pane.id).pane.aiTabs[0].messages[0];
+  assert.deepEqual(stored.answer.optionIds, ['allow']);
+  assert.equal(stored.question.requestId, 'req-1');
+});
+
+
+// A second tab is opened beside the first, so it continues with the same CLI in
+// the same folder rather than falling back to the configured default.
+test('a new ai tab follows the tab it was opened beside', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const store = new StateStore(root);
+  store.load();
+  const pane = store.createAiPane(store.state.sessions[0].tabs[0].panes[0].id, 'codex');
+  store.setAiTabCwd(pane.id, pane.activeAiTabId, root);
+
+  const inherited = store.createAiTab(pane.id);
+  assert.equal(inherited.provider, 'codex');
+  assert.equal(inherited.cwd, root);
+
+  // An explicit choice still wins, which is what the rail buttons rely on.
+  const explicit = store.createAiTab(pane.id, 'claude');
+  assert.equal(explicit.provider, 'claude');
+});
+
+test('an ai pane and tab can be started in a chosen folder', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-work-'));
+  const store = new StateStore(root);
+  store.load();
+
+  const pane = store.createAiPane(store.state.sessions[0].tabs[0].panes[0].id, 'claude', elsewhere);
+  assert.equal(pane.aiTabs[0].cwd, elsewhere);
+
+  assert.equal(store.setAiTabCwd(pane.id, pane.activeAiTabId, root), true);
+  store.save();
+
+  const restored = new StateStore(root);
+  restored.load();
+  assert.equal(restored.findPane(pane.id).pane.aiTabs[0].cwd, root);
 });

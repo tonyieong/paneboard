@@ -10,6 +10,7 @@ test('creates default config with localhost port 5000', () => {
   const { config } = loadConfig(root);
   assert.equal(config.server.host, '127.0.0.1');
   assert.equal(config.server.port, 5000);
+  assert.equal(config.server.protocol, 'http');
   assert.equal(config.ui.terminal_font_family, 'Consolas, "Cascadia Mono", monospace');
   assert.equal(config.ui.grid_size, 400);
   assert.equal(config.ui.vertical_slots, 2);
@@ -106,6 +107,47 @@ test('falls back to default port when config port is invalid', () => {
   fs.writeFileSync(path.join(root, 'config.toml'), '[server]\nport = "hello"\n');
   const { config } = loadConfig(root);
   assert.equal(config.server.port, 5000);
+});
+
+test('falls back to http when config protocol is invalid', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  fs.writeFileSync(path.join(root, 'config.toml'), '[server]\nprotocol = "ftp"\n');
+  const { config } = loadConfig(root);
+  assert.equal(config.server.protocol, 'http');
+});
+
+test('adds server.protocol to an older config file', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const configPath = path.join(root, 'config.toml');
+  fs.writeFileSync(configPath, '[server]\nhost = "127.0.0.1"\nport = 5000\n');
+
+  const { config } = loadConfig(root);
+
+  assert.equal(config.server.protocol, 'http');
+  assert.match(fs.readFileSync(configPath, 'utf8'), /^protocol = "http"$/m);
+});
+
+test('saves https protocol through updateConfigFile', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  loadConfig(root);
+
+  const { config } = updateConfigFile(root, {
+    server: { protocol: 'https' }
+  });
+
+  assert.equal(config.server.protocol, 'https');
+});
+
+test('rejects an unknown protocol through updateConfigFile', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  loadConfig(root);
+  const configPath = path.join(root, 'config.toml');
+  const before = fs.readFileSync(configPath, 'utf8');
+
+  assert.throws(() => updateConfigFile(root, {
+    server: { protocol: 'ftp' }
+  }), /protocol must be http or https/i);
+  assert.equal(fs.readFileSync(configPath, 'utf8'), before);
 });
 
 test('adds workspace defaults to an older config file', () => {
@@ -324,4 +366,36 @@ test('updates password hash without storing plain password', () => {
   const saved = fs.readFileSync(path.join(root, 'config.toml'), 'utf8');
   assert.equal(saved.includes('new-secret'), false);
   assert.equal(verifyPassword('new-secret', config.auth.password_hash), true);
+});
+
+// Older permission controls migrate to the equivalent CLI arguments so an
+// upgrade does not silently broaden or narrow an existing installation.
+test('ai CLI arguments are added to older configs and preserve legacy permissions', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  fs.writeFileSync(path.join(root, 'config.toml'), `[shell]
+preferred = "pwsh.exe"
+
+[ai]
+default_provider = "claude"
+claude_permission_mode = "default"
+codex_sandbox_mode = "workspace-write"
+codex_approval_policy = "on-request"
+`);
+
+  const { config } = loadConfig(root);
+  assert.equal(config.ai.default_provider, 'claude');
+  assert.equal(config.ai.claude_args, '--permission-mode default');
+  assert.equal(config.ai.codex_args, '--sandbox workspace-write --ask-for-approval on-request');
+  assert.equal(config.ai.show_thinking, true);
+  assert.equal(config.ai.debug_log, false);
+  assert.match(fs.readFileSync(path.join(root, 'config.toml'), 'utf8'), /^claude_args = "--permission-mode default"$/m);
+
+  updateConfigFile(root, {
+    ai: { default_provider: 'codex', claude_args: '--permission-mode plan', codex_args: '--yolo', show_tools: false }
+  });
+  const updated = loadConfig(root).config.ai;
+  assert.equal(updated.default_provider, 'codex');
+  assert.equal(updated.claude_args, '--permission-mode plan');
+  assert.equal(updated.codex_args, '--yolo');
+  assert.equal(updated.show_tools, false);
 });

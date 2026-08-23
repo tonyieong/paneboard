@@ -131,6 +131,7 @@ test('Windows packaging refreshes generated folders without nesting them', () =>
   const command = packageJson.scripts['package:win'];
   assert.match(command, /Copy-Item scripts\\\* dist\\scripts/);
   assert.match(command, /Copy-Item assets\\\* dist\\assets/);
+  assert.match(command, /Copy-Item plugin-panes\\\* dist\\plugin-panes/);
   // tools/ held nothing but the downloaded nssm.exe, so packaging no longer
   // has a directory to copy or an asset glob to embed.
   assert.doesNotMatch(command, /tools/);
@@ -139,7 +140,7 @@ test('Windows packaging refreshes generated folders without nesting them', () =>
 
 test('Windows packaging clears stale nested resource folders', () => {
   const command = packageJson.scripts['package:win'];
-  assert.match(command, /Remove-Item 'dist\\scripts\\scripts','dist\\assets\\assets' -Recurse -Force -ErrorAction SilentlyContinue/);
+  assert.match(command, /Remove-Item 'dist\\scripts\\scripts','dist\\assets\\assets','dist\\plugin-panes\\plugin-panes' -Recurse -Force -ErrorAction SilentlyContinue/);
 });
 
 test('packaging leaves the executable on the windows subsystem', { skip: process.platform !== 'win32' }, () => {
@@ -222,8 +223,9 @@ test('the redistributable ships its license notices', () => {
   const fontLicense = path.join(root, 'licenses', 'OFL-1.1.txt');
   const excalidrawNotice = path.join(
     root,
-    'public',
-    'vendor',
+    'plugin-panes',
+    'whiteboard',
+    'assets',
     'excalidraw',
     'excalidraw-with-preact.production.min.js.LICENSE.txt'
   );

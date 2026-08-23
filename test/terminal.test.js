@@ -282,3 +282,27 @@ test('terminal status does not expose a separate history API', () => {
   assert.equal(manager.getHistory, undefined);
   assert.equal(manager.getPaneStatus(paneId).status, 'idle');
 });
+
+test('a cmd tab spawns cmd.exe instead of the configured PowerShell', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const store = new StateStore(root);
+  store.load();
+  const paneId = store.state.sessions[0].tabs[0].panes[0].id;
+  const cmdPane = store.splitPane(paneId, 'horizontal', 'cmd');
+  const manager = new TerminalManager({
+    config: {},
+    root,
+    store,
+    shell: { command: 'powershell.exe', args: ['-NoLogo'] }
+  });
+
+  const cmdTarget = manager.findTarget(cmdPane.terminalTabs[0].id);
+  assert.equal(cmdTarget.shell, 'cmd');
+  assert.match(manager.shellFor(cmdTarget.shell).command, /cmd\.exe$/i);
+  // The PowerShell switches in shell.args would be rejected by cmd.exe.
+  assert.deepEqual(manager.shellFor(cmdTarget.shell).args, []);
+
+  const powerShellTarget = manager.findTarget(store.findPane(paneId).pane.terminalTabs[0].id);
+  assert.equal(manager.shellFor(powerShellTarget.shell).command, 'powershell.exe');
+  assert.deepEqual(manager.shellFor(powerShellTarget.shell).args, ['-NoLogo']);
+});

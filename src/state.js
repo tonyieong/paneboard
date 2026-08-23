@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { normalizeCwd } = require('./shell');
+const { normalizeCwd, shellKind, shellTitle } = require('./shell');
 
 const DEFAULT_GRID_SIZE = 120;
 const MIN_GRID_SIZE = 20;
@@ -14,11 +14,23 @@ const MAX_PANE_CELLS = 48;
 // The original grid laid panes out in 720x480 cells; only migration needs this.
 const LEGACY_CELL_WIDTH = 720;
 const LEGACY_CELL_HEIGHT = 480;
-const PANE_TYPES = new Set(['terminal', 'files', 'browser', 'notepad', 'image', 'usage', 'whiteboard']);
-const MAX_WHITEBOARD_LENGTH = 5 * 1024 * 1024;
+const PANE_TYPES = new Set(['terminal', 'files', 'browser', 'notepad', 'image', 'usage', 'ai', 'plugin']);
+const MAX_PLUGIN_DATA_LENGTH = 5 * 1024 * 1024;
 const NOTEPAD_ENCODINGS = new Set(['utf8', 'utf8-bom', 'utf16le', 'utf16be', 'latin1']);
 const NOTEPAD_EOLS = new Set(['crlf', 'lf', 'cr']);
 const MAX_NOTEPAD_CONTENT_LENGTH = 10 * 1024 * 1024;
+const AI_PROVIDER = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const AI_ROLES = new Set(['user', 'assistant', 'system']);
+const AI_EVENT_KINDS = new Set(['text', 'thinking', 'tool_use', 'tool_result', 'question', 'result', 'error', 'notice']);
+const AI_TOOL_STATUS = new Set(['running', 'ok', 'error']);
+// A conversation is the only pane content that grows for as long as the pane is
+// open, so it is bounded twice: by event count and by the bytes it adds to
+// state.json, which every pane shares.
+const MAX_AI_MESSAGES = 1500;
+const MAX_AI_HISTORY_BYTES = 2 * 1024 * 1024;
+const MAX_AI_TEXT_LENGTH = 64 * 1024;
+const MAX_AI_DETAIL_LENGTH = 8 * 1024;
+const AI_TRIM_NOTICE = 'Older messages were dropped from this device\'s copy of the conversation.';
 
 function paneType(value) {
   return PANE_TYPES.has(value) ? value : 'terminal';
@@ -59,13 +71,22 @@ function browserTabsForPane(pane) {
 }
 
 function terminalTab(value = {}, fallback = {}) {
+  // Which shell a tab runs is fixed when it is created; a running process
+  // cannot be swapped underneath it.
+  const shell = shellKind(value.shell || fallback.shell);
   return {
     id: value.id || crypto.randomUUID(),
-    title: String(value.title || fallback.title || 'PowerShell').slice(0, 160),
+    title: String(value.title || fallback.title || shellTitle(shell)).slice(0, 160),
     // A name the user typed outranks the title the shell keeps announcing.
     titlePinned: Boolean(value.titlePinned),
+    shell,
     cwd: String(value.cwd || fallback.cwd || '')
   };
+}
+
+function paneShellKind(pane) {
+  const active = (pane.terminalTabs || []).find((candidate) => candidate.id === pane.activeTerminalTabId);
+  return shellKind(active?.shell || pane.terminalTabs?.[0]?.shell);
 }
 
 function terminalTabsForPane(pane, fallback) {
@@ -131,6 +152,154 @@ function notepadTabsForPane(pane) {
   return { tabs, activeNotepadTabId };
 }
 
+function aiProvider(value) {
+  return AI_PROVIDER.test(String(value || '')) ? String(value) : 'claude';
+}
+
+function aiProviderTitle(provider) {
+  if (provider === 'codex') return 'Codex';
+  if (provider === 'claude') return 'Claude';
+  return String(provider || 'AI').replace(/[-_]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+// Clamps one field and reports whether anything was cut, so a bubble can say it
+// is showing a shortened command instead of silently showing half of one.
+function clampAiText(value, limit) {
+  const text = typeof value === 'string' ? value : JSON.stringify(value ?? '') || '';
+  return text.length > limit
+    ? { text: text.slice(0, limit), truncated: true }
+    : { text, truncated: false };
+}
+
+function aiEvent(value = {}) {
+  const event = {
+    id: value.id || crypto.randomUUID(),
+    turnId: String(value.turnId || '').slice(0, 80),
+    at: String(value.at || new Date().toISOString()),
+    role: AI_ROLES.has(value.role) ? value.role : 'assistant',
+    kind: AI_EVENT_KINDS.has(value.kind) ? value.kind : 'text'
+  };
+  let truncated = Boolean(value.truncated);
+  if (value.text !== undefined) {
+    const clamped = clampAiText(value.text, MAX_AI_TEXT_LENGTH);
+    event.text = clamped.text;
+    truncated = truncated || clamped.truncated;
+  }
+  if (value.tool) {
+    const input = clampAiText(value.tool.input, MAX_AI_DETAIL_LENGTH);
+    event.tool = {
+      id: String(value.tool.id || ''),
+      name: String(value.tool.name || '').slice(0, 120),
+      input: input.text,
+      language: String(value.tool.language || '').slice(0, 40),
+      status: AI_TOOL_STATUS.has(value.tool.status) ? value.tool.status : 'running'
+    };
+    truncated = truncated || input.truncated;
+  }
+  if (value.result) {
+    const output = clampAiText(value.result.output, MAX_AI_DETAIL_LENGTH);
+    event.result = {
+      toolUseId: String(value.result.toolUseId || ''),
+      output: output.text,
+      isError: Boolean(value.result.isError)
+    };
+    truncated = truncated || output.truncated;
+  }
+  if (value.question) {
+    const detail = clampAiText(value.question.detail, MAX_AI_DETAIL_LENGTH);
+    event.question = {
+      requestId: String(value.question.requestId || ''),
+      groupId: String(value.question.groupId || ''),
+      prompt: clampAiText(value.question.prompt, 2000).text,
+      detail: detail.text,
+      detailLanguage: String(value.question.detailLanguage || '').slice(0, 40),
+      multi: Boolean(value.question.multi),
+      // Both CLIs let the user answer in their own words instead of picking a
+      // listed option; the pane has to offer that, or the answer is lost.
+      allowFreeText: Boolean(value.question.allowFreeText),
+      // The options come from the CLI, so they are kept as given rather than
+      // mapped onto a fixed allow/deny pair.
+      options: (Array.isArray(value.question.options) ? value.question.options : []).slice(0, 12).map((option) => ({
+        id: String(option.id || ''),
+        label: String(option.label || '').slice(0, 200),
+        hint: String(option.hint || '').slice(0, 400)
+      }))
+    };
+    truncated = truncated || detail.truncated;
+  }
+  if (value.answer) {
+    event.answer = {
+      optionIds: (Array.isArray(value.answer.optionIds) ? value.answer.optionIds : []).slice(0, 12).map(String),
+      labels: (Array.isArray(value.answer.labels) ? value.answer.labels : []).slice(0, 12).map((label) => String(label).slice(0, 200)),
+      at: String(value.answer.at || new Date().toISOString()),
+      cancelled: Boolean(value.answer.cancelled)
+    };
+  }
+  if (value.usage) {
+    event.usage = {
+      inputTokens: Number(value.usage.inputTokens) || 0,
+      outputTokens: Number(value.usage.outputTokens) || 0,
+      durationMs: Number(value.usage.durationMs) || 0
+    };
+  }
+  if (truncated) {
+    event.truncated = true;
+  }
+  return event;
+}
+
+// Events leave a whole turn at a time: dropping half a turn would strand a tool
+// result above the call that produced it, which reads as a bug on screen.
+function truncateAiMessages(messages) {
+  const hadNotice = messages[0]?.kind === 'notice' && messages[0].text === AI_TRIM_NOTICE;
+  let kept = hadNotice ? messages.slice(1) : messages;
+  let dropped = hadNotice;
+  const dropOldestTurn = () => {
+    const { turnId } = kept[0];
+    kept = turnId ? kept.filter((event) => event.turnId !== turnId) : kept.slice(1);
+    dropped = true;
+  };
+  while (kept.length > MAX_AI_MESSAGES) {
+    dropOldestTurn();
+  }
+  // Only worth measuring once the cheap count check is satisfied.
+  while (kept.length && JSON.stringify(kept).length > MAX_AI_HISTORY_BYTES) {
+    dropOldestTurn();
+  }
+  if (!dropped) {
+    return kept;
+  }
+  return [aiEvent({ role: 'system', kind: 'notice', text: AI_TRIM_NOTICE }), ...kept];
+}
+
+function aiTab(value = {}, fallback = {}) {
+  // Which CLI a tab talks to is fixed when it is created, the same way a
+  // terminal tab's shell is: the transcript on screen belongs to that CLI's
+  // own session, and swapping it underneath would orphan the resume id.
+  const provider = aiProvider(value.provider || fallback.provider);
+  return {
+    id: value.id || crypto.randomUUID(),
+    title: String(value.title || fallback.title || aiProviderTitle(provider)).slice(0, 160),
+    titlePinned: Boolean(value.titlePinned),
+    provider,
+    cwd: String(value.cwd || fallback.cwd || ''),
+    sessionId: String(value.sessionId || '').slice(0, 200),
+    messages: truncateAiMessages((Array.isArray(value.messages) ? value.messages : []).map(aiEvent)),
+    showThinking: value.showThinking !== false,
+    showTools: value.showTools !== false
+  };
+}
+
+function aiTabsForPane(pane, fallback) {
+  const tabs = Array.isArray(pane.aiTabs) && pane.aiTabs.length
+    ? pane.aiTabs.slice(0, 50).map((tab) => aiTab(tab, fallback))
+    : [aiTab({}, fallback)];
+  const activeAiTabId = tabs.some((tab) => tab.id === pane.activeAiTabId)
+    ? pane.activeAiTabId
+    : tabs[0].id;
+  return { tabs, activeAiTabId };
+}
+
 function defaultSession(name = 'Workspace 1', paneTitle = 'PowerShell 1', verticalSlots = DEFAULT_VERTICAL_SLOTS, paneWidth = DEFAULT_PANE_CELLS, paneHeight = verticalSlots) {
   const paneId = crypto.randomUUID();
   const firstTerminalTab = terminalTab({ title: paneTitle, cwd: process.cwd() });
@@ -170,6 +339,7 @@ class StateStore {
     this.verticalSlots = clampVerticalSlots(options.verticalSlots);
     this.defaultPaneWidth = clampPaneWidth(options.defaultPaneWidth);
     this.defaultPaneHeight = clampPaneHeight(options.defaultPaneHeight, this.verticalSlots);
+    this.pluginPaneMigrations = options.pluginPaneMigrations || {};
     const session = defaultSession('Workspace 1', 'PowerShell 1', this.verticalSlots, this.defaultPaneWidth, this.defaultPaneHeight);
     this.state = {
       activeSessionId: session.id,
@@ -213,7 +383,7 @@ class StateStore {
     this.state.updatedAt = new Date().toISOString();
     const payload = JSON.stringify(this.getPersistedState(), null, 2);
     const tempPath = `${this.statePath}.tmp`;
-    // Notepad buffers and whiteboard payloads make this file large enough that
+    // Notepad buffers and plugin payloads make this file large enough that
     // losing power mid-write is a real risk, so the replacement is complete and
     // flushed to disk before it takes the place of the previous copy.
     const handle = fs.openSync(tempPath, 'w');
@@ -242,13 +412,17 @@ class StateStore {
   hydrateTab(tab) {
     const panes = [];
     for (const pane of tab.panes || []) {
+      const pluginMigration = this.pluginPaneMigrations[pane.type];
+      const type = pane.type === 'local' || pluginMigration ? 'plugin' : paneType(pane.type);
       const nextPane = {
         id: pane.id,
-        type: paneType(pane.type),
+        type,
         title: pane.title || 'PowerShell 1',
         cwd: normalizeCwd(pane.cwd, this.root),
         path: pane.path || '',
         url: pane.url || '',
+        pluginPaneId: type === 'plugin' ? String(pluginMigration?.pluginPaneId || pane.pluginPaneId || pane.localPaneId || '') : undefined,
+        pluginData: type === 'plugin' ? pluginPaneData(pluginMigration ? pane[pluginMigration.dataField] : pane.pluginData) : undefined,
         fontSize: validPaneFontSize(pane.fontSize) ? Number(pane.fontSize) : undefined,
         split: pane.split || null,
         layout: pane.layout
@@ -279,8 +453,13 @@ class StateStore {
         nextPane.activeNotepadTabId = notepadState.activeNotepadTabId;
         nextPane.path = nextPane.notepadTabs.find((tab) => tab.id === nextPane.activeNotepadTabId)?.path || '';
       }
-      if (nextPane.type === 'whiteboard') {
-        nextPane.whiteboard = whiteboardContent(pane.whiteboard);
+      if (nextPane.type === 'ai') {
+        const aiState = aiTabsForPane(pane, { cwd: nextPane.cwd });
+        nextPane.aiTabs = aiState.tabs.map((tab) => ({
+          ...tab,
+          cwd: normalizeCwd(tab.cwd, this.root)
+        }));
+        nextPane.activeAiTabId = aiState.activeAiTabId;
       }
       panes.push(nextPane);
     }
@@ -312,7 +491,8 @@ class StateStore {
             cwd: pane.cwd,
             path: pane.type === 'files' || pane.type === 'notepad' || pane.type === 'image' ? pane.path : undefined,
             url: pane.type === 'browser' ? pane.url : undefined,
-            whiteboard: pane.type === 'whiteboard' ? whiteboardContent(pane.whiteboard) : undefined,
+            pluginPaneId: pane.type === 'plugin' ? pane.pluginPaneId : undefined,
+            pluginData: pane.type === 'plugin' ? pluginPaneData(pane.pluginData) : undefined,
             terminalTabs: pane.type === 'terminal' ? pane.terminalTabs.map((tab) => terminalTab(tab)) : undefined,
             activeTerminalTabId: pane.type === 'terminal' ? pane.activeTerminalTabId : undefined,
             filesTabs: pane.type === 'files' ? pane.filesTabs.map((tab) => filesTab(tab)) : undefined,
@@ -321,6 +501,8 @@ class StateStore {
             activeBrowserTabId: pane.type === 'browser' ? pane.activeBrowserTabId : undefined,
             notepadTabs: pane.type === 'notepad' ? pane.notepadTabs.map((tab) => notepadTab(tab)) : undefined,
             activeNotepadTabId: pane.type === 'notepad' ? pane.activeNotepadTabId : undefined,
+            aiTabs: pane.type === 'ai' ? pane.aiTabs.map((tab) => aiTab(tab)) : undefined,
+            activeAiTabId: pane.type === 'ai' ? pane.activeAiTabId : undefined,
             fontSize: validPaneFontSize(pane.fontSize) ? pane.fontSize : undefined,
             split: pane.split,
             layout: sanitizeLayout(pane.layout, this.verticalSlots, this.defaultPaneWidth)
@@ -344,7 +526,8 @@ class StateStore {
             cwd: pane.cwd,
             path: pane.type === 'files' || pane.type === 'notepad' || pane.type === 'image' ? pane.path : undefined,
             url: pane.type === 'browser' ? pane.url : undefined,
-            whiteboard: pane.type === 'whiteboard' ? whiteboardContent(pane.whiteboard) : undefined,
+            pluginPaneId: pane.type === 'plugin' ? pane.pluginPaneId : undefined,
+            pluginData: pane.type === 'plugin' ? pluginPaneData(pane.pluginData) : undefined,
             terminalTabs: pane.type === 'terminal' ? pane.terminalTabs.map((tab) => terminalTab(tab)) : undefined,
             activeTerminalTabId: pane.type === 'terminal' ? pane.activeTerminalTabId : undefined,
             filesTabs: pane.type === 'files' ? pane.filesTabs.map((tab) => filesTab(tab)) : undefined,
@@ -353,6 +536,14 @@ class StateStore {
             activeBrowserTabId: pane.type === 'browser' ? pane.activeBrowserTabId : undefined,
             notepadTabs: pane.type === 'notepad' ? pane.notepadTabs.map((tab) => notepadTab(tab)) : undefined,
             activeNotepadTabId: pane.type === 'notepad' ? pane.activeNotepadTabId : undefined,
+            // Deliberately unlike getPersistedState: the transcript is replayed
+            // over the pane's own socket, so leaving it out here keeps a few
+            // long conversations from bloating every /api/state response.
+            aiTabs: pane.type === 'ai' ? pane.aiTabs.map((tab) => {
+              const { messages, ...rest } = aiTab(tab);
+              return rest;
+            }) : undefined,
+            activeAiTabId: pane.type === 'ai' ? pane.activeAiTabId : undefined,
             fontSize: validPaneFontSize(pane.fontSize) ? pane.fontSize : undefined,
             split: pane.split,
             layout: sanitizeLayout(pane.layout, this.verticalSlots, this.defaultPaneWidth)
@@ -458,15 +649,16 @@ class StateStore {
     return true;
   }
 
-  splitPane(paneId, direction) {
+  splitPane(paneId, direction, shell) {
     const found = this.findPane(paneId);
     if (!found) {
       return null;
     }
 
+    const kind = shellKind(shell);
     const layout = appendLayout(found.tab.panes, this.verticalSlots, this.defaultPaneWidth, this.defaultPaneHeight);
-    const title = nextNumberedName('PowerShell', found.tab.panes.map((candidate) => candidate.title));
-    const firstTab = terminalTab({ title, cwd: found.pane.cwd });
+    const title = nextNumberedName(shellTitle(kind), found.tab.panes.map((candidate) => candidate.title));
+    const firstTab = terminalTab({ title, shell: kind, cwd: found.pane.cwd });
     const pane = {
       id: crypto.randomUUID(),
       type: 'terminal',
@@ -572,9 +764,12 @@ class StateStore {
   createTerminalTab(paneId) {
     const found = this.findPane(paneId);
     if (!found || found.pane.type !== 'terminal' || found.pane.terminalTabs.length >= 50) return null;
+    // A new tab runs the same shell as the pane it opens in.
+    const kind = paneShellKind(found.pane);
     const tab = {
       ...terminalTab({
-        title: nextNumberedName('PowerShell', found.pane.terminalTabs.map((candidate) => candidate.title)),
+        title: nextNumberedName(shellTitle(kind), found.pane.terminalTabs.map((candidate) => candidate.title)),
+        shell: kind,
         cwd: found.pane.cwd
       })
     };
@@ -635,6 +830,7 @@ class StateStore {
         ...terminalTab({
           title: found.pane.terminalTabs[0].title,
           titlePinned: found.pane.terminalTabs[0].titlePinned,
+          shell: found.pane.terminalTabs[0].shell,
           cwd: found.pane.cwd
         })
       };
@@ -647,6 +843,158 @@ class StateStore {
     }
     this.save();
     return { replacement };
+  }
+
+  createAiPane(paneId, provider = 'claude', cwd = '') {
+    const pane = this.createUtilityPane(paneId, 'ai', 'AI', aiProvider(provider));
+    if (pane && cwd) {
+      pane.aiTabs[0].cwd = String(cwd);
+      this.save();
+    }
+    return pane;
+  }
+
+  // The pane's socket is opened per tab, so the tab id is what arrives from the
+  // browser; this is the AI equivalent of findTerminalTab.
+  findAiTabById(tabId) {
+    for (const session of this.state.sessions) {
+      for (const tab of session.tabs) {
+        for (const pane of tab.panes) {
+          if (pane.type !== 'ai') continue;
+          const aiTab = pane.aiTabs.find((candidate) => candidate.id === tabId);
+          if (aiTab) {
+            return { session, pane, tab: aiTab };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  findAiTab(paneId, tabId) {
+    const found = this.findPane(paneId);
+    if (found?.pane.type !== 'ai') return null;
+    const tab = found.pane.aiTabs.find((candidate) => candidate.id === tabId);
+    return tab ? { pane: found.pane, tab } : null;
+  }
+
+  createAiTab(paneId, provider, cwd) {
+    const found = this.findPane(paneId);
+    if (!found || found.pane.type !== 'ai' || found.pane.aiTabs.length >= 50) return null;
+    const active = found.pane.aiTabs.find((candidate) => candidate.id === found.pane.activeAiTabId);
+    // A new tab continues from the one it was opened beside: same CLI, same
+    // folder, unless the caller asked for something else.
+    const kind = aiProvider(provider || active?.provider);
+    const tab = aiTab({
+      title: nextNumberedName(aiProviderTitle(kind), found.pane.aiTabs.map((candidate) => candidate.title)),
+      provider: kind,
+      cwd: cwd || active?.cwd || found.pane.cwd
+    });
+    found.pane.aiTabs.push(tab);
+    found.pane.activeAiTabId = tab.id;
+    this.save();
+    return tab;
+  }
+
+  activateAiTab(paneId, tabId) {
+    const found = this.findAiTab(paneId, tabId);
+    if (!found) return false;
+    found.pane.activeAiTabId = found.tab.id;
+    this.save();
+    return true;
+  }
+
+  renameAiTab(paneId, tabId, title) {
+    const nextTitle = String(title || '').trim();
+    const found = this.findAiTab(paneId, tabId);
+    if (!found || !nextTitle) return false;
+    found.tab.title = nextTitle.slice(0, 160);
+    found.tab.titlePinned = true;
+    this.save();
+    return true;
+  }
+
+  closeAiTab(paneId, tabId) {
+    const found = this.findPane(paneId);
+    if (!found || found.pane.type !== 'ai') return null;
+    const index = found.pane.aiTabs.findIndex((tab) => tab.id === tabId);
+    if (index === -1) return null;
+    // Closing the last tab starts a fresh conversation rather than leaving the
+    // pane empty, matching how a terminal pane restarts its shell.
+    let replacement = null;
+    if (found.pane.aiTabs.length === 1) {
+      replacement = aiTab({
+        title: found.pane.aiTabs[0].title,
+        titlePinned: found.pane.aiTabs[0].titlePinned,
+        provider: found.pane.aiTabs[0].provider,
+        cwd: found.pane.cwd
+      });
+      found.pane.aiTabs[0] = replacement;
+    } else {
+      found.pane.aiTabs.splice(index, 1);
+    }
+    if (!found.pane.aiTabs.some((tab) => tab.id === found.pane.activeAiTabId)) {
+      found.pane.activeAiTabId = found.pane.aiTabs[Math.min(index, found.pane.aiTabs.length - 1)].id;
+    }
+    this.save();
+    return { replacement };
+  }
+
+  // Events arrive far too often for the atomic whole-file save() this store
+  // does, so appending only touches memory; the caller saves at turn
+  // boundaries instead.
+  appendAiMessages(paneId, tabId, events) {
+    const found = this.findAiTab(paneId, tabId);
+    if (!found) return [];
+    const added = (Array.isArray(events) ? events : [events]).map(aiEvent);
+    found.tab.messages = truncateAiMessages([...found.tab.messages, ...added]);
+    return added;
+  }
+
+  patchAiMessage(paneId, tabId, eventId, patch) {
+    const found = this.findAiTab(paneId, tabId);
+    const index = found ? found.tab.messages.findIndex((event) => event.id === eventId) : -1;
+    if (index === -1) return false;
+    found.tab.messages[index] = aiEvent({ ...found.tab.messages[index], ...patch });
+    return true;
+  }
+
+  // The folder is fixed when the CLI process is spawned, so the caller has to
+  // restart the tab for this to take effect.
+  setAiTabCwd(paneId, tabId, cwd) {
+    const found = this.findAiTab(paneId, tabId);
+    if (!found) return false;
+    found.tab.cwd = String(cwd || '');
+    this.save();
+    return true;
+  }
+
+  setAiSession(paneId, tabId, sessionId) {
+    const found = this.findAiTab(paneId, tabId);
+    if (!found) return false;
+    found.tab.sessionId = String(sessionId || '').slice(0, 200);
+    this.save();
+    return true;
+  }
+
+  setAiVisibility(paneId, tabId, { showThinking, showTools } = {}) {
+    const found = this.findAiTab(paneId, tabId);
+    if (!found) return false;
+    if (showThinking !== undefined) found.tab.showThinking = Boolean(showThinking);
+    if (showTools !== undefined) found.tab.showTools = Boolean(showTools);
+    this.save();
+    return true;
+  }
+
+  // Dropping the resume id is the half that actually forgets: without it the
+  // next prompt would resume the conversation the user just cleared.
+  clearAiTab(paneId, tabId) {
+    const found = this.findAiTab(paneId, tabId);
+    if (!found) return false;
+    found.tab.messages = [];
+    found.tab.sessionId = '';
+    this.save();
+    return true;
   }
 
   createBrowserPane(paneId, urlValue = '', emulationMode = 'desktop') {
@@ -754,16 +1102,16 @@ class StateStore {
     return this.createUtilityPane(paneId, 'usage', 'Usage');
   }
 
-  createWhiteboardPane(paneId) {
-    return this.createUtilityPane(paneId, 'whiteboard', 'Whiteboard', '{}', 'whiteboard');
+  createPluginPane(paneId, pluginPaneId, title) {
+    return this.createUtilityPane(paneId, 'plugin', title, pluginPaneId, 'pluginPaneId');
   }
 
-  setWhiteboard(paneId, content) {
+  setPluginPaneData(paneId, content) {
     const found = this.findPane(paneId);
-    if (!found || found.pane.type !== 'whiteboard') {
+    if (!found || found.pane.type !== 'plugin') {
       return false;
     }
-    found.pane.whiteboard = whiteboardContent(content);
+    found.pane.pluginData = pluginPaneData(content);
     this.save();
     return true;
   }
@@ -863,6 +1211,9 @@ class StateStore {
     if (property) {
       pane[property] = String(value || '');
     }
+    if (type === 'plugin') {
+      pane.pluginData = '{}';
+    }
     if (type === 'browser') {
       const tab = browserTab({ url: value, emulationMode });
       pane.browserTabs = [tab];
@@ -872,6 +1223,11 @@ class StateStore {
       const tab = notepadTab({ path: value });
       pane.notepadTabs = [tab];
       pane.activeNotepadTabId = tab.id;
+    }
+    if (type === 'ai') {
+      const tab = aiTab({ provider: value, cwd: found.pane.cwd });
+      pane.aiTabs = [tab];
+      pane.activeAiTabId = tab.id;
     }
     found.tab.panes.push(pane);
     found.tab.activePaneId = pane.id;
@@ -1189,11 +1545,11 @@ function appendLayout(panes, verticalSlots, paneWidth = DEFAULT_PANE_CELLS, pane
   return { x: right, y: 0, w: width, h: height };
 }
 
-// Excalidraw owns this payload's shape, so it is stored verbatim as a JSON
-// string; the server only checks that it parses and stays within its budget.
-function whiteboardContent(value) {
+// Host plugins own their payload shape, so the server stores JSON verbatim and
+// only checks that it parses and stays within the shared state budget.
+function pluginPaneData(value) {
   const json = typeof value === 'string' ? value : JSON.stringify(value ?? {});
-  if (typeof json !== 'string' || json.length > MAX_WHITEBOARD_LENGTH) {
+  if (typeof json !== 'string' || json.length > MAX_PLUGIN_DATA_LENGTH) {
     return '{}';
   }
   try {

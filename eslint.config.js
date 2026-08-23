@@ -30,7 +30,7 @@ module.exports = [
     ]
   },
   {
-    files: ['src/**/*.js', 'scripts/**/*.js', 'test/**/*.js', 'eslint.config.js'],
+    files: ['src/**/*.js', 'scripts/**/*.js', 'test/**/*.js', 'plugin-panes/*/server.js', 'eslint.config.js'],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'commonjs',
@@ -39,7 +39,7 @@ module.exports = [
     rules
   },
   {
-    files: ['public/**/*.js'],
+    files: ['public/**/*.js', 'plugin-panes/*/client.js'],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'script',

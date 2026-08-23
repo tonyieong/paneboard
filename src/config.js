@@ -29,6 +29,7 @@ const defaultConfig = {
   server: {
     host: '127.0.0.1',
     port: 5000,
+    protocol: 'http',
     open_browser: true,
     allowed_hosts: []
   },
@@ -97,6 +98,18 @@ const defaultConfig = {
     codex_home: '',
     claude_home: ''
   },
+  ai: {
+    default_provider: 'claude',
+    show_thinking: true,
+    show_tools: true,
+    claude_model: '',
+    claude_effort: '',
+    claude_args: '--dangerously-skip-permissions',
+    codex_model: '',
+    codex_effort: '',
+    codex_args: '--yolo',
+    debug_log: false
+  },
   custom_theme: {
     selected_light: 'wps-light',
     selected_dark: 'wps-dark',
@@ -130,13 +143,17 @@ const defaultConfig = {
 
 const defaultConfigText = `# Settings saved in the web UI update this file.
 # Hot reload: [auth], [shell], [persistence], [ui]
-# Restart wps7.exe: server.host, server.port
+# Restart wps7.exe: server.host, server.port, server.protocol
 
 [server]
-# Requires restart: host and port are bound when wps7.exe starts.
+# Requires restart: host, port and protocol are bound when wps7.exe starts.
 # Hot reload: open_browser only affects future browser opens.
 host = "127.0.0.1"
 port = 5000
+# "http" or "https". "https" serves a self-signed certificate generated on
+# first use (data/tls-cert.pem, data/tls-key.pem); browsers warn until you
+# trust it.
+protocol = "http"
 open_browser = true
 # Extra Host header values to accept, for a reverse proxy that forwards its own
 # hostname. Addresses and "localhost" are always accepted; any other name is
@@ -233,6 +250,33 @@ notify_quota = false
 codex_home = ""
 claude_home = ""
 
+[ai]
+# The AI pane drives the Claude Code and Codex CLIs signed in on this server.
+# Each tab in the pane is a separate conversation with its own CLI process.
+# Which CLI a new tab talks to, and whether new tabs start with the agent's
+# thinking and tool calls visible.
+default_provider = "claude"
+show_thinking = true
+show_tools = true
+# Defaults for new tabs only; use the CLI's own /model command to change a
+# conversation already in progress. Blank means "whatever the CLI defaults to".
+claude_model = ""
+claude_effort = ""
+codex_model = ""
+codex_effort = ""
+# Permissions default to not interrupting, because a terminal pane in this same
+# app already runs any command you ask it to -- the AI pane is not handing out
+# access that was not there already. The password and allowed_hosts checks in
+# [auth] and [server] are what actually guard this, so keep a strong password
+# set, especially when server.host is 0.0.0.0.
+# Extra CLI arguments for each provider. Codex global flags are placed before
+# app-server, so codex_args = "--yolo" launches codex --yolo app-server.
+claude_args = "--dangerously-skip-permissions"
+codex_args = "--yolo"
+# Write every raw CLI protocol frame to data/ai-debug.log. Only for diagnosing
+# a pane that misreads its CLI; the log records whole conversations.
+debug_log = false
+
 [custom_theme]
 selected_light = "wps-light"
 selected_dark = "wps-dark"
@@ -298,6 +342,9 @@ function loadConfig(root = appRoot()) {
   } else {
     config.server.port = port;
   }
+  if (config.server.protocol !== 'https') {
+    config.server.protocol = 'http';
+  }
 
   if (config.server.host === '0.0.0.0' && !config.auth.password_hash) {
     throw new Error('Binding to 0.0.0.0 requires auth.password_hash in config.toml.');
@@ -318,6 +365,7 @@ function normalizeConfigText(configText) {
     .replace(/^args\s*=\s*\[\s*\]\s*$/m, defaultShellArgsLine);
 
   nextText = ensureTomlKey(nextText, 'shell', 'extra_path', defaultConfig.shell.extra_path);
+  nextText = ensureTomlKey(nextText, 'server', 'protocol', defaultConfig.server.protocol);
 
   if (!/^\[ui\]\s*$/m.test(nextText)) {
     nextText = `${nextText.trimEnd()}
@@ -379,6 +427,28 @@ bookmarks = []
   }
   for (const key of Object.keys(defaultConfig.usage)) {
     nextText = ensureTomlKey(nextText, 'usage', key, defaultConfig.usage[key]);
+  }
+  if (!/^\[ai\]\s*$/m.test(nextText)) {
+    nextText = `${nextText.trimEnd()}\n\n[ai]\ndefault_provider = "claude"\n`;
+  }
+  if (!/^claude_args\s*=/m.test(nextText)) {
+    const legacyMode = /^claude_permission_mode\s*=\s*"([^"]+)"\s*$/m.exec(nextText)?.[1];
+    const legacyArgs = legacyMode
+      ? `--permission-mode ${legacyMode}${legacyMode === 'bypassPermissions' ? ' --allow-dangerously-skip-permissions' : ''}`
+      : defaultConfig.ai.claude_args;
+    nextText = ensureTomlKey(nextText, 'ai', 'claude_args', legacyArgs);
+  }
+  if (!/^codex_args\s*=/m.test(nextText)) {
+    const sandbox = /^codex_sandbox_mode\s*=\s*"([^"]+)"\s*$/m.exec(nextText)?.[1];
+    const approval = /^codex_approval_policy\s*=\s*"([^"]+)"\s*$/m.exec(nextText)?.[1];
+    const legacyArgs = sandbox === 'danger-full-access' && approval === 'never'
+      ? '--yolo'
+      : [sandbox && `--sandbox ${sandbox}`, approval && `--ask-for-approval ${approval}`].filter(Boolean).join(' ')
+        || defaultConfig.ai.codex_args;
+    nextText = ensureTomlKey(nextText, 'ai', 'codex_args', legacyArgs);
+  }
+  for (const key of Object.keys(defaultConfig.ai)) {
+    nextText = ensureTomlKey(nextText, 'ai', key, defaultConfig.ai[key]);
   }
   if (!/^\[terminal\]\s*$/m.test(nextText)) {
     nextText = `${nextText.trimEnd()}
@@ -460,7 +530,7 @@ function updateConfigFile(root, updates) {
   const configPath = path.join(root, 'config.toml');
   let configText = normalizeConfigText(fs.readFileSync(configPath, 'utf8'));
   const allowed = {
-    server: ['host', 'port', 'open_browser', 'allowed_hosts'],
+    server: ['host', 'port', 'protocol', 'open_browser', 'allowed_hosts'],
     auth: ['password_hash'],
     shell: ['preferred', 'fallback', 'args'],
     persistence: ['autosave_minutes'],
@@ -469,6 +539,7 @@ function updateConfigFile(root, updates) {
     file_manager: ['root_mode', 'max_upload_bytes', 'show_hidden', 'bookmarks'],
     browser: ['bookmarks', 'history'],
     usage: Object.keys(defaultConfig.usage),
+    ai: Object.keys(defaultConfig.ai),
     custom_theme: ['selected_light', 'selected_dark', 'mode', 'ink', 'panel', 'rail', 'surface', 'line', 'text', 'muted', 'accent', 'warn', 'danger', 'terminal_bg', 'terminal_fg', 'light_ink', 'light_panel', 'light_rail', 'light_surface', 'light_line', 'light_text', 'light_muted', 'light_accent', 'light_warn', 'light_danger', 'light_terminal_bg', 'light_terminal_fg']
   };
 
@@ -483,6 +554,9 @@ function updateConfigFile(root, updates) {
   const candidate = deepMerge(defaultConfig, TOML.parse(configText));
   if (candidate.server.host !== '127.0.0.1' && candidate.server.host !== '0.0.0.0') {
     throw new Error('Server access must be Local or LAN.');
+  }
+  if (candidate.server.protocol !== 'http' && candidate.server.protocol !== 'https') {
+    throw new Error('Server protocol must be http or https.');
   }
   if (candidate.server.host === '0.0.0.0' && !candidate.auth.password_hash) {
     throw new Error('LAN access requires a password.');

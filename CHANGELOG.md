@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A "New AI" entry in the sidebar. The pane it opens talks to the Claude Code or
+  Codex CLI already signed in on this machine and shows the conversation as
+  messages rather than as terminal output: the agent's thinking and its tool
+  calls each fold away behind a toggle, and when the agent asks for permission
+  or asks you a question, its own options become buttons you can click. Like a
+  PowerShell pane it holds several tabs, each one a separate conversation with
+  its own CLI process, so a Claude conversation and a Codex one can sit side by
+  side. Conversations survive a restart and reconnect to the CLI's own session,
+  and each tab has a button that clears its history and starts the agent over.
+- Separate "New Claude" and "New Codex" entries in the sidebar, so either CLI
+  starts in one click the way PowerShell and CMD each have their own entry. A
+  tab opened beside another continues with the same CLI.
+- A working folder on each AI tab, shown in its toolbar and changed through a
+  folder picker. The agent starts there and its commands run there, so you can
+  point Claude at one repository and Codex at another in the same workspace.
+  Changing it restarts that tab's CLI in the new folder and says so; the
+  conversation is kept.
+- An AI section in Settings for which CLI new tabs use, the model and effort
+  they start with, and how much the agent asks before acting. Permission prompts
+  are off by default: a terminal pane in the same workspace already runs any
+  command you give it, so the AI pane is not handing out access that was not
+  there already. The agent's own questions are always shown.
+
+### Added
+
+- Earlier conversations can be picked up again. Both CLIs keep every session on
+  disk and both accept its id later, so a tab lists what its working folder has
+  and continues the one you choose. What was on screen belonged to the
+  conversation being left behind, so it is replaced by a line saying where the
+  tab now is; the agent still holds the messages themselves.
+
+### Fixed
+
+- The slash command list only appeared after the first reply, and then showed
+  eight entries out of sixty-five. The list was read from the init frame, which
+  the CLI does not send until it has been given something to do; asking for it
+  over the control channel answers straight away instead, and carries a
+  description and an argument hint for each command. Every match is listed now,
+  in a box that scrolls. The answer is remembered for the next tab, and while a
+  tab is still waiting for its first one the menu says so rather than looking
+  empty.
+- Slash commands looked broken. Sending the text is the documented way to
+  dispatch one, but only the commands a session lists in its init frame are
+  dispatchable; the rest, `/plan` and `/status` among them, belong to the CLI's
+  own terminal and reached the model as plain text, which answered that they
+  were unavailable. Typing `/` now lists what the session actually reports,
+  minus the entries it marks as terminal-bound, and a command that is not on it
+  says so instead of being sent.
+- An agent question offered only the options the model listed. AskUserQuestion
+  always allows an answer in the user's own words and never lists that choice
+  itself, so the pane now offers it too; Codex questions marked as free-form get
+  the same box. The typed text is sent as the answer, not as a made-up option.
+- An AI tab whose CLI stopped had nothing to press. It now shows a Retry beside
+  the status, and the status itself is translated rather than left in English.
+- The image pane's "Open image…" button did nothing. It sits inside the stage,
+  which captures the pointer to pan the picture, and that capture retargeted the
+  pointerup — and the click after it — to the stage, so the button never fired.
+  Panning now leaves that button alone. The toolbar's Open button, outside the
+  stage, was never affected.
+
 ## [0.1.4] - 2026-08-17
 
 ### Added

@@ -1,0 +1,7 @@
+/* Excalidraw measures its own canvas, so the host has to be a real box. */
+.whiteboard {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
