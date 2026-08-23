@@ -8604,7 +8604,7 @@
       ? `<div class="usage-credits"><span>Credits</span><strong>${provider.credits.unlimited ? 'Unlimited' : provider.credits.balance}</strong></div>`
       : '';
     const resetExpiry = provider.resetCredits?.expiresAt
-      ? ` · expires ${new Date(provider.resetCredits.expiresAt).toLocaleDateString([], { dateStyle: 'medium' })}`
+      ? ` · expires ${new Date(provider.resetCredits.expiresAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short', hour12: false })}`
       : '';
     const resetCredits = provider.resetCredits?.count > 0
       ? `<div class="usage-credits"><span>Reset credits</span><strong>${provider.resetCredits.count}${escapeHtml(resetExpiry)}</strong></div>`
