@@ -10,6 +10,7 @@ const { setWindowsGuiSubsystem, subsystemOffset } = require('../scripts/set-wind
 const mainSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
 const traySource = fs.readFileSync(path.join(__dirname, '..', 'src', 'tray.js'), 'utf8');
 const startupInstallerSource = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'install-wps7-startup.ps1'), 'utf8');
+const releaseWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'release.yml'), 'utf8');
 
 test('Windows package includes the bundled ConPTY runtime', () => {
   const assets = packageJson.pkg?.assets || [];
@@ -141,6 +142,10 @@ test('Windows packaging refreshes generated folders without nesting them', () =>
 test('Windows packaging clears stale nested resource folders', () => {
   const command = packageJson.scripts['package:win'];
   assert.match(command, /Remove-Item 'dist\\scripts\\scripts','dist\\assets\\assets','dist\\plugin-panes\\plugin-panes' -Recurse -Force -ErrorAction SilentlyContinue/);
+});
+
+test('release archive carries the external plugin pane resources', () => {
+  assert.match(releaseWorkflow, /Copy-Item dist\/scripts, dist\/assets, dist\/plugin-panes -Destination \$stage -Recurse/);
 });
 
 test('packaging leaves the executable on the windows subsystem', { skip: process.platform !== 'win32' }, () => {

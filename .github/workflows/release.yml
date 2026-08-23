@@ -67,7 +67,7 @@ jobs:
           $stage = "staging/wps7-$version-windows-x64"
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
           Copy-Item dist/wps7.exe $stage
-          Copy-Item dist/scripts, dist/assets -Destination $stage -Recurse
+          Copy-Item dist/scripts, dist/assets, dist/plugin-panes -Destination $stage -Recurse
           # These travel with the binary because the packaged exe embeds every
           # production dependency and their licenses require the notices.
           Copy-Item LICENSE, THIRD-PARTY-LICENSES.md, README.md, SECURITY.md, config.example.toml $stage
