@@ -61,11 +61,36 @@
           blocks.push(`<pre class="ai-code"${language ? ` data-lang="${escapeAttr(language)}"` : ''}><code>${body.replace(/\n$/, '')}</code></pre>`);
           return `\u0000${blocks.length - 1}\u0000`;
         });
-      const inline = (text) => text
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-        .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
-        .replace(/~~([^~]+)~~/g, '<del>$1</del>');
+      // Only these schemes become links, so a javascript: or data: URL an
+      // agent echoes back stays plain text. The URL is already escaped, which
+      // is exactly the form an href attribute needs.
+      const link = (url, label) => (/^(https?:\/\/|mailto:)\S+$/i.test(url)
+        ? `<a class="ai-link" href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`
+        : label);
+      // [label](url) and bare URLs share one pass, so a URL inside a link is
+      // never linked a second time.
+      const links = /\[([^\]\n]*)\]\(([^\s()]+)\)|((?:https?:\/\/|mailto:)[^\s()]+)/g;
+      const inline = (text) => {
+        // Code spans are set aside first so a URL or an asterisk inside one
+        // stays literal.
+        const spans = [];
+        return text
+          .replace(/`([^`]+)`/g, (match, code) => {
+            spans.push(`<code>${code}</code>`);
+            return `\u0001${spans.length - 1}\u0001`;
+          })
+          .replace(links, (match, label, url, bare) => {
+            if (bare === undefined) return link(url, label || url);
+            // Neither a neighbouring quote or bracket, which escaping left as an
+            // entity, nor a sentence's full stop is part of the URL it touches.
+            const trimmed = bare.replace(/(&(gt|lt|quot|#039);)+$/, '').replace(/[.,:!?]+$/, '');
+            return link(trimmed, trimmed) + bare.slice(trimmed.length);
+          })
+          .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+          .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+          .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+          .replace(/\u0001(\d+)\u0001/g, (match, index) => spans[Number(index)]);
+      };
 
       const lines = escaped.split('\n');
       const isPlaced = (line) => /^\u0000\d+\u0000$/.test(line.trim());

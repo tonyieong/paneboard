@@ -2588,8 +2588,43 @@ test('Markdown structure cannot smuggle markup into the transcript', () => {
   assert.doesNotMatch(renderMarkdown('# <script>alert(1)</script>'), /<script/);
 });
 
+test('the transcript links URLs an agent writes, in both Markdown and bare form', () => {
+  const renderMarkdown = loadRenderMarkdown();
+  const href = (html) => (/href="([^"]*)"/.exec(html) || [])[1];
+
+  assert.equal(
+    renderMarkdown('[the docs](https://example.com/guide)'),
+    '<p><a class="ai-link" href="https://example.com/guide" target="_blank" rel="noopener noreferrer">the docs</a></p>'
+  );
+  assert.equal(href(renderMarkdown('see https://example.com/a')), 'https://example.com/a');
+  assert.equal(href(renderMarkdown('[me](mailto:a@b.com)')), 'mailto:a@b.com');
+  // A query string keeps its separator escaped, which is what an href needs.
+  assert.equal(href(renderMarkdown('https://example.com/?x=1&y=2')), 'https://example.com/?x=1&amp;y=2');
+  // Neighbouring punctuation and quotes belong to the sentence, not the URL.
+  assert.equal(href(renderMarkdown('go to https://example.com/b.')), 'https://example.com/b');
+  assert.equal(href(renderMarkdown('"https://example.com/c"')), 'https://example.com/c');
+
+  // Links work wherever prose does.
+  assert.match(renderMarkdown('| [docs](https://example.com) |\n| --- |\n| ok |'), /<th><a class="ai-link"/);
+  assert.match(renderMarkdown('- [one](https://example.com)'), /<li><a class="ai-link"/);
+  // A URL inside a code span is quoted output, not a link.
+  assert.equal(renderMarkdown('`https://example.com`'), '<p><code>https://example.com</code></p>');
+});
+
+test('only http, https and mailto URLs become clickable', () => {
+  const renderMarkdown = loadRenderMarkdown();
+  for (const url of ['javascript:alert(1)', 'data:text/html,x', 'vbscript:x', 'file:///C:/secret', '/etc/passwd']) {
+    const html = renderMarkdown(`[label](${url})`);
+    assert.doesNotMatch(html, /<a /, `${url} should not be a link`);
+  }
+  // Every link that is made leaves the app safely.
+  const html = renderMarkdown('[x](https://example.com)');
+  assert.match(html, /target="_blank"/);
+  assert.match(html, /rel="noopener noreferrer"/);
+});
+
 test('the transcript styles the Markdown blocks it can emit', () => {
-  for (const selector of ['.ai-log .ai-rule', '.ai-log .ai-quote', '.ai-log .ai-table-wrap', '.ai-log .ai-table th', '.ai-log .ai-table .ai-align-right']) {
+  for (const selector of ['.ai-log .ai-rule', '.ai-log .ai-quote', '.ai-log .ai-table-wrap', '.ai-log .ai-table th', '.ai-log .ai-table .ai-align-right', '.ai-log .ai-link']) {
     assert.ok(aiStyles.includes(`${selector} {`) || aiStyles.includes(`${selector},`), `${selector} is unstyled`);
   }
   // Heading depth has to be visible, not just semantic.
