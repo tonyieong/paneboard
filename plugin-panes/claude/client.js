@@ -48,9 +48,10 @@
         </div>`;
     }
 
-    // A very small Markdown subset, enough for what an agent actually writes.
-    // Everything is escaped first and the replacements only ever run over escaped
-    // text, so no path here can introduce markup.
+    // A small Markdown subset, enough for what an agent actually writes:
+    // headings, rules, lists, quotes, tables and code. Everything is escaped
+    // first and the replacements only ever run over escaped text, so no path
+    // here can introduce markup.
     function renderMarkdown(value) {
       const blocks = [];
       const escaped = escapeHtml(String(value || ''))
@@ -63,24 +64,79 @@
       const inline = (text) => text
         .replace(/`([^`]+)`/g, '<code>$1</code>')
         .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-        .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
-      const html = escaped.split(/\n{2,}/).map((paragraph) => {
-        const trimmed = paragraph.trim();
-        if (!trimmed) return '';
-        if (/^\u0000\d+\u0000$/.test(trimmed)) return trimmed;
-        const heading = /^(#{1,3})\s+(.*)$/.exec(trimmed);
-        if (heading) {
-          return `<h${heading[1].length + 2} class="ai-heading">${inline(heading[2])}</h${heading[1].length + 2}>`;
+        .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+        .replace(/~~([^~]+)~~/g, '<del>$1</del>');
+
+      const lines = escaped.split('\n');
+      const isPlaced = (line) => /^\u0000\d+\u0000$/.test(line.trim());
+      const isRule = (line) => /^\s*([-*_])(\s*\1){2,}\s*$/.test(line);
+      const isHeading = (line) => /^\s*#{1,6}\s+/.test(line);
+      const isQuote = (line) => /^\s*&gt;\s?/.test(line);
+      const isItem = (line) => /^\s*([-*]|\d+\.)\s+/.test(line);
+      // Only pipe-delimited rows count, so ordinary prose containing a bar is
+      // never mistaken for a table.
+      const isRow = (line) => /^\s*\|.*\|\s*$/.test(line);
+      const isDivider = (line) => /^\s*\|(\s*:?-+:?\s*\|)+\s*$/.test(line);
+      const isTableStart = (index) => isRow(lines[index] || '') && isDivider(lines[index + 1] || '');
+      const cells = (line) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim());
+      const alignOf = (spec) => {
+        if (/^:-+:$/.test(spec)) return ' class="ai-align-center"';
+        if (/-+:$/.test(spec)) return ' class="ai-align-right"';
+        return '';
+      };
+      const startsBlock = (index) => {
+        const line = lines[index];
+        if (line === undefined || !line.trim()) return true;
+        return isPlaced(line) || isRule(line) || isHeading(line) || isQuote(line) || isItem(line) || isTableStart(index);
+      };
+
+      const out = [];
+      let i = 0;
+      while (i < lines.length) {
+        const line = lines[i];
+        const trimmed = line.trim();
+        if (!trimmed) { i += 1; continue; }
+        if (isPlaced(line)) { out.push(trimmed); i += 1; continue; }
+        if (isRule(line)) { out.push('<hr class="ai-rule">'); i += 1; continue; }
+        if (isHeading(line)) {
+          const heading = /^\s*(#{1,6})\s+(.*)$/.exec(line);
+          // Transcript headings start at h3 so they never outrank the pane title.
+          const level = Math.min(heading[1].length + 2, 6);
+          out.push(`<h${level} class="ai-heading">${inline(heading[2].replace(/\s+#+\s*$/, ''))}</h${level}>`);
+          i += 1;
+          continue;
         }
-        const lines = trimmed.split('\n');
-        if (lines.every((line) => /^\s*([-*]|\d+\.)\s+/.test(line))) {
-          const ordered = /^\s*\d+\./.test(lines[0]);
-          const items = lines.map((line) => `<li>${inline(line.replace(/^\s*([-*]|\d+\.)\s+/, ''))}</li>`).join('');
-          return ordered ? `<ol>${items}</ol>` : `<ul>${items}</ul>`;
+        if (isTableStart(i)) {
+          const head = cells(lines[i]);
+          const aligns = cells(lines[i + 1]).map(alignOf);
+          i += 2;
+          const body = [];
+          while (i < lines.length && isRow(lines[i])) { body.push(cells(lines[i])); i += 1; }
+          const row = (values, tag) => `<tr>${values.map((cell, index) => `<${tag}${aligns[index] || ''}>${inline(cell)}</${tag}>`).join('')}</tr>`;
+          out.push(`<div class="ai-table-wrap"><table class="ai-table"><thead>${row(head, 'th')}</thead><tbody>${body.map((values) => row(values, 'td')).join('')}</tbody></table></div>`);
+          continue;
         }
-        return `<p>${inline(lines.join('<br>'))}</p>`;
-      }).join('');
-      return html.replace(/\u0000(\d+)\u0000/g, (match, index) => blocks[Number(index)]);
+        if (isQuote(line)) {
+          const quoted = [];
+          while (i < lines.length && isQuote(lines[i])) { quoted.push(lines[i].trim().replace(/^&gt;\s?/, '')); i += 1; }
+          out.push(`<blockquote class="ai-quote">${inline(quoted.join('<br>'))}</blockquote>`);
+          continue;
+        }
+        if (isItem(line)) {
+          const ordered = /^\s*\d+\./.test(line);
+          const items = [];
+          while (i < lines.length && isItem(lines[i]) && /^\s*\d+\./.test(lines[i]) === ordered) {
+            items.push(`<li>${inline(lines[i].replace(/^\s*([-*]|\d+\.)\s+/, ''))}</li>`);
+            i += 1;
+          }
+          out.push(ordered ? `<ol>${items.join('')}</ol>` : `<ul>${items.join('')}</ul>`);
+          continue;
+        }
+        const paragraph = [];
+        while (i < lines.length && !startsBlock(i)) { paragraph.push(lines[i].trim()); i += 1; }
+        out.push(`<p>${inline(paragraph.join('<br>'))}</p>`);
+      }
+      return out.join('').replace(/\u0000(\d+)\u0000/g, (match, index) => blocks[Number(index)]);
     }
 
     // The transcript is excluded from the automatic DOM translation so the

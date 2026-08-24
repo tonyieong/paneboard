@@ -2535,6 +2535,68 @@ test('agent markdown is escaped before it is formatted', () => {
   }
 });
 
+// renderMarkdown only needs the two escape helpers, so it can run outside a
+// browser the same way the terminal copy helpers do.
+function loadRenderMarkdown() {
+  const start = aiClientSource.indexOf('    function renderMarkdown(value) {');
+  const end = aiClientSource.indexOf('    // The transcript is excluded');
+  assert.ok(start >= 0 && end > start, 'renderMarkdown not found in the AI pane client');
+  const escapeHtml = (value) => String(value)
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+  const context = vm.createContext({ escapeHtml, escapeAttr: (value) => escapeHtml(value ?? '') });
+  vm.runInContext(aiClientSource.slice(start, end), context);
+  return context.renderMarkdown;
+}
+
+test('the transcript renders the Markdown an agent commonly writes', () => {
+  const renderMarkdown = loadRenderMarkdown();
+
+  assert.equal(renderMarkdown('# One'), '<h3 class="ai-heading">One</h3>');
+  assert.equal(renderMarkdown('## Two'), '<h4 class="ai-heading">Two</h4>');
+  assert.equal(renderMarkdown('### Three'), '<h5 class="ai-heading">Three</h5>');
+  assert.equal(renderMarkdown('#### Four'), '<h6 class="ai-heading">Four</h6>');
+  assert.equal(renderMarkdown('---'), '<hr class="ai-rule">');
+  assert.equal(renderMarkdown('***'), '<hr class="ai-rule">');
+
+  // A heading needs no blank line after it, which is how agents usually write.
+  assert.equal(
+    renderMarkdown('## Plan\nFirst we look.'),
+    '<h4 class="ai-heading">Plan</h4><p>First we look.</p>'
+  );
+
+  const table = renderMarkdown('| Item | Count |\n| --- | ---: |\n| alpha | 12 |');
+  assert.match(table, /<div class="ai-table-wrap"><table class="ai-table">/);
+  assert.match(table, /<th>Item<\/th><th class="ai-align-right">Count<\/th>/);
+  assert.match(table, /<td>alpha<\/td><td class="ai-align-right">12<\/td>/);
+
+  assert.equal(renderMarkdown('> note'), '<blockquote class="ai-quote">note</blockquote>');
+  assert.equal(renderMarkdown('- a\n- b'), '<ul><li>a</li><li>b</li></ul>');
+  assert.equal(renderMarkdown('1. a\n2. b'), '<ol><li>a</li><li>b</li></ol>');
+
+  // A bar in prose is not a table, and a rule inside fenced code is still code.
+  assert.equal(renderMarkdown('a | b'), '<p>a | b</p>');
+  assert.match(renderMarkdown('```\n---\n```'), /^<pre class="ai-code"><code>---<\/code><\/pre>$/);
+});
+
+test('Markdown structure cannot smuggle markup into the transcript', () => {
+  const renderMarkdown = loadRenderMarkdown();
+  const table = renderMarkdown('| <img src=x onerror=alert(1)> |\n| --- |\n| <b>no</b> |');
+  assert.doesNotMatch(table, /<img|<b>/);
+  assert.match(table, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.doesNotMatch(renderMarkdown('> <script>alert(1)</script>'), /<script/);
+  assert.doesNotMatch(renderMarkdown('# <script>alert(1)</script>'), /<script/);
+});
+
+test('the transcript styles the Markdown blocks it can emit', () => {
+  for (const selector of ['.ai-log .ai-rule', '.ai-log .ai-quote', '.ai-log .ai-table-wrap', '.ai-log .ai-table th', '.ai-log .ai-table .ai-align-right']) {
+    assert.ok(aiStyles.includes(`${selector} {`) || aiStyles.includes(`${selector},`), `${selector} is unstyled`);
+  }
+  // Heading depth has to be visible, not just semantic.
+  assert.match(aiStyles, /h3\.ai-heading \{[^}]*font-size/);
+  assert.match(aiStyles, /h4\.ai-heading \{[^}]*font-size/);
+});
+
 test('AI defaults are configurable and reach the settings form', () => {
   const section = settingsSection('settings-ai');
   for (const key of ['default_provider', 'show_thinking', 'show_tools', 'claude_model', 'claude_args', 'codex_args', 'debug_log']) {
