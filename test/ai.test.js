@@ -601,7 +601,7 @@ test('a failed codex resume says so and starts a fresh thread', () => {
   adapter.handleLine(JSON.stringify({ jsonrpc: '2.0', id: 2, error: { code: -1, message: 'no such thread' } }));
   assert.equal(written.at(-1).method, 'thread/start');
   assert.equal(events.at(-1).kind, 'notice');
-  assert.match(events.at(-1).text, /could not be resumed/);
+  assert.equal(events.at(-1).text, '--- New Session ---');
 });
 
 // A restarted thread reports the CLI's own default model, which must not
@@ -704,7 +704,7 @@ function fakeSocket() {
   return socket;
 }
 
-function managerFixture({ provider = 'claude', config = {} } = {}) {
+function managerFixture({ provider = 'claude', config = {}, env } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-ai-'));
   const store = new StateStore(root);
   store.load();
@@ -715,6 +715,7 @@ function managerFixture({ provider = 'claude', config = {} } = {}) {
     config: { ai: { claude_args: '--permission-mode bypassPermissions --allow-dangerously-skip-permissions', ...config } },
     root,
     store,
+    ...(env ? { env } : {}),
     spawnImpl: (command, args, options) => {
       const child = fakeChild();
       spawns.push({ command, args, options, child });
@@ -970,10 +971,43 @@ test('a CLI that dies before starting drops the stale resume id and retries', ()
   assert.equal(store.findAiTab(pane.id, tabId).tab.sessionId, '');
   const notice = store.findAiTab(pane.id, tabId).tab.messages.at(-1);
   assert.equal(notice.kind, 'notice');
-  assert.match(notice.text, /could not be resumed/);
+  assert.equal(notice.text, '--- New Session ---');
   // The replacement starts clean rather than resuming the same dead session.
   const relaunch = spawns.filter((call) => call.command !== 'taskkill').at(-1);
   assert.doesNotMatch(relaunch.args.join(' '), /--resume/);
+});
+
+// A prompt sent while a resume attempt is still in flight used to be echoed
+// straight away, so a failure notice that arrived moments later always landed
+// below it -- looking as if sending that prompt was what broke the session.
+test('a prompt sent while a codex resume is pending appears after its failure notice', async () => {
+  const { manager, store, pane, tabId, spawns } = managerFixture({ provider: 'codex' });
+  store.setAiSession(pane.id, tabId, 'stale-thread');
+  const socket = fakeSocket();
+  manager.attach(tabId, socket);
+  socket.fire('message', JSON.stringify({ type: 'prompt', text: 'hello' }));
+
+  const child = cliChild(spawns);
+  const lines = () => child.written.join('').trim().split('\n').map((line) => JSON.parse(line));
+  const init = lines()[0];
+  child.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: init.id, result: {} })}\n`);
+  await settle();
+
+  const resume = lines().at(-1);
+  assert.equal(resume.method, 'thread/resume');
+  child.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: resume.id, error: { code: -1, message: 'no such thread' } })}\n`);
+  await settle();
+
+  const start = lines().at(-1);
+  assert.equal(start.method, 'thread/start');
+  child.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: start.id, result: { thread: { id: 'thread-new' } } })}\n`);
+  await settle();
+
+  const events = store.findAiTab(pane.id, tabId).tab.messages;
+  assert.deepEqual(events.map((event) => event.kind), ['notice', 'text']);
+  assert.equal(events[0].text, '--- New Session ---');
+  assert.equal(events[1].role, 'user');
+  assert.equal(events[1].text, 'hello');
 });
 
 test('a tab that resumes passes its stored session id to the CLI', () => {
@@ -1522,6 +1556,33 @@ test('resuming an earlier session replaces the transcript and restarts the CLI',
   // The replacement process is told to resume the chosen conversation.
   const relaunch = spawns.filter((call) => call.command !== 'taskkill').at(-1);
   assert.match(relaunch.args.join(' '), /--resume session-from-yesterday/);
+});
+
+// The tab lost its own view of the conversation, but the CLI already wrote it
+// to disk; resuming reads that file back so the pane is not left with just a
+// note that something continues off-screen.
+test('resuming an earlier session shows the transcript the CLI already wrote', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-claude-home-'));
+  const { manager, store, pane, tabId } = managerFixture({ env: { CLAUDE_CONFIG_DIR: home } });
+  store.setAiTabCwd(pane.id, tabId, manager.root);
+  manager.attach(tabId, fakeSocket());
+
+  const dir = path.join(home, 'projects', manager.root.replace(/[^A-Za-z0-9]/g, '-'));
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'session-from-yesterday.jsonl'), [
+    { type: 'user', cwd: manager.root, message: { content: [{ type: 'text', text: 'fix the retry helper' }] } },
+    { type: 'assistant', cwd: manager.root, message: { content: [{ type: 'text', text: 'done, tests pass' }] } }
+  ].map((record) => JSON.stringify(record)).join('\n') + '\n');
+
+  assert.equal(manager.resumeSession(pane.id, tabId, 'session-from-yesterday', 'fix the retry helper'), true);
+  await settle();
+
+  const tab = store.findAiTab(pane.id, tabId).tab;
+  assert.deepEqual(tab.messages.map((event) => `${event.role}:${event.kind}:${event.text}`), [
+    'user:text:fix the retry helper',
+    'assistant:text:done, tests pass',
+    'system:notice:Now continuing an earlier conversation: fix the retry helper'
+  ]);
 });
 
 test('resuming a tab that has never been started just records the choice', () => {

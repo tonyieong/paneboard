@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const readline = require('readline');
 const { spawn } = require('child_process');
@@ -85,6 +86,103 @@ function parseCliArgs(value) {
   }
   const args = text.split(/\s+/);
   return args.every((arg) => /^[\w.:=@/\\-]+$/.test(arg)) ? args : null;
+}
+
+// The folder name claude derives from a working directory: every character
+// that is not a letter or a digit becomes a dash.
+function claudeProjectDir(cwd, home) {
+  return path.join(home, 'projects', String(cwd).replace(/[^A-Za-z0-9]/g, '-'));
+}
+
+function findFileRecursive(dir, matches, depth = 0) {
+  if (depth > 6) return '';
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    return '';
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const found = findFileRecursive(full, matches, depth + 1);
+      if (found) return found;
+    } else if (matches(entry.name)) {
+      return full;
+    }
+  }
+  return '';
+}
+
+// claude writes {type:'text'}; codex writes {type:'input_text'} for what the
+// user sent and {type:'output_text'} for what the model replied.
+function transcriptBlockText(content) {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      if (typeof block === 'string') return block;
+      if (block?.text && ['text', 'input_text', 'output_text'].includes(block.type)) return block.text;
+    }
+  }
+  return '';
+}
+
+function parseTranscriptLines(text) {
+  const records = [];
+  // A line a tail-read cut in half simply fails to parse and is skipped.
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      records.push(JSON.parse(line));
+    } catch (error) {
+      // A partial or malformed record says nothing about the conversation.
+    }
+  }
+  return records;
+}
+
+// The CLI already wrote the earlier conversation to its own session file, so
+// resuming can show what was actually said instead of just a note that
+// something continues off-screen. Read only, and best-effort: a session file
+// that has moved, or one from a CLI version with a different shape, simply
+// yields no history rather than a broken pane.
+const TRANSCRIPT_TAIL_BYTES = 8 * 1024 * 1024;
+
+function readSessionTranscript(provider, sessionId, cwd, env = process.env) {
+  if (!sessionId) return [];
+  const home = env.USERPROFILE || env.HOME || os.homedir();
+  let file = '';
+  if (provider === 'codex') {
+    const root = env.CODEX_HOME || path.join(home, '.codex');
+    file = findFileRecursive(path.join(root, 'sessions'),
+      (name) => name.startsWith('rollout-') && name.endsWith(`${sessionId}.jsonl`));
+  } else if (provider === 'claude') {
+    const root = env.CLAUDE_CONFIG_DIR || path.join(home, '.claude');
+    const candidate = path.join(claudeProjectDir(cwd, root), `${sessionId}.jsonl`);
+    file = fs.existsSync(candidate) ? candidate : '';
+  }
+  if (!file) return [];
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8').slice(-TRANSCRIPT_TAIL_BYTES);
+  } catch (error) {
+    return [];
+  }
+  const events = [];
+  for (const record of parseTranscriptLines(text)) {
+    if (provider === 'codex') {
+      if (record.type !== 'response_item') continue;
+      const payload = record.payload || {};
+      if (payload.type !== 'message' || (payload.role !== 'user' && payload.role !== 'assistant')) continue;
+      const value = transcriptBlockText(payload.content);
+      if (value) events.push({ role: payload.role, kind: 'text', text: value });
+    } else {
+      if ((record.type !== 'user' && record.type !== 'assistant') || record.isSidechain) continue;
+      const value = transcriptBlockText(record.message?.content);
+      if (value) events.push({ role: record.type, kind: 'text', text: value });
+    }
+  }
+  return events.slice(-200);
 }
 
 // /model and /effort are answered locally by the CLI -- the reply carries
@@ -782,7 +880,7 @@ class CodexAdapter {
         this.emit({
           role: 'system',
           kind: 'notice',
-          text: 'The previous CLI session could not be resumed, so a new one was started. The messages above are still on screen, but the agent can no longer see them.'
+          text: '--- New Session ---'
         });
         this.resumeId = '';
         this.request('thread/start', this.threadParams());
@@ -811,6 +909,7 @@ class CodexAdapter {
       const queued = this.queue;
       this.queue = [];
       for (const text of queued) {
+        this.emit({ role: 'user', kind: 'text', text });
         this.dispatchPrompt(text);
       }
       return;
@@ -1175,11 +1274,13 @@ class CodexAdapter {
     if (!this.activeTurnId) {
       this.turnId = crypto.randomUUID();
     }
-    this.emit({ role: 'user', kind: 'text', text });
     if (!this.threadId) {
+      // Held rather than echoed immediately: a resume attempt still in flight
+      // might fail, and its notice needs to land before this prompt, not after.
       this.queue.push(text);
       return;
     }
+    this.emit({ role: 'user', kind: 'text', text });
     this.dispatchPrompt(text);
   }
 
@@ -1448,11 +1549,12 @@ function terminateTree(child, spawnImpl) {
 }
 
 class AiManager {
-  constructor({ config, root, store, spawnImpl = spawn }) {
+  constructor({ config, root, store, spawnImpl = spawn, env = process.env }) {
     this.config = config;
     this.root = root;
     this.store = store;
     this.spawnImpl = spawnImpl;
+    this.env = env;
     // One CLI process per tab, exactly as a terminal pane runs one shell per
     // tab. Keyed by tab id because that is what the socket carries.
     this.runtimes = new Map();
@@ -1805,7 +1907,7 @@ class AiManager {
       this.recordEvent(runtime, {
         role: 'system',
         kind: 'notice',
-        text: 'The previous CLI session could not be resumed, so a new one was started. The messages above are still on screen, but the agent can no longer see them.'
+        text: '--- New Session ---'
       });
     } else {
       const stderr = stripAnsi(runtime.stderr).trim();
@@ -1898,14 +2000,17 @@ class AiManager {
     this.stopRuntime(this.runtimes.get(tabId));
   }
 
-  // Points a tab at a conversation the CLI already holds. What is on screen
-  // belongs to the one it was following, and the earlier messages live in the
-  // CLI's own store rather than here, so the transcript is replaced by a note
-  // saying where the tab now is.
+  // Points a tab at a conversation the CLI already holds. The CLI itself is
+  // what gets resumed; what is shown here is read back from the session file
+  // it already wrote, so the tab is not left with just a note that something
+  // continues off-screen.
   resumeSession(paneId, tabId, sessionId, label) {
-    if (!this.store.findAiTab(paneId, tabId)) {
+    const found = this.store.findAiTab(paneId, tabId);
+    if (!found) {
       return false;
     }
+    const cwd = normalizeCwd(found.tab.cwd || found.pane.cwd, this.root);
+    const history = readSessionTranscript(found.tab.provider, sessionId, cwd, this.env);
     this.store.clearAiTab(paneId, tabId);
     this.store.setAiSession(paneId, tabId, sessionId);
     const notice = label
@@ -1914,6 +2019,9 @@ class AiManager {
     const runtime = this.runtimes.get(tabId);
     if (!runtime) {
       // Nothing is running yet, so the next attach picks the session up.
+      if (history.length) {
+        this.store.appendAiMessages(paneId, tabId, history);
+      }
       this.store.appendAiMessages(paneId, tabId, [{ role: 'system', kind: 'notice', text: notice }]);
       this.store.save();
       return true;
@@ -1928,6 +2036,9 @@ class AiManager {
       const next = this.getOrCreate(tabId);
       for (const client of clients) {
         next.clients.add(client);
+      }
+      for (const event of history) {
+        this.recordEvent(next, event);
       }
       this.recordEvent(next, { role: 'system', kind: 'notice', text: notice });
       this.flush(next);
@@ -2013,5 +2124,6 @@ module.exports = {
   resolveClaudeModel,
   resolveClaudeEffort,
   claudeSyntheticReplyUpdate,
+  readSessionTranscript,
   CODEX_MUTED_NOTIFICATIONS
 };
