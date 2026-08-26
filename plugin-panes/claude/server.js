@@ -114,17 +114,24 @@ function findFileRecursive(dir, matches, depth = 0) {
   return '';
 }
 
-// claude writes {type:'text'}; codex writes {type:'input_text'} for what the
-// user sent and {type:'output_text'} for what the model replied.
 function transcriptBlockText(content) {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
     for (const block of content) {
       if (typeof block === 'string') return block;
-      if (block?.text && ['text', 'input_text', 'output_text'].includes(block.type)) return block.text;
+      if (block?.text && block.type === 'text') return block.text;
     }
   }
   return '';
+}
+
+// The CLI wraps its own injected context -- slash-command echoes, the caveat
+// that precedes them, environment notes -- in a record that otherwise looks
+// exactly like a real turn, and this tag is the only thing that tells them
+// apart from what the user actually typed.
+function isInjectedContext(text) {
+  const trimmed = text.trim();
+  return trimmed.startsWith('<') || trimmed.startsWith('Caveat:');
 }
 
 function parseTranscriptLines(text) {
@@ -171,15 +178,24 @@ function readSessionTranscript(provider, sessionId, cwd, env = process.env) {
   const events = [];
   for (const record of parseTranscriptLines(text)) {
     if (provider === 'codex') {
-      if (record.type !== 'response_item') continue;
+      // event_msg carries only what the user actually typed and the model's
+      // finished reply; the response_item log beside it also holds whatever
+      // context codex injected ahead of the real turns (AGENTS.md, recommended
+      // plugins, skill instructions), with no reliable way to tell those apart
+      // from a real message once they are in that shape.
+      if (record.type !== 'event_msg') continue;
       const payload = record.payload || {};
-      if (payload.type !== 'message' || (payload.role !== 'user' && payload.role !== 'assistant')) continue;
-      const value = transcriptBlockText(payload.content);
-      if (value) events.push({ role: payload.role, kind: 'text', text: value });
+      if (payload.type === 'user_message' && payload.message) {
+        events.push({ role: 'user', kind: 'text', text: payload.message });
+      } else if (payload.type === 'agent_message' && payload.phase === 'final_answer' && payload.message) {
+        events.push({ role: 'assistant', kind: 'text', text: payload.message });
+      }
     } else {
       if ((record.type !== 'user' && record.type !== 'assistant') || record.isSidechain) continue;
       const value = transcriptBlockText(record.message?.content);
-      if (value) events.push({ role: record.type, kind: 'text', text: value });
+      if (value && !isInjectedContext(value)) {
+        events.push({ role: record.type, kind: 'text', text: value });
+      }
     }
   }
   return events.slice(-200);

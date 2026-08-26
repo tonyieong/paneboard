@@ -1585,6 +1585,69 @@ test('resuming an earlier session shows the transcript the CLI already wrote', a
   ]);
 });
 
+// claude records a slash command it ran locally the same way as a real turn,
+// wrapped in tags the CLI itself recognises; showing that wrapper as if the
+// user had typed it would be as misleading as the notice this whole feature
+// replaced.
+test('resuming a claude session leaves out the CLI\'s own local-command records', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-claude-home-'));
+  const { manager, store, pane, tabId } = managerFixture({ env: { CLAUDE_CONFIG_DIR: home } });
+  store.setAiTabCwd(pane.id, tabId, manager.root);
+  manager.attach(tabId, fakeSocket());
+
+  const dir = path.join(home, 'projects', manager.root.replace(/[^A-Za-z0-9]/g, '-'));
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'session-with-caveat.jsonl'), [
+    { type: 'user', cwd: manager.root, message: { content: [{ type: 'text', text: '<local-command-caveat>Caveat: ...</local-command-caveat>' }] } },
+    { type: 'user', cwd: manager.root, message: { content: [{ type: 'text', text: '<command-name>/login</command-name>' }] } },
+    { type: 'user', cwd: manager.root, message: { content: [{ type: 'text', text: 'why does claude keep logging out' }] } },
+    { type: 'assistant', cwd: manager.root, message: { content: [{ type: 'text', text: 'the token expired' }] } }
+  ].map((record) => JSON.stringify(record)).join('\n') + '\n');
+
+  assert.equal(manager.resumeSession(pane.id, tabId, 'session-with-caveat', ''), true);
+  await settle();
+
+  const tab = store.findAiTab(pane.id, tabId).tab;
+  assert.deepEqual(tab.messages.map((event) => `${event.role}:${event.text}`), [
+    'user:why does claude keep logging out',
+    'assistant:the token expired',
+    'system:Now continuing an earlier conversation.'
+  ]);
+});
+
+// codex logs a real turn twice: once as event_msg, the clean record of what
+// was actually said, and once as response_item, which also carries whatever
+// context codex injected ahead of it (AGENTS.md, recommended plugins). Only
+// the former is safe to show back to the user.
+test('resuming a codex session leaves out injected AGENTS.md and plugin context', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-codex-home-'));
+  const { manager, store, pane, tabId } = managerFixture({ provider: 'codex', env: { CODEX_HOME: home } });
+  store.setAiTabCwd(pane.id, tabId, manager.root);
+  manager.attach(tabId, fakeSocket());
+
+  const dir = path.join(home, 'sessions', '2026', '08', '25');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'rollout-2026-08-25T09-00-00-session-from-yesterday.jsonl'), [
+    { type: 'session_meta', payload: { id: 'session-from-yesterday', cwd: manager.root } },
+    { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<recommended_plugins>\nHere is a list...' }] } },
+    { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'add a bookmark feature' }] } },
+    { type: 'event_msg', payload: { type: 'user_message', message: 'add a bookmark feature' } },
+    { type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'thinking about it' }] } },
+    { type: 'event_msg', payload: { type: 'agent_message', phase: 'commentary', message: 'thinking about it' } },
+    { type: 'event_msg', payload: { type: 'agent_message', phase: 'final_answer', message: 'added the bookmark toggle' } }
+  ].map((record) => JSON.stringify(record)).join('\n') + '\n');
+
+  assert.equal(manager.resumeSession(pane.id, tabId, 'session-from-yesterday', ''), true);
+  await settle();
+
+  const tab = store.findAiTab(pane.id, tabId).tab;
+  assert.deepEqual(tab.messages.map((event) => `${event.role}:${event.text}`), [
+    'user:add a bookmark feature',
+    'assistant:added the bookmark toggle',
+    'system:Now continuing an earlier conversation.'
+  ]);
+});
+
 test('resuming a tab that has never been started just records the choice', () => {
   const { manager, store, pane, tabId, spawns } = managerFixture();
 
