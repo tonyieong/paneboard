@@ -5456,7 +5456,7 @@ a:focus-visible {
   right: auto;
   transform: translate(-50%, -50%);
   display: grid;
-  grid-template-columns: minmax(120px, 1fr) 26px 26px;
+  grid-template-columns: minmax(120px, 1fr) repeat(3, 26px);
   gap: 3px;
   width: min(300px, calc(100% - 16px));
 }
@@ -5533,6 +5533,11 @@ a:focus-visible {
   padding: 0;
   display: grid;
   place-items: center;
+}
+
+.notepad-find-popover .notepad-input-clear,
+.notepad-replace-popover .notepad-input-clear {
+  font: 15px/1 "Segoe UI", system-ui, sans-serif;
 }
 
 .notepad-find-popover .file-action-icon,

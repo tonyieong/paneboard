@@ -578,6 +578,14 @@ test('the store can reorder a pane\'s tabs or hand one to another pane of the sa
   assert.match(source, /\(to\.pane\.type \|\| 'terminal'\) !== kind/);
 });
 
+test('AI pane tabs can be renamed with the shared inline tab editor', () => {
+  const renameSource = appSource.slice(appSource.indexOf('function renamePaneTab'), appSource.indexOf('function wirePaneTabs'));
+  assert.match(renameSource, /const tabKind = paneTabKind\(found\.pane\)/);
+  assert.match(renameSource, /paneTabs\(found\.pane\)\.find/);
+  assert.match(renameSource, /`\/api\/panes\/\$\{paneId\}\/\$\{tabKind\}\/tabs\/\$\{tabId\}`/);
+  assert.match(renameSource, /tab\.titlePinned = true/);
+});
+
 test('adding panes updates the workspace incrementally without rebuilding existing terminals', () => {
   const openFilesSource = appSource.slice(appSource.indexOf('async function openFilesPane'), appSource.indexOf('async function openUsagePane'));
   const createPaneSource = appSource.slice(appSource.indexOf('async function createPane'), appSource.indexOf('function startPaneResize'));
@@ -1492,6 +1500,14 @@ test('Notepad uses compact popovers, four-space tabs, and synchronized wrapped r
   assert.doesNotMatch(styles, /\.notepad-editor-shell\.indent-guides-on \.notepad-editor\s*\{[^}]*repeating-linear-gradient/s);
 });
 
+test('notepad find fields have one-click clear buttons', () => {
+  assert.equal(appSource.split('data-notepad-find-clear').length - 1, 3);
+  assert.match(appSource, /querySelectorAll\('\[data-notepad-find-clear\]'\)/);
+  assert.match(appSource, /find\.query = ''/);
+  assert.match(appSource, /input\.focus\(\)/);
+  assert.match(styles, /grid-template-columns:\s*minmax\(120px, 1fr\) repeat\(3, 26px\)/);
+});
+
 test('notepad find and replace popovers are draggable and closeable', () => {
   assert.match(appSource, /class="notepad-popover-header" data-notepad-popover-drag/);
   assert.match(appSource, /data-notepad-popover-close aria-label="Close find"/);
@@ -1588,6 +1604,12 @@ test('Notepad persists autosave drafts and editor toggles through the server sta
   assert.match(mainSource, /req\.body\.content !== undefined/);
   assert.match(mainSource, /\['readOnly', 'wrap', 'indentGuides', 'autosave'\]/);
   assert.match(mainSource, /req\.body\[key\] !== undefined/);
+});
+
+test('notepad autosave updates the tab strip without replacing the focused editor', () => {
+  const saveSource = appSource.slice(appSource.indexOf('async function saveNotepadTab'), appSource.indexOf('async function persistNotepadTabState'));
+  assert.match(saveSource, /if \(silent\) \{\s*updateNotepadTabStrip\(paneId\);\s*\} else \{\s*updateNotepadPane\(paneId\);\s*\}/);
+  assert.doesNotMatch(saveSource, /\n\s*updateNotepadPane\(paneId\);\s*\n\s*if \(!silent\)/);
 });
 
 test('Notepad highlights syntax through an overlay under a transparent textarea', () => {

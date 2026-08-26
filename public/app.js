@@ -1764,6 +1764,7 @@
                 <button type="button" class="notepad-popover-close" data-notepad-popover-close aria-label="Close find">×</button>
               </div>
               <input type="text" data-notepad-find-input placeholder="Find" aria-label="Find" value="${escapeAttr(data.find.query)}">
+              <button class="notepad-input-clear" type="button" data-notepad-find-clear aria-label="Clear find" title="Clear find">×</button>
               <button type="button" data-notepad-find-prev aria-label="Previous match" title="Previous match">${fileActionIcon('browser-back')}</button>
               <button type="button" data-notepad-find-next aria-label="Next match" title="Next match">${fileActionIcon('browser-forward')}</button>
               ${renderNotepadSearchOptions(data.find)}
@@ -1777,6 +1778,7 @@
                 <button type="button" class="notepad-popover-close" data-notepad-popover-close aria-label="Close replace">×</button>
               </div>
               <input type="text" data-notepad-replace-find-input placeholder="Find" aria-label="Find" value="${escapeAttr(data.find.query)}">
+              <button class="notepad-input-clear" type="button" data-notepad-find-clear aria-label="Clear find" title="Clear find">×</button>
               <button type="button" data-notepad-replace-prev aria-label="Previous match" title="Previous match">${fileActionIcon('browser-back')}</button>
               <button type="button" data-notepad-replace-next aria-label="Next match" title="Next match">${fileActionIcon('browser-forward')}</button>
               <input type="text" data-notepad-replace-input placeholder="Replace" aria-label="Replace" value="${escapeAttr(data.find.replace)}">
@@ -4435,13 +4437,16 @@
 
   function renamePaneTab(paneId, tabId) {
     const found = findPaneState(paneId);
-    const tab = found?.pane.terminalTabs?.find((candidate) => candidate.id === tabId);
+    if (!found) return;
+    const tabKind = paneTabKind(found.pane);
+    if (tabKind === 'files') return;
+    const tab = paneTabs(found.pane).find((candidate) => candidate.id === tabId);
     const tabElement = document.querySelector(`[data-pane="${paneId}"] [data-pane-tab="${tabId}"]`);
     const label = tabElement?.querySelector('.pane-tab-label');
     if (!label || !tab || tabElement.querySelector('input')) return;
     const input = document.createElement('input');
     input.className = 'pane-tab-rename-input';
-    input.setAttribute('aria-label', 'Terminal tab name');
+    input.setAttribute('aria-label', `${tabKind === 'ai' ? 'AI' : 'Terminal'} tab name`);
     input.value = tab.title;
     label.replaceWith(input);
     input.focus();
@@ -4454,14 +4459,16 @@
       const title = input.value.trim();
       if (title && title !== tab.title) {
         try {
-          await api(`/api/panes/${paneId}/terminal/tabs/${tabId}`, {
+          await api(`/api/panes/${paneId}/${tabKind}/tabs/${tabId}`, {
             method: 'PATCH', body: JSON.stringify({ title })
           });
           tab.title = title;
           // A typed name outranks whatever the shell announces from now on.
           tab.titlePinned = true;
-          window.clearTimeout(state.terminalTitleTimers.get(tabId));
-          state.terminalTitleTimers.delete(tabId);
+          if (tabKind === 'terminal') {
+            window.clearTimeout(state.terminalTitleTimers.get(tabId));
+            state.terminalTitleTimers.delete(tabId);
+          }
         } catch (error) {
           showToast(error.message);
         }
@@ -4716,7 +4723,11 @@
         });
         tab.path = result.path;
       }
-      updateNotepadPane(paneId);
+      if (silent) {
+        updateNotepadTabStrip(paneId);
+      } else {
+        updateNotepadPane(paneId);
+      }
       if (!silent) showToast('File saved.', 'success');
     } catch (error) {
       if (!silent) showToast(error.message);
@@ -5129,6 +5140,18 @@
         } else if (event.key === 'Escape') {
           hideNotepadPopovers(paneElement, true);
         }
+      };
+    });
+    paneElement.querySelectorAll('[data-notepad-find-clear]').forEach((button) => {
+      const input = button.previousElementSibling;
+      button.onclick = () => {
+        find.query = '';
+        queryInputs.forEach((queryInput) => {
+          queryInput.value = '';
+        });
+        input.focus();
+        context.refreshCaret();
+        updateNotepadSearchCount(context);
       };
     });
     if (replaceInput) {
