@@ -73,6 +73,7 @@
     shortcutsInstalled: false,
     lastSessionTap: null,
     suppressSessionClickUntil: 0,
+    suppressPaneTabClickUntil: 0,
     theme: ({ dark: 'wps-dark', light: 'wps-light', custom: 'custom-dark' })[localStorage.getItem('wps7.theme')] || localStorage.getItem('wps7.theme') || 'wps-dark',
     customThemeDraft: null,
     focusedPaneId: '',
@@ -2591,6 +2592,170 @@
     }
   }
 
+  // Dragging one of a pane's own tabs to reorder it, or dropping it on another
+  // pane of the same kind to hand it over. Reordering follows the pointer
+  // exactly like startWorkspaceTabDrag; a drop that ends over a different,
+  // type-matching pane's strip moves the tab there instead of reordering it
+  // in place. tabSelector picks out sibling tabs (".pane-tab", ".browser-tab"
+  // or ".notepad-tab"); onDrop(index, targetPaneId) performs the move.
+  function startPaneTabDrag(event, tabSelector, onDrop) {
+    if (event.button > 0) {
+      return;
+    }
+    const tab = event.currentTarget;
+    const list = tab.parentElement;
+    const originPane = tab.closest('[data-pane]');
+    let startX = event.clientX;
+    let pointerX = event.clientX;
+    let pointerY = event.clientY;
+    let anchor = 0;
+    let scrolling = 0;
+    let dragging = false;
+    let hold = 0;
+    let dropPane = null;
+
+    const setDropPane = (pane) => {
+      if (dropPane === pane) return;
+      dropPane?.classList.remove('pane-tab-drop-target');
+      dropPane = pane;
+      dropPane?.classList.add('pane-tab-drop-target');
+    };
+
+    const begin = () => {
+      dragging = true;
+      hold = 0;
+      cancelClick();
+      anchor = list.scrollLeft;
+      tab.classList.add('dragging');
+      list.classList.add('reordering');
+      scrolling = requestAnimationFrame(edgeScroll);
+    };
+
+    const offset = (pointerX) => {
+      const min = anchor - tab.offsetLeft;
+      const max = anchor + list.clientWidth - tab.offsetWidth - tab.offsetLeft;
+      return Math.max(min, Math.min(max, pointerX - startX));
+    };
+
+    const slideAside = (wasAt) => {
+      for (const [item, from] of wasAt) {
+        const shift = from - item.offsetLeft;
+        if (!shift) {
+          continue;
+        }
+        item.style.transition = 'none';
+        item.style.transform = `translateX(${shift}px)`;
+        requestAnimationFrame(() => {
+          item.style.transition = '';
+          item.style.transform = '';
+        });
+      }
+    };
+
+    const reorder = (pointerX) => {
+      const others = [...list.querySelectorAll(tabSelector)].filter((item) => item !== tab);
+      const centre = tab.offsetLeft + tab.offsetWidth / 2 + offset(pointerX);
+      const before = others.find((item) => centre < item.offsetLeft + item.offsetWidth / 2);
+      const settled = tab.offsetLeft;
+      if (before === tab.nextElementSibling || (!before && !tab.nextElementSibling)) {
+        return;
+      }
+      const wasAt = new Map(others.map((item) => [item, item.offsetLeft]));
+      list.insertBefore(tab, before || null);
+      startX += tab.offsetLeft - settled;
+      slideAside(wasAt);
+    };
+
+    const edgeScroll = () => {
+      scrolling = requestAnimationFrame(edgeScroll);
+      const bounds = list.getBoundingClientRect();
+      const past = Math.max(pointerX - bounds.right, 0) - Math.max(bounds.left - pointerX, 0);
+      const next = Math.max(0, Math.min(list.scrollWidth - list.clientWidth, anchor + Math.sign(past) * EDGE_SCROLL_PX));
+      if (!past || next === anchor) {
+        return;
+      }
+      startX -= next - anchor;
+      anchor = next;
+      list.scrollLeft = anchor;
+      reorder(pointerX);
+      tab.style.transform = `translateX(${offset(pointerX)}px)`;
+    };
+
+    // A pane only becomes a drop target when the pointer sits over a
+    // different pane of the exact same kind; the pane's own data-pane-type
+    // is already what the render side uses to decide which tab family (and
+    // so which array and route) a pane's tabs belong to.
+    const findDropPane = (x, y) => {
+      const hovered = document.elementFromPoint(x, y)?.closest('[data-pane]');
+      if (!hovered || hovered === originPane || hovered.dataset.paneType !== originPane.dataset.paneType) {
+        return null;
+      }
+      return hovered;
+    };
+
+    const onMove = (moveEvent) => {
+      pointerX = moveEvent.clientX;
+      pointerY = moveEvent.clientY;
+      const travelled = Math.abs(moveEvent.clientX - startX);
+      if (!dragging) {
+        if (hold && travelled > 6) {
+          finish();
+          return;
+        }
+        if (hold || travelled <= 6) {
+          return;
+        }
+        begin();
+      }
+      const hovered = findDropPane(pointerX, pointerY);
+      setDropPane(hovered);
+      if (hovered) {
+        // Handing off to another pane suspends reordering in this strip; the
+        // tab stays pinned at whichever edge the pointer left through.
+        tab.style.transform = `translateX(${offset(pointerX)}px)`;
+        return;
+      }
+      list.scrollLeft = anchor;
+      reorder(moveEvent.clientX);
+      tab.style.transform = `translateX(${offset(moveEvent.clientX)}px)`;
+    };
+
+    const finish = () => {
+      clearTimeout(hold);
+      cancelAnimationFrame(scrolling);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', finish);
+      tab.classList.remove('dragging');
+      list.classList.remove('reordering');
+      setDropPane(null);
+      for (const item of list.querySelectorAll(tabSelector)) {
+        item.style.transition = '';
+        item.style.transform = '';
+      }
+    };
+
+    const onUp = async () => {
+      const moved = dragging;
+      const targetPane = dropPane;
+      const index = [...list.querySelectorAll(tabSelector)].indexOf(tab);
+      finish();
+      if (!moved) {
+        return;
+      }
+      // The pointer that finished a drag must not also activate the tab.
+      state.suppressPaneTabClickUntil = Date.now() + 300;
+      await onDrop(index, targetPane?.dataset.pane || '');
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', finish);
+    if (event.pointerType === 'touch') {
+      hold = setTimeout(begin, WORKSPACE_DRAG_HOLD_MS);
+    }
+  }
+
   function narrowViewport() {
     return window.matchMedia('(max-width: 760px)').matches;
   }
@@ -3185,7 +3350,7 @@
   function wireBrowserTabs(paneElement, paneId) {
     paneElement.querySelectorAll('[data-browser-tab]').forEach((button) => {
       button.onclick = (event) => {
-        if (event.target.closest('[data-browser-close-tab]')) return;
+        if (event.target.closest('[data-browser-close-tab]') || Date.now() < state.suppressPaneTabClickUntil) return;
         state.browserConnections.get(paneId)?.send({ type: 'activateTab', tabId: button.dataset.browserTab });
       };
       button.onkeydown = (event) => {
@@ -3193,6 +3358,12 @@
           event.preventDefault();
           state.browserConnections.get(paneId)?.send({ type: 'activateTab', tabId: button.dataset.browserTab });
         }
+      };
+      button.onpointerdown = (event) => {
+        if (event.target.closest('[data-browser-close-tab]')) return;
+        startPaneTabDrag(event, '.browser-tab', (index, targetPaneId) => {
+          state.browserConnections.get(paneId)?.send({ type: 'moveTab', tabId: button.dataset.browserTab, index, targetPaneId });
+        });
       };
     });
     paneElement.querySelectorAll('[data-browser-close-tab]').forEach((button) => {
@@ -4033,10 +4204,21 @@
     input.addEventListener('blur', commit);
   }
 
+  async function moveNotepadTabClient(paneId, tabId, index, targetPaneId) {
+    try {
+      await api(`/api/panes/${paneId}/notepad/tabs/${tabId}/move`, {
+        method: 'POST', body: JSON.stringify({ index, targetPaneId })
+      });
+    } catch (error) {
+      showToast(error.message);
+    }
+    await loadState();
+  }
+
   function wireNotepadTabs(paneElement, paneId) {
     paneElement.querySelectorAll('[data-notepad-tab]').forEach((tabElement) => {
       tabElement.onclick = (event) => {
-        if (event.target.closest('[data-notepad-close-tab]')) return;
+        if (event.target.closest('[data-notepad-close-tab]') || Date.now() < state.suppressPaneTabClickUntil) return;
         activateNotepadTabClient(paneId, tabElement.dataset.notepadTab);
       };
       tabElement.onkeydown = (event) => {
@@ -4048,6 +4230,10 @@
       tabElement.ondblclick = (event) => {
         event.stopPropagation();
         editNotepadTabPath(paneId, tabElement.dataset.notepadTab);
+      };
+      tabElement.onpointerdown = (event) => {
+        if (event.target.closest('[data-notepad-close-tab]')) return;
+        startPaneTabDrag(event, '.notepad-tab', (index, targetPaneId) => moveNotepadTabClient(paneId, tabElement.dataset.notepadTab, index, targetPaneId));
       };
     });
     paneElement.querySelectorAll('[data-notepad-close-tab]').forEach((button) => {
@@ -4294,10 +4480,23 @@
     input.addEventListener('blur', commit);
   }
 
+  async function movePaneTabClient(paneId, tabId, index, targetPaneId) {
+    const found = findPaneState(paneId);
+    if (!found) return;
+    try {
+      await api(`/api/panes/${paneId}/${paneTabKind(found.pane)}/tabs/${tabId}/move`, {
+        method: 'POST', body: JSON.stringify({ index, targetPaneId })
+      });
+    } catch (error) {
+      showToast(error.message);
+    }
+    await loadState();
+  }
+
   function wirePaneTabs(root, paneId) {
     root.querySelectorAll('[data-pane-tab]').forEach((tabElement) => {
       tabElement.onclick = (event) => {
-        if (event.target.closest('[data-pane-close-tab]')) return;
+        if (event.target.closest('[data-pane-close-tab]') || Date.now() < state.suppressPaneTabClickUntil) return;
         activatePaneTabClient(paneId, tabElement.dataset.paneTab);
       };
       tabElement.onkeydown = (event) => {
@@ -4309,6 +4508,10 @@
       tabElement.ondblclick = (event) => {
         event.stopPropagation();
         renamePaneTab(paneId, tabElement.dataset.paneTab);
+      };
+      tabElement.onpointerdown = (event) => {
+        if (event.target.closest('[data-pane-close-tab], input')) return;
+        startPaneTabDrag(event, '.pane-tab', (index, targetPaneId) => movePaneTabClient(paneId, tabElement.dataset.paneTab, index, targetPaneId));
       };
     });
     root.querySelectorAll('[data-pane-close-tab]').forEach((button) => {

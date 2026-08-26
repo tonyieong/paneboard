@@ -15,6 +15,15 @@ const MAX_PANE_CELLS = 48;
 const LEGACY_CELL_WIDTH = 720;
 const LEGACY_CELL_HEIGHT = 480;
 const PANE_TYPES = new Set(['terminal', 'files', 'browser', 'notepad', 'image', 'usage', 'ai', 'plugin']);
+// Which array and active-id field a dragged tab belongs to, keyed by the same
+// kind name used in the /api/panes/:paneId/<kind>/tabs route family.
+const TAB_KIND_FIELDS = {
+  terminal: { tabs: 'terminalTabs', active: 'activeTerminalTabId' },
+  files: { tabs: 'filesTabs', active: 'activeFilesTabId' },
+  ai: { tabs: 'aiTabs', active: 'activeAiTabId' },
+  browser: { tabs: 'browserTabs', active: 'activeBrowserTabId' },
+  notepad: { tabs: 'notepadTabs', active: 'activeNotepadTabId' }
+};
 const MAX_PLUGIN_DATA_LENGTH = 5 * 1024 * 1024;
 const NOTEPAD_ENCODINGS = new Set(['utf8', 'utf8-bom', 'utf16le', 'utf16be', 'latin1']);
 const NOTEPAD_EOLS = new Set(['crlf', 'lf', 'cr']);
@@ -563,6 +572,54 @@ class StateStore {
       }
     }
     return null;
+  }
+
+  // Dragging a tab within its own strip reorders it; dragging it onto another
+  // pane of the same kind hands it over instead. A pane can never be left
+  // holding zero tabs, so the last tab in a pane cannot be dragged out of it.
+  moveTab(kind, paneId, tabId, index, targetPaneId) {
+    const fields = TAB_KIND_FIELDS[kind];
+    const from = this.findPane(paneId);
+    const target = Math.trunc(Number(index));
+    if (!fields || !from || (from.pane.type || 'terminal') !== kind || !Number.isFinite(target)) {
+      return null;
+    }
+    const fromTabs = from.pane[fields.tabs] || [];
+    const fromIndex = fromTabs.findIndex((tab) => tab.id === tabId);
+    if (fromIndex === -1) {
+      return null;
+    }
+
+    if (!targetPaneId || targetPaneId === paneId) {
+      const clamped = Math.max(0, Math.min(fromTabs.length - 1, target));
+      if (clamped !== fromIndex) {
+        const [tab] = fromTabs.splice(fromIndex, 1);
+        fromTabs.splice(clamped, 0, tab);
+        this.save();
+      }
+      return { pane: from.pane };
+    }
+
+    if (fromTabs.length <= 1) {
+      return null;
+    }
+    const to = this.findPane(targetPaneId);
+    const toTabs = to?.pane[fields.tabs];
+    if (!to || (to.pane.type || 'terminal') !== kind || !Array.isArray(toTabs) || toTabs.length >= 50) {
+      return null;
+    }
+
+    const [tab] = fromTabs.splice(fromIndex, 1);
+    if (from.pane[fields.active] === tabId) {
+      from.pane[fields.active] = fromTabs[Math.min(fromIndex, fromTabs.length - 1)].id;
+    }
+    // The dropped-on pane, not the strip the tab came from, decides where a
+    // handed-over tab lands; appending it is the one placement that always
+    // makes sense regardless of where in the old strip it was dragged from.
+    toTabs.push(tab);
+    to.pane[fields.active] = tabId;
+    this.save();
+    return { pane: to.pane, sourcePane: from.pane };
   }
 
   findTerminalTab(tabId) {

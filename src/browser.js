@@ -1284,8 +1284,28 @@ class BrowserManager {
       await this.switchClients(paneId, activeTabId);
       return;
     }
+    if (message.type === 'moveTab') {
+      await this.moveTab(paneId, message.tabId, message.index, message.targetPaneId);
+      return;
+    }
     const page = this.clientPages.get(client);
     if (page) await page.handle(message, client);
+  }
+
+  // Dragging a browser tab within its strip or onto another browser pane. The
+  // CDP page a tab already has open is keyed by tab id, not pane id, so it is
+  // simply handed to whichever pane's clients should now see it.
+  async moveTab(paneId, tabId, index, targetPaneId) {
+    const result = this.store.moveTab('browser', paneId, tabId, index, targetPaneId);
+    if (!result) throw new Error('Browser tab not found.');
+    if (!result.sourcePane) {
+      await this.switchClients(paneId, result.pane.activeBrowserTabId);
+      return;
+    }
+    const page = this.pages.get(tabId);
+    if (page) page.paneId = targetPaneId;
+    await this.switchClients(paneId, result.sourcePane.activeBrowserTabId);
+    await this.switchClients(targetPaneId, tabId);
   }
 
   async attach(paneId, client) {

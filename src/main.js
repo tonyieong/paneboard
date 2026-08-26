@@ -1684,6 +1684,26 @@ function main() {
     res.json({ ok: true });
   });
 
+  // Dragging a tab reorders it within its own pane, or hands it to another
+  // pane of the same kind when it is dropped there instead. Browser tabs move
+  // over their websocket instead, since every other browser-tab mutation does.
+  const moveTabRoute = (kind, label, onMoved) => {
+    app.post(`/api/panes/:paneId/${kind}/tabs/:tabId/move`, requireAuth(config), (req, res) => {
+      const targetPaneId = req.body.targetPaneId ? String(req.body.targetPaneId) : '';
+      const result = store.moveTab(kind, req.params.paneId, req.params.tabId, req.body.index, targetPaneId);
+      if (!result) {
+        res.status(404).json({ error: `${label} tab not found.` });
+        return;
+      }
+      if (result.sourcePane) onMoved?.(req.params.tabId, targetPaneId);
+      res.json({ ok: true });
+    });
+  };
+  moveTabRoute('terminal', 'Terminal', (tabId, targetPaneId) => terminalManager.moveTerminal(tabId, targetPaneId));
+  moveTabRoute('files', 'Files');
+  moveTabRoute('ai', 'AI');
+  moveTabRoute('notepad', 'Notepad');
+
   app.patch('/api/panes/:paneId/layout', requireAuth(config), (req, res) => {
     if (!store.findPane(req.params.paneId)) {
       res.status(404).json({ error: 'Pane not found.' });

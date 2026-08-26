@@ -350,6 +350,14 @@ class TerminalManager {
     this.processes.delete(terminalId);
   }
 
+  // The runtime's own pane id is only cached at creation, so a tab dragged to
+  // another pane leaves it stale; closing either pane would then kill (or fail
+  // to kill) the wrong terminal.
+  moveTerminal(terminalId, paneId) {
+    const runtime = this.processes.get(terminalId);
+    if (runtime) runtime.paneId = paneId;
+  }
+
   killPane(paneId) {
     this.killTerminal(paneId);
     for (const [terminalId, runtime] of [...this.processes.entries()]) {

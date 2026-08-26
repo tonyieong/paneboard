@@ -445,6 +445,55 @@ test('pane move reorders panes inside its tab', () => {
   );
 });
 
+// Dragging a pane's own tab to reorder it, or dropping it on another pane of
+// the same kind to hand it over.
+test('moveTab reorders a pane\'s own tabs and hands one to another pane of the same kind', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const store = new StateStore(root);
+  store.load();
+  const paneId = store.state.sessions[0].tabs[0].panes[0].id;
+  const otherPane = store.splitPane(paneId, 'horizontal');
+  const firstTabId = store.findPane(paneId).pane.terminalTabs[0].id;
+  const tabA = store.createTerminalTab(paneId);
+  const tabB = store.createTerminalTab(paneId);
+  const idsIn = (id) => store.findPane(id).pane.terminalTabs.map((tab) => tab.id);
+
+  assert.deepEqual(idsIn(paneId), [firstTabId, tabA.id, tabB.id]);
+  const reordered = store.moveTab('terminal', paneId, tabB.id, 0);
+  assert.deepEqual(reordered, { pane: store.findPane(paneId).pane });
+  assert.deepEqual(idsIn(paneId), [tabB.id, firstTabId, tabA.id]);
+
+  // Dropping past either end lands on it rather than falling out of the strip.
+  store.moveTab('terminal', paneId, tabB.id, 99);
+  assert.deepEqual(idsIn(paneId), [firstTabId, tabA.id, tabB.id]);
+
+  // Handing tabA over to the other terminal pane appends it there and makes
+  // it that pane's active tab, and leaves it out of the old pane entirely.
+  const result = store.moveTab('terminal', paneId, tabA.id, 0, otherPane.id);
+  assert.equal(result.pane.id, otherPane.id);
+  assert.deepEqual(idsIn(paneId), [firstTabId, tabB.id]);
+  assert.deepEqual(idsIn(otherPane.id), [otherPane.terminalTabs[0].id, tabA.id]);
+  assert.equal(store.findPane(otherPane.id).pane.activeTerminalTabId, tabA.id);
+});
+
+test('moveTab refuses to empty a pane and refuses a kind mismatch', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const store = new StateStore(root);
+  store.load();
+  const paneId = store.state.sessions[0].tabs[0].panes[0].id;
+  const filesPane = store.createFilesPane(paneId, 'C:\\');
+  const soloTabId = store.findPane(paneId).pane.terminalTabs[0].id;
+
+  // The only tab left in a pane cannot be dragged out of it.
+  assert.equal(store.moveTab('terminal', paneId, soloTabId, 0, filesPane.id), null);
+
+  // A files pane never accepts a terminal tab, even once there is a spare.
+  store.createTerminalTab(paneId);
+  assert.equal(store.moveTab('terminal', paneId, soloTabId, 0, filesPane.id), null);
+  assert.equal(store.moveTab('terminal', 'missing', soloTabId, 0), null);
+  assert.equal(store.moveTab('terminal', paneId, 'missing', 0), null);
+});
+
 test('files panes persist type and path without scrollback', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
   const store = new StateStore(root);

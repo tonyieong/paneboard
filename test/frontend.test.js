@@ -530,6 +530,54 @@ test('files and PowerShell panes share a multi-tab strip like the browser pane',
   assert.match(mainSource, /app\.delete\('\/api\/panes\/:paneId\/files\/tabs\/:tabId'/);
 });
 
+test('a pane tab can be dragged to reorder it, or dropped on another pane of the same kind to move it there', () => {
+  assert.match(appSource, /function startPaneTabDrag\(event, tabSelector, onDrop\)/);
+  const drag = appSource.slice(appSource.indexOf('function startPaneTabDrag'), appSource.indexOf('function narrowViewport'));
+  // Reuses the exact reorder physics as the workspace strip: live offset,
+  // FLIP-slide displaced tabs, and a fixed-rate edge scroll.
+  assert.match(drag, /list\.insertBefore\(tab, before \|\| null\)/);
+  assert.match(drag, /startX \+= tab\.offsetLeft - settled/);
+  assert.match(drag, /scrolling = requestAnimationFrame\(edgeScroll\)/);
+  // A drop only counts as landing on another pane when the pointer sits over
+  // a pane of the exact same kind; anything else keeps reordering in place.
+  assert.match(drag, /document\.elementFromPoint\(x, y\)\?\.closest\('\[data-pane\]'\)/);
+  assert.match(drag, /hovered\.dataset\.paneType !== originPane\.dataset\.paneType/);
+  assert.match(drag, /pane-tab-drop-target/);
+  // The click that follows a completed drag must not also activate the tab.
+  assert.match(drag, /state\.suppressPaneTabClickUntil = Date\.now\(\) \+ 300/);
+  assert.match(appSource, /Date\.now\(\) < state\.suppressPaneTabClickUntil/);
+  assert.match(styles, /\.pane-tab-drop-target\s*\{/);
+  assert.match(styles, /\.pane-tab\.dragging\s*\{[^}]*transition:\s*none/s);
+  assert.match(styles, /\.browser-tab\.dragging,\s*\.notepad-tab\.dragging\s*\{/);
+
+  // Terminal, files, and AI tabs move over the shared REST tab-kind route.
+  assert.match(appSource, /startPaneTabDrag\(event, '\.pane-tab', \(index, targetPaneId\) => movePaneTabClient/);
+  assert.match(appSource, /async function movePaneTabClient\(paneId, tabId, index, targetPaneId\)/);
+  assert.match(appSource, /\/api\/panes\/\$\{paneId\}\/\$\{paneTabKind\(found\.pane\)\}\/tabs\/\$\{tabId\}\/move/);
+  assert.match(mainSource, /app\.post\(`\/api\/panes\/:paneId\/\$\{kind\}\/tabs\/:tabId\/move`/);
+  assert.match(mainSource, /moveTabRoute\('terminal', 'Terminal', \(tabId, targetPaneId\) => terminalManager\.moveTerminal/);
+  assert.match(mainSource, /moveTabRoute\('files', 'Files'\)/);
+  assert.match(mainSource, /moveTabRoute\('ai', 'AI'\)/);
+  assert.match(mainSource, /moveTabRoute\('notepad', 'Notepad'\)/);
+
+  // Notepad tabs move over their own REST route the same way.
+  assert.match(appSource, /startPaneTabDrag\(event, '\.notepad-tab', \(index, targetPaneId\) => moveNotepadTabClient/);
+  assert.match(appSource, /\/api\/panes\/\$\{paneId\}\/notepad\/tabs\/\$\{tabId\}\/move/);
+
+  // Browser tabs move over their websocket, like every other browser tab mutation.
+  assert.match(appSource, /startPaneTabDrag\(event, '\.browser-tab', \(index, targetPaneId\) => \{\s*state\.browserConnections\.get\(paneId\)\?\.send\(\{ type: 'moveTab'/);
+  assert.match(browserSource, /if \(message\.type === 'moveTab'\) \{\s*await this\.moveTab\(paneId, message\.tabId, message\.index, message\.targetPaneId\);/);
+});
+
+test('the store can reorder a pane\'s tabs or hand one to another pane of the same kind', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src', 'state.js'), 'utf8');
+  assert.match(source, /moveTab\(kind, paneId, tabId, index, targetPaneId\)/);
+  // A pane can never be left holding zero tabs.
+  assert.match(source, /if \(fromTabs\.length <= 1\) \{\s*return null;/);
+  // The pane being dropped on has to be the same kind as the one dragged from.
+  assert.match(source, /\(to\.pane\.type \|\| 'terminal'\) !== kind/);
+});
+
 test('adding panes updates the workspace incrementally without rebuilding existing terminals', () => {
   const openFilesSource = appSource.slice(appSource.indexOf('async function openFilesPane'), appSource.indexOf('async function openUsagePane'));
   const createPaneSource = appSource.slice(appSource.indexOf('async function createPane'), appSource.indexOf('function startPaneResize'));
