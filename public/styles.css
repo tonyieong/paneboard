@@ -1600,8 +1600,6 @@ textarea {
 }
 
 @media (max-width: 760px) {
-  .app,
-  .app.sidebar-closed,
   .app.mode-auto,
   .app.mode-mobile {
     grid-template-columns: 0 minmax(0, 1fr);
@@ -3251,8 +3249,6 @@ textarea:focus-visible {
 }
 
 @media (max-width: 760px) {
-  .app,
-  .app.sidebar-closed,
   .app.mode-auto,
   .app.mode-mobile {
     grid-template-columns: 0 minmax(0, 1fr);

@@ -9788,12 +9788,13 @@
     });
     overlay.querySelector('form').addEventListener('submit', async (event) => {
       event.preventDefault();
+      const settingsForm = event.currentTarget;
       const keepSettingsOpen = event.submitter?.hasAttribute('data-settings-apply') === true;
       const status = overlay.querySelector('[data-settings-status]');
       status.textContent = 'Saving...';
       try {
         for (const name of ['terminal.browser_notifications', 'usage.notify_quota']) {
-          const notificationInput = event.currentTarget.elements[name];
+          const notificationInput = settingsForm.elements[name];
           if (notificationInput?.checked && !notificationInput?.disabled) {
             const permission = await requestBrowserNotificationPermission();
             if (permission !== 'granted') {
@@ -9802,8 +9803,8 @@
             }
           }
         }
-        const payload = settingsPayload(new FormData(event.currentTarget), event.currentTarget);
-        const skippedKeybarButtons = mobileKeybarSkippedCount(event.currentTarget);
+        const payload = settingsPayload(new FormData(settingsForm), settingsForm);
+        const skippedKeybarButtons = mobileKeybarSkippedCount(settingsForm);
         if (skippedKeybarButtons) {
           showToast(`${skippedKeybarButtons} shortcut button(s) skipped: fill in a label and a supported key or text.`);
         }
@@ -9811,7 +9812,7 @@
         const hasPassword = settings.auth?.password_set || Boolean(payload.auth?.password);
         if (payload.server.host === '0.0.0.0' && !hasPassword) {
           status.textContent = 'Set a password before enabling LAN access.';
-          const passwordInput = event.currentTarget.elements['auth.password'];
+          const passwordInput = settingsForm.elements['auth.password'];
           passwordInput.scrollIntoView({ block: 'center' });
           passwordInput.focus();
           showToast(status.textContent);

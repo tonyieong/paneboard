@@ -1078,7 +1078,7 @@ test('keybar editor shows a live preview and validates each row without silently
   assert.match(appSource, /function isSupportedShortcut\(value\)/);
   assert.match(appSource, /row\.classList\.toggle\('invalid', invalid\)/);
   assert.match(appSource, /function mobileKeybarSkippedCount\(form\)/);
-  assert.match(appSource, /skippedKeybarButtons = mobileKeybarSkippedCount\(event\.currentTarget\)/);
+  assert.match(appSource, /skippedKeybarButtons = mobileKeybarSkippedCount\(settingsForm\)/);
   assert.match(appSource, /shortcut button\(s\) skipped/);
   assert.match(styles, /\.mobile-keybar-preview\s*\{/);
   assert.match(styles, /\.mobile-keybar-setting-row\.invalid\s*\{[^}]*border-color:\s*var\(--danger\)/s);
@@ -1882,6 +1882,13 @@ test('settings apply stays open while save closes the dialog', () => {
   assert.match(appSource, /if \(!keepSettingsOpen\) \{\s*state\.customThemeDraft = null;\s*closeSettings\(false\);\s*\}/);
 });
 
+test('settings save keeps its form reference across a notification permission prompt', () => {
+  const submitHandler = coreAppSource.slice(coreAppSource.indexOf("overlay.querySelector('form').addEventListener('submit'"), coreAppSource.indexOf('function settingsPayload'));
+  assert.match(submitHandler, /const settingsForm = event\.currentTarget;/);
+  assert.match(submitHandler, /new FormData\(settingsForm\), settingsForm/);
+  assert.doesNotMatch(submitHandler.slice(submitHandler.indexOf('await requestBrowserNotificationPermission()')), /event\.currentTarget/);
+});
+
 // A title attribute never shows on a phone and only shows on desktop after a
 // hover pause, so what a setting does has to be on the page.
 test('every settings row explains itself in visible text, not a title attribute', () => {
@@ -2080,6 +2087,12 @@ test('narrow desktop mode surfaces a recovery banner that switches to mobile', (
   assert.match(appSource, /function setDisplayMode\(mode, persist = true\)/);
   assert.match(appSource, /state\.displayMode === 'desktop' && narrowViewport\(\) && !state\.dismissedDesktopBanner/);
   assert.match(styles, /\.desktop-mode-banner\s*\{[^}]*background:\s*var\(--accent-soft\)/s);
+});
+
+test('narrow desktop mode keeps the desktop sidebar column visible', () => {
+  const finalNavigation = coreStyles.slice(coreStyles.indexOf('/* Final navigation layout overrides */'), coreStyles.indexOf('/* Mobile display mode uses the same two-column shell'));
+  assert.match(finalNavigation, /@media \(max-width: 760px\) \{\s*\.app\.mode-auto,\s*\.app\.mode-mobile\s*\{[^}]*grid-template-columns:\s*0 minmax\(0, 1fr\)/s);
+  assert.doesNotMatch(finalNavigation, /@media \(max-width: 760px\) \{\s*\.app,/s);
 });
 
 test('files pane exposes a context menu with cut, paste and keyboard shortcuts wired to the move API', () => {
