@@ -2594,12 +2594,15 @@
     }
   }
 
-  // Dragging one of a pane's own tabs to reorder it, or dropping it on another
-  // pane of the same kind to hand it over. Reordering follows the pointer
-  // exactly like startWorkspaceTabDrag; a drop that ends over a different,
-  // type-matching pane's strip moves the tab there instead of reordering it
-  // in place. tabSelector picks out sibling tabs (".pane-tab", ".browser-tab"
-  // or ".notepad-tab"); onDrop(index, targetPaneId) performs the move.
+  // Picking up one of a pane's own tabs: it lifts out of the strip and
+  // follows the pointer freely (both axes), leaving a placeholder behind to
+  // mark where it would land. Hovering the origin pane reorders the
+  // placeholder in place; hovering a different pane of the same kind offers
+  // a hand-over instead. Releasing over neither (outside every pane, or over
+  // a pane of a different kind) is not a valid drop, so the tab animates
+  // back to the exact slot it started in. tabSelector picks out sibling tabs
+  // (".pane-tab", ".browser-tab" or ".notepad-tab"); onDrop(index,
+  // targetPaneId) performs the move once a valid drop is confirmed.
   function startPaneTabDrag(event, tabSelector, onDrop) {
     if (event.button > 0) {
       return;
@@ -2607,14 +2610,19 @@
     const tab = event.currentTarget;
     const list = tab.parentElement;
     const originPane = tab.closest('[data-pane]');
-    let startX = event.clientX;
+    const startClientX = event.clientX;
+    const startClientY = event.clientY;
     let pointerX = event.clientX;
     let pointerY = event.clientY;
-    let anchor = 0;
+    let grabOffsetX = 0;
+    let grabOffsetY = 0;
+    let originRect = null;
     let scrolling = 0;
     let dragging = false;
     let hold = 0;
     let dropPane = null;
+    let placeholder = null;
+    let target = 'invalid';
 
     const setDropPane = (pane) => {
       if (dropPane === pane) return;
@@ -2627,78 +2635,81 @@
       dragging = true;
       hold = 0;
       cancelClick();
-      anchor = list.scrollLeft;
+      originRect = tab.getBoundingClientRect();
+      grabOffsetX = startClientX - originRect.left;
+      grabOffsetY = startClientY - originRect.top;
+      placeholder = document.createElement('div');
+      placeholder.className = 'pane-tab-placeholder';
+      placeholder.style.width = `${originRect.width}px`;
+      placeholder.style.height = `${originRect.height}px`;
+      list.insertBefore(placeholder, tab);
+      tab.style.position = 'fixed';
+      tab.style.left = `${originRect.left}px`;
+      tab.style.top = `${originRect.top}px`;
+      tab.style.width = `${originRect.width}px`;
+      tab.style.height = `${originRect.height}px`;
+      tab.style.margin = '0';
+      tab.style.zIndex = '1000';
+      tab.style.pointerEvents = 'none';
       tab.classList.add('dragging');
       list.classList.add('reordering');
       scrolling = requestAnimationFrame(edgeScroll);
     };
 
-    const offset = (pointerX) => {
-      const min = anchor - tab.offsetLeft;
-      const max = anchor + list.clientWidth - tab.offsetWidth - tab.offsetLeft;
-      return Math.max(min, Math.min(max, pointerX - startX));
+    const moveTabTo = (x, y) => {
+      tab.style.left = `${x - grabOffsetX}px`;
+      tab.style.top = `${y - grabOffsetY}px`;
     };
 
-    const slideAside = (wasAt) => {
-      for (const [item, from] of wasAt) {
-        const shift = from - item.offsetLeft;
-        if (!shift) {
-          continue;
-        }
-        item.style.transition = 'none';
-        item.style.transform = `translateX(${shift}px)`;
-        requestAnimationFrame(() => {
-          item.style.transition = '';
-          item.style.transform = '';
-        });
-      }
-    };
-
-    const reorder = (pointerX) => {
+    // Slots the placeholder in wherever the pointer's x-position puts it
+    // among the origin list's other tabs; the floating tab itself never
+    // moves in the DOM, so it always has an exact slot to return to.
+    const reorderPlaceholder = (x) => {
       const others = [...list.querySelectorAll(tabSelector)].filter((item) => item !== tab);
-      const centre = tab.offsetLeft + tab.offsetWidth / 2 + offset(pointerX);
-      const before = others.find((item) => centre < item.offsetLeft + item.offsetWidth / 2);
-      const settled = tab.offsetLeft;
-      if (before === tab.nextElementSibling || (!before && !tab.nextElementSibling)) {
+      const before = others.find((item) => {
+        const rect = item.getBoundingClientRect();
+        return x < rect.left + rect.width / 2;
+      });
+      if (before === placeholder.nextElementSibling || (!before && !placeholder.nextElementSibling)) {
         return;
       }
-      const wasAt = new Map(others.map((item) => [item, item.offsetLeft]));
-      list.insertBefore(tab, before || null);
-      startX += tab.offsetLeft - settled;
-      slideAside(wasAt);
+      list.insertBefore(placeholder, before || null);
     };
 
     const edgeScroll = () => {
       scrolling = requestAnimationFrame(edgeScroll);
-      const bounds = list.getBoundingClientRect();
-      const past = Math.max(pointerX - bounds.right, 0) - Math.max(bounds.left - pointerX, 0);
-      const next = Math.max(0, Math.min(list.scrollWidth - list.clientWidth, anchor + Math.sign(past) * EDGE_SCROLL_PX));
-      if (!past || next === anchor) {
+      if (target !== 'same') {
         return;
       }
-      startX -= next - anchor;
-      anchor = next;
-      list.scrollLeft = anchor;
-      reorder(pointerX);
-      tab.style.transform = `translateX(${offset(pointerX)}px)`;
+      const bounds = list.getBoundingClientRect();
+      const past = Math.max(pointerX - bounds.right, 0) - Math.max(bounds.left - pointerX, 0);
+      if (!past) {
+        return;
+      }
+      const before = list.scrollLeft;
+      list.scrollLeft = Math.max(0, Math.min(list.scrollWidth - list.clientWidth, before + Math.sign(past) * EDGE_SCROLL_PX));
+      if (list.scrollLeft !== before) {
+        reorderPlaceholder(pointerX);
+      }
     };
 
     // A pane only becomes a drop target when the pointer sits over a
     // different pane of the exact same kind; the pane's own data-pane-type
     // is already what the render side uses to decide which tab family (and
-    // so which array and route) a pane's tabs belong to.
-    const findDropPane = (x, y) => {
+    // so which array and route) a pane's tabs belong to. Anywhere else
+    // (outside every pane, or over a pane of a different kind) is invalid.
+    const classify = (x, y) => {
       const hovered = document.elementFromPoint(x, y)?.closest('[data-pane]');
-      if (!hovered || hovered === originPane || hovered.dataset.paneType !== originPane.dataset.paneType) {
-        return null;
-      }
-      return hovered;
+      if (!hovered) return { kind: 'invalid', pane: null };
+      if (hovered === originPane) return { kind: 'same', pane: null };
+      if (hovered.dataset.paneType === originPane.dataset.paneType) return { kind: 'other', pane: hovered };
+      return { kind: 'invalid', pane: null };
     };
 
     const onMove = (moveEvent) => {
       pointerX = moveEvent.clientX;
       pointerY = moveEvent.clientY;
-      const travelled = Math.abs(moveEvent.clientX - startX);
+      const travelled = Math.hypot(moveEvent.clientX - startClientX, moveEvent.clientY - startClientY);
       if (!dragging) {
         if (hold && travelled > 6) {
           finish();
@@ -2709,50 +2720,93 @@
         }
         begin();
       }
-      const hovered = findDropPane(pointerX, pointerY);
-      setDropPane(hovered);
-      if (hovered) {
-        // Handing off to another pane suspends reordering in this strip; the
-        // tab stays pinned at whichever edge the pointer left through.
-        tab.style.transform = `translateX(${offset(pointerX)}px)`;
+      const { kind, pane } = classify(pointerX, pointerY);
+      target = kind;
+      setDropPane(kind === 'other' ? pane : null);
+      tab.classList.toggle('invalid', kind === 'invalid');
+      moveTabTo(pointerX, pointerY);
+      // Only the origin pane's own strip reorders live; a hand-over target or
+      // an invalid one freezes the placeholder at its last reordered spot.
+      if (kind === 'same') {
+        reorderPlaceholder(pointerX);
+      }
+    };
+
+    const cleanup = () => {
+      tab.style.position = '';
+      tab.style.left = '';
+      tab.style.top = '';
+      tab.style.width = '';
+      tab.style.height = '';
+      tab.style.margin = '';
+      tab.style.zIndex = '';
+      tab.style.pointerEvents = '';
+      tab.style.transition = '';
+      tab.classList.remove('dragging', 'invalid');
+      list.classList.remove('reordering');
+      placeholder?.remove();
+      placeholder = null;
+    };
+
+    // Not a valid drop: slide the floating tab back to the exact spot it was
+    // lifted from, then restore it there (it never actually left the DOM).
+    const snapBack = () => new Promise((resolve) => {
+      const targetLeft = `${originRect.left}px`;
+      const targetTop = `${originRect.top}px`;
+      if (tab.style.left === targetLeft && tab.style.top === targetTop) {
+        cleanup();
+        resolve();
         return;
       }
-      list.scrollLeft = anchor;
-      reorder(moveEvent.clientX);
-      tab.style.transform = `translateX(${offset(moveEvent.clientX)}px)`;
-    };
+      tab.style.transition = 'left 0.15s ease, top 0.15s ease';
+      tab.style.left = targetLeft;
+      tab.style.top = targetTop;
+      tab.addEventListener('transitionend', () => {
+        cleanup();
+        resolve();
+      }, { once: true });
+    });
 
     const finish = () => {
       clearTimeout(hold);
       cancelAnimationFrame(scrolling);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', finish);
-      tab.classList.remove('dragging');
-      list.classList.remove('reordering');
+      window.removeEventListener('pointercancel', onCancel);
       setDropPane(null);
-      for (const item of list.querySelectorAll(tabSelector)) {
-        item.style.transition = '';
-        item.style.transform = '';
-      }
     };
 
     const onUp = async () => {
       const moved = dragging;
+      const finalTarget = target;
       const targetPane = dropPane;
-      const index = [...list.querySelectorAll(tabSelector)].indexOf(tab);
+      const index = placeholder ? [...list.querySelectorAll(tabSelector)].indexOf(placeholder) : -1;
       finish();
       if (!moved) {
         return;
       }
+      if (finalTarget === 'invalid') {
+        await snapBack();
+        return;
+      }
+      placeholder.replaceWith(tab);
+      cleanup();
       // The pointer that finished a drag must not also activate the tab.
       state.suppressPaneTabClickUntil = Date.now() + 300;
-      await onDrop(index, targetPane?.dataset.pane || '');
+      await onDrop(index, finalTarget === 'other' ? targetPane.dataset.pane : '');
+    };
+
+    const onCancel = () => {
+      const moved = dragging;
+      finish();
+      if (moved) {
+        snapBack();
+      }
     };
 
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', finish);
+    window.addEventListener('pointercancel', onCancel);
     if (event.pointerType === 'touch') {
       hold = setTimeout(begin, WORKSPACE_DRAG_HOLD_MS);
     }

@@ -476,11 +476,25 @@ textarea {
 }
 
 .pane-tab.dragging {
-  position: relative;
-  z-index: 3;
   box-shadow: 0 2px 10px var(--shadow);
   cursor: grabbing;
   transition: none;
+}
+
+/* Shown while a lifted tab hovers somewhere it cannot be dropped, ahead of
+   it sliding back to its original slot. */
+.pane-tab.dragging.invalid {
+  opacity: 0.6;
+  outline: 2px solid var(--danger);
+  outline-offset: -2px;
+}
+
+/* Marks the slot a lifted tab would land in; sized to match .pane-tab via
+   inline width/height set at drag start. */
+.pane-tab-placeholder {
+  flex: 0 0 auto;
+  border: 1px dashed var(--line);
+  border-radius: 5px 5px 0 0;
 }
 
 .pane-tab {
@@ -4796,11 +4810,16 @@ a:focus-visible {
 
 .browser-tab.dragging,
 .notepad-tab.dragging {
-  position: relative;
-  z-index: 3;
   box-shadow: 0 2px 10px var(--shadow);
   cursor: grabbing;
   transition: none;
+}
+
+.browser-tab.dragging.invalid,
+.notepad-tab.dragging.invalid {
+  opacity: 0.6;
+  outline: 2px solid var(--danger);
+  outline-offset: -2px;
 }
 
 .browser-tab {

@@ -533,21 +533,27 @@ test('files and PowerShell panes share a multi-tab strip like the browser pane',
 test('a pane tab can be dragged to reorder it, or dropped on another pane of the same kind to move it there', () => {
   assert.match(appSource, /function startPaneTabDrag\(event, tabSelector, onDrop\)/);
   const drag = appSource.slice(appSource.indexOf('function startPaneTabDrag'), appSource.indexOf('function narrowViewport'));
-  // Reuses the exact reorder physics as the workspace strip: live offset,
-  // FLIP-slide displaced tabs, and a fixed-rate edge scroll.
-  assert.match(drag, /list\.insertBefore\(tab, before \|\| null\)/);
-  assert.match(drag, /startX \+= tab\.offsetLeft - settled/);
+  // The lifted tab floats free of the strip (position: fixed, following the
+  // pointer on both axes) while a placeholder marks its slot.
+  assert.match(drag, /placeholder\.className = 'pane-tab-placeholder'/);
+  assert.match(drag, /tab\.style\.position = 'fixed'/);
+  assert.match(drag, /tab\.style\.left = `\$\{x - grabOffsetX\}px`/);
+  assert.match(drag, /list\.insertBefore\(placeholder, before \|\| null\)/);
   assert.match(drag, /scrolling = requestAnimationFrame\(edgeScroll\)/);
   // A drop only counts as landing on another pane when the pointer sits over
-  // a pane of the exact same kind; anything else keeps reordering in place.
+  // a pane of the exact same kind; anywhere else (including outside every
+  // pane) is invalid and snaps the tab back to where it was picked up.
   assert.match(drag, /document\.elementFromPoint\(x, y\)\?\.closest\('\[data-pane\]'\)/);
-  assert.match(drag, /hovered\.dataset\.paneType !== originPane\.dataset\.paneType/);
+  assert.match(drag, /hovered\.dataset\.paneType === originPane\.dataset\.paneType/);
   assert.match(drag, /pane-tab-drop-target/);
+  assert.match(drag, /const snapBack = \(\) => new Promise/);
+  assert.match(drag, /tab\.style\.left = `\$\{originRect\.left\}px`/);
   // The click that follows a completed drag must not also activate the tab.
   assert.match(drag, /state\.suppressPaneTabClickUntil = Date\.now\(\) \+ 300/);
   assert.match(appSource, /Date\.now\(\) < state\.suppressPaneTabClickUntil/);
   assert.match(styles, /\.pane-tab-drop-target\s*\{/);
   assert.match(styles, /\.pane-tab\.dragging\s*\{[^}]*transition:\s*none/s);
+  assert.match(styles, /\.pane-tab-placeholder\s*\{/);
   assert.match(styles, /\.browser-tab\.dragging,\s*\.notepad-tab\.dragging\s*\{/);
 
   // Terminal, files, and AI tabs move over the shared REST tab-kind route.
