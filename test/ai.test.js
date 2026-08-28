@@ -442,13 +442,49 @@ test('a recorded codex session completes the handshake and reports its thread id
   assert.equal(written[0].method, 'initialize');
   assert.equal(written[0].params.capabilities.experimentalApi, true);
   // The reply's own tokens are streamed to the pane, so they must reach us;
-  // reasoning and tool-output deltas stay muted at the protocol level.
+  // Raw reasoning and tool-output deltas stay muted at the protocol level,
+  // while the display-safe reasoning summary must reach the pane.
   assert.ok(!written[0].params.capabilities.optOutNotificationMethods.includes('item/agentMessage/delta'));
   assert.ok(written[0].params.capabilities.optOutNotificationMethods.includes('item/reasoning/textDelta'));
+  assert.ok(!written[0].params.capabilities.optOutNotificationMethods.includes('item/reasoning/summaryTextDelta'));
   assert.equal(written[1].method, 'initialized');
   assert.equal(written[2].method, 'thread/start');
   assert.equal(sessionId, adapter.threadId);
   assert.ok(sessionId);
+});
+
+test('codex builds a thinking event from streamed reasoning summaries', () => {
+  const events = [];
+  const adapter = new CodexAdapter({
+    config: { ai: {} },
+    write: () => {},
+    onEvent: (event) => events.push(event),
+    onSession: () => {},
+    onStatus: () => {}
+  });
+
+  for (const [summaryIndex, delta] of [
+    [1, 'Checking '],
+    [0, 'Inspecting '],
+    [1, 'the tests.'],
+    [0, 'the code.']
+  ]) {
+    adapter.handleLine(JSON.stringify({
+      jsonrpc: '2.0',
+      method: 'item/reasoning/summaryTextDelta',
+      params: { itemId: 'reason-1', summaryIndex, turnId: 'turn-1', delta }
+    }));
+  }
+  adapter.handleLine(JSON.stringify({
+    jsonrpc: '2.0',
+    method: 'item/completed',
+    params: { item: { type: 'reasoning', id: 'reason-1', summary: [], content: [] } }
+  }));
+
+  assert.deepEqual(
+    events.filter((event) => event.kind === 'thinking').map((event) => event.text),
+    ['Inspecting the code.\n\nChecking the tests.']
+  );
 });
 
 test('a codex reply streams as growing deltas rather than one block at the end', () => {

@@ -39,7 +39,6 @@ function normalizeCwd(cwd, root) {
 // are one message per token.
 const CODEX_MUTED_NOTIFICATIONS = [
   'item/reasoning/textDelta',
-  'item/reasoning/summaryTextDelta',
   'item/reasoning/summaryPartAdded',
   'item/commandExecution/outputDelta',
   'item/fileChange/outputDelta',
@@ -789,6 +788,7 @@ class CodexAdapter {
     // Accumulated text-so-far for an agentMessage item still streaming, keyed
     // by its itemId.
     this.streamingText = new Map();
+    this.reasoningSummaries = new Map();
     this.pending = new Map();
     this.requests = new Map();
     this.turnId = '';
@@ -1052,6 +1052,13 @@ class CodexAdapter {
         this.onDelta({ turnId: params.turnId, key: params.itemId, text, done: false });
         return;
       }
+      case 'item/reasoning/summaryTextDelta': {
+        const parts = this.reasoningSummaries.get(params.itemId) || [];
+        const index = Number.isInteger(params.summaryIndex) ? params.summaryIndex : 0;
+        parts[index] = (parts[index] || '') + (params.delta || '');
+        this.reasoningSummaries.set(params.itemId, parts);
+        return;
+      }
       default:
         // Everything else is bookkeeping the transcript does not show.
     }
@@ -1102,7 +1109,9 @@ class CodexAdapter {
         return;
       }
       case 'reasoning': {
-        const text = reasoningText(item);
+        const streamed = this.reasoningSummaries.get(item.id) || [];
+        this.reasoningSummaries.delete(item.id);
+        const text = reasoningText(item) || streamed.filter(Boolean).join('\n\n');
         if (text) {
           this.emit({ role: 'assistant', kind: 'thinking', text });
         }
