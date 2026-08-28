@@ -1696,12 +1696,12 @@ function main() {
         return;
       }
       if (result.sourcePane) onMoved?.(req.params.tabId, targetPaneId);
-      res.json({ ok: true });
+      res.json({ ok: true, pane: result.pane, ...(result.sourcePane ? { sourcePane: result.sourcePane } : {}) });
     });
   };
   moveTabRoute('terminal', 'Terminal', (tabId, targetPaneId) => terminalManager.moveTerminal(tabId, targetPaneId));
   moveTabRoute('files', 'Files');
-  moveTabRoute('ai', 'AI');
+  moveTabRoute('ai', 'AI', (tabId, targetPaneId) => aiManagerForTab(tabId)?.moveTab(tabId, targetPaneId));
   moveTabRoute('notepad', 'Notepad');
 
   app.patch('/api/panes/:paneId/layout', requireAuth(config), (req, res) => {

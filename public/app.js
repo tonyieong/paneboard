@@ -2653,6 +2653,11 @@
       tab.style.pointerEvents = 'none';
       tab.classList.add('dragging');
       list.classList.add('reordering');
+      // The tab is fixed-position, but panes are themselves stacking contexts
+      // (position + z-index), so it still only paints above whatever its own
+      // pane paints above. Without this it can vanish under a higher-stacked
+      // pane, like the active one, while floating across the board.
+      originPane.classList.add('pane-tab-lifted');
       scrolling = requestAnimationFrame(edgeScroll);
     };
 
@@ -2744,6 +2749,7 @@
       tab.style.transition = '';
       tab.classList.remove('dragging', 'invalid');
       list.classList.remove('reordering');
+      originPane.classList.remove('pane-tab-lifted');
       placeholder?.remove();
       placeholder = null;
     };
@@ -4261,14 +4267,33 @@
   }
 
   async function moveNotepadTabClient(paneId, tabId, index, targetPaneId) {
+    let result;
     try {
-      await api(`/api/panes/${paneId}/notepad/tabs/${tabId}/move`, {
+      result = await api(`/api/panes/${paneId}/notepad/tabs/${tabId}/move`, {
         method: 'POST', body: JSON.stringify({ index, targetPaneId })
       });
     } catch (error) {
       showToast(error.message);
+      await loadState();
+      return;
     }
-    await loadState();
+
+    const crossPane = Boolean(result.sourcePane);
+    const source = findPaneState(paneId);
+    if (source) {
+      const sourceResult = crossPane ? result.sourcePane : result.pane;
+      source.pane.notepadTabs = sourceResult.notepadTabs;
+      source.pane.activeNotepadTabId = sourceResult.activeNotepadTabId;
+      updateNotepadPane(paneId);
+    }
+    if (crossPane) {
+      const target = findPaneState(targetPaneId);
+      if (target) {
+        target.pane.notepadTabs = result.pane.notepadTabs;
+        target.pane.activeNotepadTabId = result.pane.activeNotepadTabId;
+        updateNotepadPane(targetPaneId);
+      }
+    }
   }
 
   function wireNotepadTabs(paneElement, paneId) {
@@ -4309,6 +4334,15 @@
     if (pane.type === 'ai') return 'ai';
     return 'terminal';
   }
+
+  // The state field names a pane's own tab array/active-id live under, keyed
+  // by paneTabKind() — used to patch a moved tab's local pane objects from
+  // the move route's response without a full state reload.
+  const PANE_TAB_FIELDS = {
+    files: { tabs: 'filesTabs', active: 'activeFilesTabId' },
+    ai: { tabs: 'aiTabs', active: 'activeAiTabId' },
+    terminal: { tabs: 'terminalTabs', active: 'activeTerminalTabId' }
+  };
 
   function updatePaneTabStrip(paneId) {
     const found = findPaneState(paneId);
@@ -4541,17 +4575,71 @@
     input.addEventListener('blur', commit);
   }
 
+  // Patches the local pane tree and DOM directly from the move route's
+  // response instead of reloading the whole app: a terminal/AI tab's live
+  // surface (its xterm instance or its WebSocket) is relocated in place
+  // rather than torn down and reconnected, and unrelated panes are never
+  // touched at all.
   async function movePaneTabClient(paneId, tabId, index, targetPaneId) {
     const found = findPaneState(paneId);
     if (!found) return;
+    let result;
     try {
-      await api(`/api/panes/${paneId}/${paneTabKind(found.pane)}/tabs/${tabId}/move`, {
+      result = await api(`/api/panes/${paneId}/${paneTabKind(found.pane)}/tabs/${tabId}/move`, {
         method: 'POST', body: JSON.stringify({ index, targetPaneId })
       });
     } catch (error) {
       showToast(error.message);
+      await loadState();
+      return;
     }
-    await loadState();
+
+    const kind = paneTabKind(found.pane);
+    const fields = PANE_TAB_FIELDS[kind];
+    const crossPane = Boolean(result.sourcePane);
+    const sourceResult = crossPane ? result.sourcePane : result.pane;
+    found.pane[fields.tabs] = sourceResult[fields.tabs];
+    found.pane[fields.active] = sourceResult[fields.active];
+    const target = crossPane ? findPaneState(targetPaneId) : null;
+    if (target) {
+      target.pane[fields.tabs] = result.pane[fields.tabs];
+      target.pane[fields.active] = result.pane[fields.active];
+    }
+
+    if (kind === 'files') {
+      updatePaneTabStrip(paneId);
+      if (crossPane) {
+        await loadFilesPane(found.pane); // source's active tab may have changed to a sibling
+        if (target) {
+          updatePaneTabStrip(targetPaneId);
+          await loadFilesPane(target.pane); // target's active tab is now the moved tab
+        }
+      }
+      return;
+    }
+
+    if (kind === 'ai') {
+      if (target) {
+        const surface = aiPane.surface(tabId);
+        const targetElement = document.querySelector(`[data-pane="${targetPaneId}"]`);
+        if (surface && targetElement) targetElement.appendChild(surface);
+        updatePaneTabStrip(targetPaneId);
+        showActiveAiTab(targetPaneId);
+      }
+      updatePaneTabStrip(paneId);
+      showActiveAiTab(paneId);
+      return;
+    }
+
+    if (target) {
+      const surface = document.getElementById(`terminal-${tabId}`);
+      const targetElement = document.querySelector(`[data-pane="${targetPaneId}"]`);
+      if (surface && targetElement) targetElement.appendChild(surface);
+      updatePaneTabStrip(targetPaneId);
+      showActiveTerminalTab(targetPaneId);
+    }
+    updatePaneTabStrip(paneId);
+    showActiveTerminalTab(paneId);
   }
 
   function wirePaneTabs(root, paneId) {

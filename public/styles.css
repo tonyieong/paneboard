@@ -388,6 +388,13 @@ textarea {
   opacity: 0.5;
 }
 
+/* While one of its tabs is lifted and floating (see startPaneTabDrag), the
+   origin pane needs to out-rank every other pane's stacking context,
+   including the active one, or the floating tab paints underneath it. */
+.pane.pane-tab-lifted {
+  z-index: 50;
+}
+
 /* Shown while a drag or resize sits on top of another pane, since panes share
    one plane and the drop will be refused. */
 .pane.invalid {

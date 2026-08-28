@@ -563,7 +563,7 @@ test('a pane tab can be dragged to reorder it, or dropped on another pane of the
   assert.match(mainSource, /app\.post\(`\/api\/panes\/:paneId\/\$\{kind\}\/tabs\/:tabId\/move`/);
   assert.match(mainSource, /moveTabRoute\('terminal', 'Terminal', \(tabId, targetPaneId\) => terminalManager\.moveTerminal/);
   assert.match(mainSource, /moveTabRoute\('files', 'Files'\)/);
-  assert.match(mainSource, /moveTabRoute\('ai', 'AI'\)/);
+  assert.match(mainSource, /moveTabRoute\('ai', 'AI', \(tabId, targetPaneId\) => aiManagerForTab\(tabId\)\?\.moveTab\(tabId, targetPaneId\)\)/);
   assert.match(mainSource, /moveTabRoute\('notepad', 'Notepad'\)/);
 
   // Notepad tabs move over their own REST route the same way.
@@ -573,6 +573,27 @@ test('a pane tab can be dragged to reorder it, or dropped on another pane of the
   // Browser tabs move over their websocket, like every other browser tab mutation.
   assert.match(appSource, /startPaneTabDrag\(event, '\.browser-tab', \(index, targetPaneId\) => \{\s*state\.browserConnections\.get\(paneId\)\?\.send\(\{ type: 'moveTab'/);
   assert.match(browserSource, /if \(message\.type === 'moveTab'\) \{\s*await this\.moveTab\(paneId, message\.tabId, message\.index, message\.targetPaneId\);/);
+});
+
+test('a completed pane-tab move patches the two panes involved instead of reloading the whole app', () => {
+  // The route now hands back the pane(s) it moved, so the client can patch
+  // local state directly instead of re-fetching the entire tree.
+  assert.match(mainSource, /res\.json\(\{ ok: true, pane: result\.pane, \.\.\.\(result\.sourcePane \? \{ sourcePane: result\.sourcePane \} : \{\}\)/);
+
+  const moveSource = appSource.slice(appSource.indexOf('async function movePaneTabClient'), appSource.indexOf('function wirePaneTabs'));
+  // The success path never falls back to a full reload; only the catch does.
+  assert.doesNotMatch(moveSource.slice(moveSource.indexOf('const kind = paneTabKind')), /loadState\(\)/);
+  assert.match(moveSource, /catch \(error\) \{\s*showToast\(error\.message\);\s*await loadState\(\);/);
+  // A moved terminal/AI tab's live surface is relocated, not torn down.
+  assert.match(moveSource, /document\.getElementById\(`terminal-\$\{tabId\}`\)/);
+  assert.match(moveSource, /aiPane\.surface\(tabId\)/);
+  assert.match(moveSource, /targetElement\.appendChild\(surface\)/);
+  assert.doesNotMatch(moveSource, /aiPane\.disposeTab|disposeTerminal\(/);
+
+  const moveNotepadSource = appSource.slice(appSource.indexOf('async function moveNotepadTabClient'), appSource.indexOf('function wireNotepadTabs'));
+  assert.doesNotMatch(moveNotepadSource.slice(moveNotepadSource.indexOf('const crossPane')), /loadState\(\)/);
+  assert.match(moveNotepadSource, /updateNotepadPane\(paneId\)/);
+  assert.match(moveNotepadSource, /updateNotepadPane\(targetPaneId\)/);
 });
 
 test('the store can reorder a pane\'s tabs or hand one to another pane of the same kind', () => {

@@ -1597,6 +1597,14 @@ class AiManager {
     return runtime;
   }
 
+  // The runtime's own pane id is only cached at creation, so a tab dragged to
+  // another pane leaves it stale; message/session store lookups would then
+  // read and write under the pane it left, not the one it landed in.
+  moveTab(tabId, paneId) {
+    const runtime = this.runtimes.get(tabId);
+    if (runtime) runtime.paneId = paneId;
+  }
+
   createRuntime(tabId, target) {
     const cwd = normalizeCwd(target.tab.cwd || target.pane.cwd, this.root);
     const env = shellEnv(this.config, process.env);

@@ -762,6 +762,24 @@ test('attaching starts one CLI per tab and replays the transcript', () => {
   assert.deepEqual(hello.pending, []);
 });
 
+// The route wires moveTab up the same way TerminalManager#moveTerminal is:
+// see src/main.js's moveTabRoute('ai', ...).
+test('moving a tab to another pane repoints its runtime, so history reads and writes follow it', () => {
+  const { manager, store, pane, tabId } = managerFixture();
+  store.createAiTab(pane.id, 'claude'); // a pane can't be dragged out of its last tab
+  const otherPane = store.createAiPane(pane.id, 'claude');
+
+  manager.attach(tabId, fakeSocket());
+  assert.equal(manager.runtimes.get(tabId).paneId, pane.id);
+
+  assert.ok(store.moveTab('ai', pane.id, tabId, 0, otherPane.id));
+  manager.moveTab(tabId, otherPane.id);
+
+  assert.equal(manager.runtimes.get(tabId).paneId, otherPane.id);
+  store.appendAiMessages(otherPane.id, tabId, [{ role: 'user', kind: 'text', text: 'after move' }]);
+  assert.equal(store.findAiTab(otherPane.id, tabId).tab.messages.at(-1).text, 'after move');
+});
+
 test('a prompt reaches the CLI and its reply reaches every client', () => {
   const { manager, tabId, spawns } = managerFixture();
   const first = fakeSocket();
