@@ -1702,6 +1702,38 @@ test('resuming a codex session leaves out injected AGENTS.md and plugin context'
   ]);
 });
 
+test('a prompt after a codex resume stays with the resumed runtime', async () => {
+  const { manager, pane, tabId, spawns } = managerFixture({ provider: 'codex' });
+  const socket = fakeSocket();
+  manager.attach(tabId, socket);
+
+  assert.equal(manager.resumeSession(pane.id, tabId, 'thread-from-yesterday', ''), true);
+  await settle();
+
+  const launches = () => spawns.filter((call) => call.command !== 'taskkill');
+  assert.equal(launches().length, 2);
+  const resumed = launches().at(-1).child;
+  const lines = () => resumed.written.join('').trim().split('\n').map((line) => JSON.parse(line));
+  const initialize = lines()[0];
+  resumed.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: initialize.id, result: {} })}\n`);
+  await settle();
+
+  const resume = lines().find((message) => message.method === 'thread/resume');
+  assert.equal(resume.params.threadId, 'thread-from-yesterday');
+  resumed.stdout.write(`${JSON.stringify({
+    jsonrpc: '2.0', id: resume.id, result: { thread: { id: 'thread-from-yesterday' } }
+  })}\n`);
+  await settle();
+
+  socket.fire('message', JSON.stringify({ type: 'prompt', text: 'continue the fix' }));
+  await settle();
+
+  assert.equal(launches().length, 2, 'the live socket must not restart the already resumed CLI');
+  const turn = lines().find((message) => message.method === 'turn/start');
+  assert.equal(turn.params.threadId, 'thread-from-yesterday');
+  assert.deepEqual(turn.params.input, [{ type: 'text', text: 'continue the fix' }]);
+});
+
 test('resuming a tab that has never been started just records the choice', () => {
   const { manager, store, pane, tabId, spawns } = managerFixture();
 

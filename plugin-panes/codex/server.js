@@ -1847,7 +1847,9 @@ class AiManager {
       } catch (error) {
         return;
       }
-      this.handleClientMessage(runtime, message);
+      // The socket survives a CLI restart, so route through the replacement
+      // runtime once it exists instead of the one attach() first created.
+      this.handleClientMessage(this.runtimes.get(tabId) || runtime, message);
     });
 
     ws.on('close', () => {
@@ -1989,7 +1991,11 @@ class AiManager {
     runtime.status = 'stopped';
     runtime.lines?.close();
     const child = runtime.child;
-    this.runtimes.delete(runtime.tabId);
+    // A socket attached before a restart still closes over the old runtime.
+    // Do not let a late message through that socket discard its replacement.
+    if (this.runtimes.get(runtime.tabId) === runtime) {
+      this.runtimes.delete(runtime.tabId);
+    }
     this.flush(runtime);
     if (!child || child.exitCode !== null || child.signalCode) {
       return Promise.resolve();
