@@ -1036,8 +1036,13 @@ class CodexAdapter {
         this.request('skills/list', { cwds: this.cwd ? [this.cwd] : [], forceReload: true });
         return;
       case 'error':
-        this.emit({ role: 'system', kind: 'error', text: params.message || 'The CLI reported an error.' });
-        this.onStatus({ status: 'idle' });
+        this.emit({
+          role: 'system',
+          kind: 'error',
+          text: params.error?.message || params.message || 'The CLI reported an error.'
+        });
+        // Retriable errors leave this turn in flight; terminal failures are
+        // followed by turn/completed. Only that lifecycle event makes it idle.
         return;
       case 'item/started':
         this.handleItemStarted(params.item || {});

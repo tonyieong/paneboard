@@ -507,6 +507,34 @@ test('a codex reply streams as growing deltas rather than one block at the end',
   assert.ok(reply.every((delta) => delta.turnId === reply[0].turnId));
 });
 
+test('a retriable codex error keeps the active turn busy while the CLI retries', () => {
+  const { adapter, events, statuses } = driveCodex();
+  adapter.sendPrompt('finish the task');
+  adapter.handleLine(JSON.stringify({
+    jsonrpc: '2.0', method: 'turn/started', params: { turn: { id: 'turn-retry' } }
+  }));
+
+  adapter.handleLine(JSON.stringify({
+    jsonrpc: '2.0',
+    method: 'error',
+    params: {
+      error: { message: 'The response stream disconnected.' },
+      threadId: adapter.threadId,
+      turnId: 'turn-retry',
+      willRetry: true
+    }
+  }));
+
+  assert.equal(events.at(-1).kind, 'error');
+  assert.equal(events.at(-1).text, 'The response stream disconnected.');
+  assert.equal(statuses.at(-1).status, 'busy');
+
+  adapter.handleLine(JSON.stringify({
+    jsonrpc: '2.0', method: 'turn/completed', params: { turn: { id: 'turn-retry', status: 'completed' } }
+  }));
+  assert.equal(statuses.at(-1).status, 'idle');
+});
+
 test('codex command results are shown in the transcript', () => {
   const { adapter, events } = driveCodex();
 
