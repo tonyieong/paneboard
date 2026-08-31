@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-08-31
+
+### Fixed
+
+- Pane-tab moves keep the affected AI tab connected to its live runtime.
+- Codex resumes route later prompts to the resumed runtime and keep retriable
+  turns active until the CLI reports completion.
+
 ## [0.1.5] - 2026-08-23
 
 ### Added
@@ -272,7 +280,8 @@ First public release.
 - `nssm.exe` and a stray `tray_windows_release.exe` from version control. NSSM is
   now downloaded and hash-verified at install time.
 
-[Unreleased]: https://github.com/tonyieong/wps7/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/tonyieong/wps7/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/tonyieong/wps7/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/tonyieong/wps7/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/tonyieong/wps7/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/tonyieong/wps7/compare/v0.1.2...v0.1.3
