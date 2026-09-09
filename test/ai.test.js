@@ -6,8 +6,14 @@ const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const { PassThrough } = require('node:stream');
 const { StateStore } = require('../src/state');
-const { AiManager: ClaudeAiManager, ClaudeAdapter, formatToolInput, parseCliArgs, resolveClaudeEffort } = require('../plugin-panes/claude/server');
-const { AiManager: CodexAiManager, CodexAdapter, decisionLabel } = require('../plugin-panes/codex/server');
+const {
+  AiManager: ClaudeAiManager, ClaudeAdapter, formatToolInput, parseCliArgs, resolveClaudeEffort,
+  isNewerVersion, readUpdateCache, writeUpdateCache, sanitizeImages
+} = require('../plugin-panes/claude/server');
+const {
+  AiManager: CodexAiManager, CodexAdapter, decisionLabel,
+  isNewerVersion: codexIsNewerVersion, sanitizeImages: codexSanitizeImages
+} = require('../plugin-panes/codex/server');
 
 const defaultConfig = { ai: { claude_args: '--dangerously-skip-permissions' } };
 
@@ -768,7 +774,7 @@ function fakeSocket() {
   return socket;
 }
 
-function managerFixture({ provider = 'claude', config = {}, env } = {}) {
+function managerFixture({ provider = 'claude', config = {}, env, refreshUpdateCheckImpl = () => Promise.resolve() } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-ai-'));
   const store = new StateStore(root);
   store.load();
@@ -779,6 +785,10 @@ function managerFixture({ provider = 'claude', config = {}, env } = {}) {
     config: { ai: { claude_args: '--permission-mode bypassPermissions --allow-dangerously-skip-permissions', ...config } },
     root,
     store,
+    // Every attach() would otherwise kick off a real `claude/codex --version`
+    // spawn plus an npm registry HTTPS request; tests that care about the
+    // update check override this explicitly.
+    refreshUpdateCheckImpl,
     ...(env ? { env } : {}),
     spawnImpl: (command, args, options) => {
       const child = fakeChild();
@@ -903,6 +913,184 @@ test('a streamed reply patches one stored message instead of appending one per t
     // boundaries (a 'result'/'error' frame), same as before streaming existed.
     assert.equal(saveCalls, 0);
   });
+});
+
+test('isNewerVersion compares dotted version numbers and never guesses from missing data', () => {
+  assert.equal(isNewerVersion('2.1.240', '2.1.238'), true);
+  assert.equal(isNewerVersion('2.1.238', '2.1.238'), false);
+  assert.equal(isNewerVersion('2.1.238', '2.1.240'), false);
+  assert.equal(isNewerVersion('1.10.0', '1.9.0'), true);
+  assert.equal(isNewerVersion('', '2.1.238'), false);
+  assert.equal(isNewerVersion('2.1.238', ''), false);
+  // The codex copy is a separate file; both need to agree.
+  assert.equal(codexIsNewerVersion('0.42.1', '0.42.0'), true);
+});
+
+test('the update cache round-trips through readUpdateCache/writeUpdateCache', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-ai-update-'));
+  assert.equal(readUpdateCache(root), null);
+  writeUpdateCache(root, { checkedAt: 123, localVersion: '1.0.0', latestVersion: '1.1.0' });
+  assert.deepEqual(readUpdateCache(root), { checkedAt: 123, localVersion: '1.0.0', latestVersion: '1.1.0' });
+});
+
+test('sanitizeImages keeps only allow-listed, well-formed, size-capped entries', () => {
+  const valid = { mimeType: 'image/png', data: 'aGVsbG8=' };
+  const tooBig = { mimeType: 'image/png', data: 'A'.repeat(8 * 1024 * 1024 + 1) };
+  const badType = { mimeType: 'image/svg+xml', data: 'aGVsbG8=' };
+  const badEncoding = { mimeType: 'image/png', data: 'not base64!!' };
+  assert.deepEqual(sanitizeImages([valid, tooBig, badType, badEncoding]), [valid]);
+  assert.deepEqual(codexSanitizeImages([valid, badType]), [valid]);
+});
+
+test('sanitizeImages caps the count at four and treats non-array input as empty', () => {
+  const valid = { mimeType: 'image/png', data: 'aGVsbG8=' };
+  assert.equal(sanitizeImages([valid, valid, valid, valid, valid]).length, 4);
+  assert.deepEqual(sanitizeImages('nope'), []);
+  assert.deepEqual(sanitizeImages(undefined), []);
+});
+
+test('claude sendPrompt attaches pasted images as base64 content blocks ahead of the text', () => {
+  const written = [];
+  const events = [];
+  const adapter = new ClaudeAdapter({
+    config: defaultConfig,
+    write: (message) => written.push(message),
+    onEvent: (event) => events.push(event),
+    onStatus: () => {}
+  });
+  adapter.sendPrompt('what is this', [{ mimeType: 'image/png', data: 'aGVsbG8=' }]);
+  assert.deepEqual(written[0].message.content, [
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } },
+    { type: 'text', text: 'what is this' }
+  ]);
+  assert.equal(events[0].text, 'what is this');
+});
+
+test('claude sendPrompt allows an image with no text and labels the bubble accordingly', () => {
+  const written = [];
+  const events = [];
+  const adapter = new ClaudeAdapter({
+    config: defaultConfig,
+    write: (message) => written.push(message),
+    onEvent: (event) => events.push(event),
+    onStatus: () => {}
+  });
+  adapter.sendPrompt('', [{ mimeType: 'image/png', data: 'aGVsbG8=' }]);
+  assert.deepEqual(written[0].message.content, [
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } }
+  ]);
+  assert.equal(events[0].text, '(image)');
+});
+
+test('codex sendPrompt turns pasted images into data-url image inputs ahead of the text', () => {
+  const written = [];
+  const adapter = new CodexAdapter({
+    config: defaultConfig,
+    write: (message) => written.push(message),
+    onEvent: () => {},
+    onStatus: () => {}
+  });
+  // A ready thread skips the queue, same as a text-only prompt would.
+  adapter.threadId = 'thread-1';
+  adapter.sendPrompt('what is this', [{ mimeType: 'image/png', data: 'aGVsbG8=' }]);
+  const turnStart = written.find((message) => message.method === 'turn/start');
+  assert.deepEqual(turnStart.params.input, [
+    { type: 'image', url: 'data:image/png;base64,aGVsbG8=' },
+    { type: 'text', text: 'what is this' }
+  ]);
+});
+
+test('codex queues an image-only prompt until the thread is ready, same as it would queue text', () => {
+  const adapter = new CodexAdapter({
+    config: defaultConfig,
+    write: () => {},
+    onEvent: () => {},
+    onStatus: () => {}
+  });
+  adapter.sendPrompt('', [{ mimeType: 'image/png', data: 'aGVsbG8=' }]);
+  assert.deepEqual(adapter.queue, [{ text: '', images: [{ mimeType: 'image/png', data: 'aGVsbG8=' }] }]);
+});
+
+test('a prompt with only a pasted image reaches the CLI instead of being dropped by the empty-text guard', () => {
+  const { manager, tabId, spawns } = managerFixture();
+  const socket = fakeSocket();
+  manager.attach(tabId, socket);
+  socket.fire('message', JSON.stringify({
+    type: 'prompt',
+    text: '   ',
+    images: [{ mimeType: 'image/png', data: 'aGVsbG8=' }]
+  }));
+  const child = cliChild(spawns);
+  const sent = JSON.parse(child.written.at(-1));
+  assert.deepEqual(sent.message.content, [
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } }
+  ]);
+});
+
+test('a prompt with no text and no images is still dropped', () => {
+  const { manager, tabId, spawns } = managerFixture();
+  const socket = fakeSocket();
+  manager.attach(tabId, socket);
+  const child = cliChild(spawns);
+  const before = child.written.length;
+  socket.fire('message', JSON.stringify({ type: 'prompt', text: '   ' }));
+  assert.equal(child.written.length, before);
+});
+
+test('codex queues an image-only prompt arriving over the socket instead of dropping it', () => {
+  const { manager, tabId } = managerFixture({ provider: 'codex' });
+  const socket = fakeSocket();
+  manager.attach(tabId, socket);
+  socket.fire('message', JSON.stringify({
+    type: 'prompt',
+    text: '',
+    images: [{ mimeType: 'image/png', data: 'aGVsbG8=' }]
+  }));
+  const runtime = manager.runtimes.get(tabId);
+  assert.deepEqual(runtime.adapter.queue, [{ text: '', images: [{ mimeType: 'image/png', data: 'aGVsbG8=' }] }]);
+});
+
+test('a stale or missing update cache triggers exactly one background refresh at a time', () => {
+  let calls = 0;
+  const { manager } = managerFixture({
+    refreshUpdateCheckImpl: () => { calls += 1; return new Promise(() => {}); }
+  });
+  manager.maybeRefreshUpdateCheck();
+  manager.maybeRefreshUpdateCheck();
+  assert.equal(calls, 1);
+});
+
+test('a cache checked within the last day skips the network entirely', () => {
+  let calls = 0;
+  const { manager, root } = managerFixture({
+    refreshUpdateCheckImpl: () => { calls += 1; return Promise.resolve(); }
+  });
+  writeUpdateCache(root, { checkedAt: Date.now(), localVersion: '2.1.238', latestVersion: '2.1.238' });
+  manager.maybeRefreshUpdateCheck();
+  assert.equal(calls, 0);
+});
+
+test('opening a tab shows a text notice in the pane when the cached check found a newer version', () => {
+  const { manager, tabId, root } = managerFixture();
+  writeUpdateCache(root, { checkedAt: Date.now(), localVersion: '2.1.238', latestVersion: '2.1.240' });
+  const socket = fakeSocket();
+  manager.attach(tabId, socket);
+  // The check runs before any client has attached, so it lands in the
+  // transcript the first "hello" already carries, not a later broadcast.
+  const hello = socket.sent[0];
+  const notice = hello.events.find((event) => event.kind === 'notice'
+    && event.text.includes('2.1.238') && event.text.includes('2.1.240'));
+  assert.ok(notice, 'expected an update notice in the pane');
+});
+
+test('opening a tab stays quiet when the cached check found no newer version', () => {
+  const { manager, tabId, root } = managerFixture();
+  writeUpdateCache(root, { checkedAt: Date.now(), localVersion: '2.1.238', latestVersion: '2.1.238' });
+  const socket = fakeSocket();
+  manager.attach(tabId, socket);
+  const hello = socket.sent[0];
+  const notice = hello.events.find((event) => event.kind === 'notice' && event.text.includes('has an update available'));
+  assert.equal(notice, undefined);
 });
 
 // A reload must not read as a decision; the buttons have to still work.

@@ -1546,7 +1546,8 @@ textarea {
   font: 14px "Cascadia Mono", Consolas, monospace;
 }
 
-.rail-icon .file-action-icon {
+.rail-icon .file-action-icon,
+.rail-icon .provider-icon {
   width: 16px;
   height: 16px;
 }
@@ -1878,7 +1879,8 @@ textarea:focus-visible {
   box-shadow: inset 2px 0 var(--accent);
 }
 
-.session-item .file-action-icon {
+.session-item .file-action-icon,
+.session-item .provider-icon {
   flex: 0 0 15px;
   margin-right: 8px;
 }
@@ -3813,6 +3815,16 @@ textarea:focus-visible {
   stroke-linejoin: round;
 }
 
+/* The Codex/Claude brand marks: full colour and self-contained (their own
+   rounded-square background), so unlike .file-action-icon they keep their
+   own fill instead of tracking currentColor. */
+.provider-icon {
+  width: 15px;
+  height: 15px;
+  display: block;
+  border-radius: 3px;
+}
+
 .file-command-button:hover,
 .file-command-button.active {
   background: var(--accent-soft);
@@ -4452,7 +4464,8 @@ textarea:focus-visible {
   color: var(--accent);
 }
 
-.pane-kind-icon .file-action-icon {
+.pane-kind-icon .file-action-icon,
+.pane-kind-icon .provider-icon {
   width: 14px;
   height: 14px;
 }

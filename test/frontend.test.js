@@ -283,8 +283,8 @@ test('sidebar actions use shared icons for new PowerShell and new file', () => {
 
 test('pane titles reuse the same pane-type icons as the sidebar', () => {
   assert.match(appSource, /class="pane-kind-icon"[^>]*>\$\{fileActionIcon\(paneKindIcon\(pane\)\)\}<\/span>/);
-  assert.match(appSource, /class="pane-kind-icon"[^>]*>\$\{fileActionIcon\(pane\.type === 'files' \? 'file' : pane\.type === 'ai' \? 'ai' : paneShell\(pane\) === 'cmd' \? 'cmd' : 'terminal'\)\}<\/span>/);
-  assert.match(styles, /\.pane-kind-icon \.file-action-icon\s*\{[^}]*width:\s*14px[^}]*height:\s*14px/s);
+  assert.match(appSource, /class="pane-kind-icon"[^>]*>\$\{pane\.type === 'ai' \? providerIcon\(activeAiTab\?\.provider\) : fileActionIcon\(pane\.type === 'files' \? 'file' : paneShell\(pane\) === 'cmd' \? 'cmd' : 'terminal'\)\}<\/span>/);
+  assert.match(styles, /\.pane-kind-icon \.file-action-icon,\s*\.pane-kind-icon \.provider-icon\s*\{[^}]*width:\s*14px[^}]*height:\s*14px/s);
   assert.match(styles, /\.pane-title::before\s*\{[^}]*content:\s*none/s);
 });
 
@@ -764,9 +764,9 @@ test('a long workspace/pane name truncates instead of pushing the pin control of
 
 test('sidebar pane rows display the matching pane icon before their workspace and pane names', () => {
   const sidebarItemSource = appSource.slice(appSource.indexOf('function renderSidebarPaneItem'), appSource.indexOf('function renderSidebarPaneList'));
-  assert.match(sidebarItemSource, /fileActionIcon\(sidebarPaneIcon\(pane\)\)/);
-  assert.match(appSource, /function sidebarPaneIcon\(pane\)/);
-  assert.match(styles, /\.session-item \.file-action-icon\s*\{[^}]*flex:\s*0 0 15px[^}]*margin-right:\s*8px/s);
+  assert.match(sidebarItemSource, /\$\{sidebarPaneIcon\(pane, tabId\)\}/);
+  assert.match(appSource, /function sidebarPaneIcon\(pane, tabId\)/);
+  assert.match(styles, /\.session-item \.file-action-icon,\s*\.session-item \.provider-icon\s*\{[^}]*flex:\s*0 0 15px[^}]*margin-right:\s*8px/s);
 });
 
 test('sidebar creates a persistent usage pane with configurable providers', () => {

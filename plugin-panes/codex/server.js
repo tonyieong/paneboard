@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
+const https = require('https');
 const os = require('os');
 const path = require('path');
 const readline = require('readline');
@@ -85,6 +86,142 @@ function parseCliArgs(value) {
   }
   const args = text.split(/\s+/);
   return args.every((arg) => /^[\w.:=@/\\-]+$/.test(arg)) ? args : null;
+}
+
+const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const UPDATE_NPM_PACKAGE = '@openai/codex';
+const UPDATE_CACHE_FILE = 'ai-update-codex.json';
+const UPDATE_CLI_LABEL = 'Codex';
+const UPDATE_VERSION_COMMAND = 'codex --version';
+const MAX_PROMPT_IMAGES = 4;
+const MAX_IMAGE_BASE64_LENGTH = 8 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+const BASE64_PATTERN = /^[A-Za-z0-9+/]+=*$/;
+
+function updateCachePath(root) {
+  return path.join(root, 'data', UPDATE_CACHE_FILE);
+}
+
+function readUpdateCache(root) {
+  try {
+    return JSON.parse(fs.readFileSync(updateCachePath(root), 'utf8'));
+  } catch (error) {
+    return null;
+  }
+}
+
+function writeUpdateCache(root, data) {
+  try {
+    fs.mkdirSync(path.join(root, 'data'), { recursive: true });
+    fs.writeFileSync(updateCachePath(root), JSON.stringify(data));
+  } catch (error) {
+    // A failed write only delays the next scheduled check.
+  }
+}
+
+// A version the CLI could not report, or a registry lookup that failed, never
+// counts as an update -- silence beats a false positive here.
+function isNewerVersion(latest, current) {
+  if (!latest || !current) return false;
+  const a = String(latest).split('.').map(Number);
+  const b = String(current).split('.').map(Number);
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    const x = a[i] || 0;
+    const y = b[i] || 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
+function readLocalCliVersion(commandLine, env) {
+  return new Promise((resolve) => {
+    const cli = cliProcess(commandLine);
+    let child;
+    try {
+      child = spawn(cli.command, cli.args, { env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (error) {
+      resolve('');
+      return;
+    }
+    let out = '';
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch (killError) {
+        // Already gone.
+      }
+      resolve('');
+    }, 8000);
+    child.stdout.on('data', (chunk) => { out += chunk; });
+    child.stderr.on('data', (chunk) => { out += chunk; });
+    child.on('error', () => { clearTimeout(timer); resolve(''); });
+    child.on('close', () => {
+      clearTimeout(timer);
+      const match = out.match(/\d+\.\d+\.\d+/);
+      resolve(match ? match[0] : '');
+    });
+  });
+}
+
+function fetchLatestNpmVersion(packageName) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (value) => {
+      if (!settled) {
+        settled = true;
+        resolve(value);
+      }
+    };
+    const req = https.get(`https://registry.npmjs.org/${packageName}/latest`, {
+      timeout: 8000,
+      headers: { 'User-Agent': 'wps7' }
+    }, (res) => {
+      let body = '';
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        try {
+          done(String(JSON.parse(body).version || ''));
+        } catch (error) {
+          done('');
+        }
+      });
+    });
+    req.on('timeout', () => req.destroy());
+    req.on('error', () => done(''));
+  });
+}
+
+// Runs at most once a day per AiManager: the CLI's own --version output is
+// compared against the npm registry so an available update can be mentioned
+// in the pane without the user having to think to ask.
+async function refreshUpdateCheck(root, env) {
+  const [localVersion, latestVersion] = await Promise.all([
+    readLocalCliVersion(UPDATE_VERSION_COMMAND, env),
+    fetchLatestNpmVersion(UPDATE_NPM_PACKAGE)
+  ]);
+  const data = { checkedAt: Date.now(), localVersion, latestVersion };
+  writeUpdateCache(root, data);
+  return data;
+}
+
+// Caps count, size and MIME type on the way in: these bytes came straight
+// from the browser's clipboard, over a socket with no other validation.
+function sanitizeImages(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const images = [];
+  for (const item of value) {
+    if (images.length >= MAX_PROMPT_IMAGES) break;
+    const mimeType = String(item?.mimeType || '');
+    const data = String(item?.data || '');
+    if (!ALLOWED_IMAGE_TYPES.has(mimeType) || !data
+        || data.length > MAX_IMAGE_BASE64_LENGTH || !BASE64_PATTERN.test(data)) {
+      continue;
+    }
+    images.push({ mimeType, data });
+  }
+  return images;
 }
 
 // The folder name claude derives from a working directory: every character
@@ -921,9 +1058,9 @@ class CodexAdapter {
       this.refreshCapabilities();
       const queued = this.queue;
       this.queue = [];
-      for (const text of queued) {
-        this.emit({ role: 'user', kind: 'text', text });
-        this.dispatchPrompt(text);
+      for (const item of queued) {
+        this.emit({ role: 'user', kind: 'text', text: item.text || (item.images.length ? '(image)' : '') });
+        this.dispatchPrompt(item.text, item.images);
       }
       return;
     }
@@ -1297,21 +1434,21 @@ class CodexAdapter {
     return true;
   }
 
-  sendPrompt(text) {
+  sendPrompt(text, images = []) {
     if (!this.activeTurnId) {
       this.turnId = crypto.randomUUID();
     }
     if (!this.threadId) {
       // Held rather than echoed immediately: a resume attempt still in flight
       // might fail, and its notice needs to land before this prompt, not after.
-      this.queue.push(text);
+      this.queue.push({ text, images });
       return;
     }
-    this.emit({ role: 'user', kind: 'text', text });
-    this.dispatchPrompt(text);
+    this.emit({ role: 'user', kind: 'text', text: text || (images.length ? '(image)' : '') });
+    this.dispatchPrompt(text, images);
   }
 
-  dispatchPrompt(text) {
+  dispatchPrompt(text, images = []) {
     const command = text.trim();
     if (command === '/compact') {
       this.request('thread/compact/start', { threadId: this.threadId });
@@ -1466,11 +1603,14 @@ class CodexAdapter {
       this.emit({ role: 'system', kind: 'notice', text: `Permission profile changed to ${profile}.` });
       return;
     }
-    this.startTurn(text);
+    this.startTurn(text, images);
   }
 
-  inputFor(text) {
-    const input = [{ type: 'text', text }];
+  inputFor(text, images = []) {
+    const input = images.map((image) => ({ type: 'image', url: `data:${image.mimeType};base64,${image.data}` }));
+    if (text) {
+      input.push({ type: 'text', text });
+    }
     const names = new Set([...text.matchAll(/(?:^|\s)\$([\w:-]+)/g)].map((match) => match[1]));
     for (const skill of this.skills) {
       if (names.has(skill.name)) {
@@ -1480,8 +1620,8 @@ class CodexAdapter {
     return input;
   }
 
-  startTurn(text) {
-    const input = this.inputFor(text);
+  startTurn(text, images = []) {
+    const input = this.inputFor(text, images);
     if (this.activeTurnId) {
       this.request('turn/steer', {
         threadId: this.threadId,
@@ -1576,12 +1716,14 @@ function terminateTree(child, spawnImpl) {
 }
 
 class AiManager {
-  constructor({ config, root, store, spawnImpl = spawn, env = process.env }) {
+  constructor({ config, root, store, spawnImpl = spawn, env = process.env, refreshUpdateCheckImpl = refreshUpdateCheck }) {
     this.config = config;
     this.root = root;
     this.store = store;
     this.spawnImpl = spawnImpl;
     this.env = env;
+    this.refreshUpdateCheckImpl = refreshUpdateCheckImpl;
+    this.updateCheckInFlight = false;
     // One CLI process per tab, exactly as a terminal pane runs one shell per
     // tab. Keyed by tab id because that is what the socket carries.
     this.runtimes = new Map();
@@ -1703,7 +1845,39 @@ class AiManager {
     child.on('exit', (code) => this.handleExit(runtime, code, ''));
 
     runtime.adapter.start({ sessionId: target.tab.sessionId });
+    this.maybeRefreshUpdateCheck();
+    this.announceUpdateIfAvailable(runtime);
     return runtime;
+  }
+
+  // Checked at most once a day; a cache miss or a still-fresh one is a no-op,
+  // so opening tabs all day does not mean opening a network request all day.
+  maybeRefreshUpdateCheck() {
+    if (this.updateCheckInFlight) {
+      return;
+    }
+    const cache = readUpdateCache(this.root);
+    if (cache && Date.now() - (cache.checkedAt || 0) < UPDATE_CHECK_INTERVAL_MS) {
+      return;
+    }
+    this.updateCheckInFlight = true;
+    Promise.resolve(this.refreshUpdateCheckImpl(this.root, this.env))
+      .catch(() => {})
+      .finally(() => { this.updateCheckInFlight = false; });
+  }
+
+  // Reads whatever the last completed check found; a check still in flight
+  // simply has nothing to say yet and is picked up next time a tab spawns.
+  announceUpdateIfAvailable(runtime) {
+    const cache = readUpdateCache(this.root);
+    if (!cache || !isNewerVersion(cache.latestVersion, cache.localVersion)) {
+      return;
+    }
+    this.recordEvent(runtime, {
+      role: 'system',
+      kind: 'notice',
+      text: `${UPDATE_CLI_LABEL} has an update available: ${cache.localVersion} → ${cache.latestVersion}. Run npm install -g ${UPDATE_NPM_PACKAGE}@latest to update.`
+    });
   }
 
   writeToCli(runtime, message) {
@@ -1868,19 +2042,24 @@ class AiManager {
   }
 
   handleClientMessage(runtime, message) {
-    if (message.type === 'prompt' && typeof message.text === 'string' && message.text.trim()) {
-      if (runtime.provider === 'codex' && message.text.trim() === '/new') {
+    if (message.type === 'prompt' && typeof message.text === 'string') {
+      const text = message.text.trim();
+      const images = sanitizeImages(message.images);
+      if (!text && !images.length) {
+        return;
+      }
+      if (runtime.provider === 'codex' && text === '/new') {
         this.clearTab(runtime.paneId, runtime.tabId);
         return;
       }
       if (runtime.status === 'stopped') {
         // The replacement has to be up before the prompt can go anywhere.
         this.restart(runtime)
-          .then((next) => next.adapter.sendPrompt(message.text))
+          .then((next) => next.adapter.sendPrompt(text, images))
           .catch(() => this.reportLost(runtime));
         return;
       }
-      runtime.adapter.sendPrompt(message.text);
+      runtime.adapter.sendPrompt(text, images);
       return;
     }
     if (message.type === 'answer') {
@@ -2166,5 +2345,9 @@ module.exports = {
   resolveClaudeEffort,
   claudeSyntheticReplyUpdate,
   readSessionTranscript,
-  CODEX_MUTED_NOTIFICATIONS
+  CODEX_MUTED_NOTIFICATIONS,
+  isNewerVersion,
+  readUpdateCache,
+  writeUpdateCache,
+  sanitizeImages
 };

@@ -389,7 +389,7 @@ test('plugin pane assets and pane creation work through the HTTP layer', async (
       type: 'ai',
       provider,
       implementation: provider,
-      icon: provider === 'claude' ? 'ai' : 'codex',
+      icon: provider,
       clientUrl: `/plugin-panes/${provider}/client.js`,
       styleUrl: `/plugin-panes/${provider}/styles.css`
     });

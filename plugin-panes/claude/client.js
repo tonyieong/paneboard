@@ -4,11 +4,14 @@
       app, api, showToast, clearToken, renderLogin, paneTabs, activePaneTabId,
       findPaneState, confirmDialog, escapeHtml, escapeAttr, fileActionIcon, getToken, provider
     } = context;
+    const MAX_AI_IMAGES = 4;
     const state = {
       get token() { return getToken(); },
       aiConnections: new Map(),
       aiCommands: new Map(),
-      aiCapabilities: new Map()
+      aiCapabilities: new Map(),
+      // Pasted images waiting to go out with the next prompt, keyed by tab id.
+      aiAttachments: new Map()
     };
 
     // One surface per tab, all but the active one hidden, mirroring how a
@@ -40,6 +43,7 @@
               <button type="button" class="ai-icon-button" data-ai-sessions aria-label="${escapeAttr(aiText('Earlier conversations'))}" title="${escapeAttr(aiText('Earlier conversations'))}">${fileActionIcon('history')}</button>
             </div>
             <div class="ai-commands" data-ai-commands role="listbox" aria-label="${escapeAttr(aiText('Commands'))}" hidden></div>
+            <div class="ai-attachments" data-ai-attachments hidden></div>
             <div class="ai-input-row">
               <textarea class="ai-input" data-ai-input rows="1" aria-label="${escapeAttr(aiText('Message'))}" placeholder="${escapeAttr(aiText(tab.provider === 'codex' ? 'Ask Codex, or type a / command' : 'Ask Claude, or type a / command'))}"></textarea>
               <button type="button" class="ai-send" data-ai-send aria-label="Send" title="Send">${fileActionIcon('send')}</button>
@@ -867,15 +871,63 @@
       state.aiConnections.clear();
       state.aiCommands.clear();
       state.aiCapabilities.clear();
+      state.aiAttachments.clear();
+    }
+
+    function renderAiAttachments(surface) {
+      const container = surface.querySelector('[data-ai-attachments]');
+      if (!container) return;
+      const list = state.aiAttachments.get(surface.dataset.aiTab) || [];
+      container.hidden = !list.length;
+      container.innerHTML = list.map((image, index) => `
+        <span class="ai-attachment">
+          <img src="${escapeAttr(image.preview)}" alt="">
+          <button type="button" class="ai-attachment-remove" data-ai-attachment-remove="${index}" aria-label="${escapeAttr(aiText('Remove image'))}" title="${escapeAttr(aiText('Remove image'))}">${fileActionIcon('close')}</button>
+        </span>`).join('');
+    }
+
+    // Ctrl+V and a right-click "Paste" both fire the same DOM paste event on a
+    // focused text field, so one listener covers both entry points the task
+    // asked for.
+    function handleAiPaste(event, surface) {
+      const items = [...(event.clipboardData?.items || [])].filter((item) => item.kind === 'file' && item.type.startsWith('image/'));
+      if (!items.length) return;
+      event.preventDefault();
+      const tabId = surface.dataset.aiTab;
+      for (const item of items) {
+        const list = state.aiAttachments.get(tabId) || [];
+        if (list.length >= MAX_AI_IMAGES) break;
+        const file = item.getAsFile();
+        if (!file) continue;
+        const reader = new FileReader();
+        reader.onload = () => {
+          const match = /^data:([^;]+);base64,(.+)$/.exec(String(reader.result || ''));
+          if (!match) return;
+          const current = state.aiAttachments.get(tabId) || [];
+          if (current.length >= MAX_AI_IMAGES) return;
+          current.push({ mimeType: match[1], data: match[2], preview: String(reader.result) });
+          state.aiAttachments.set(tabId, current);
+          renderAiAttachments(surface);
+        };
+        reader.readAsDataURL(file);
+      }
     }
 
     function sendAiPrompt(surface) {
       const input = surface.querySelector('[data-ai-input]');
-      const text = input?.value.trim();
-      if (!text) return;
-      state.aiConnections.get(surface.dataset.aiTab)?.send({ type: 'prompt', text });
+      const text = input?.value.trim() || '';
+      const tabId = surface.dataset.aiTab;
+      const images = state.aiAttachments.get(tabId) || [];
+      if (!text && !images.length) return;
+      state.aiConnections.get(tabId)?.send({
+        type: 'prompt',
+        text,
+        ...(images.length ? { images: images.map(({ mimeType, data }) => ({ mimeType, data })) } : {})
+      });
       input.value = '';
       input.style.height = '';
+      state.aiAttachments.delete(tabId);
+      renderAiAttachments(surface);
       updateAiCommandMenu(surface);
     }
 
@@ -935,7 +987,17 @@
             input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
             updateAiCommandMenu(surface);
           });
+          input.addEventListener('paste', (event) => handleAiPaste(event, surface));
         }
+        surface.querySelector('[data-ai-attachments]')?.addEventListener('click', (event) => {
+          const button = event.target.closest('[data-ai-attachment-remove]');
+          if (!button) return;
+          const tabId = surface.dataset.aiTab;
+          const list = state.aiAttachments.get(tabId) || [];
+          list.splice(Number(button.dataset.aiAttachmentRemove), 1);
+          state.aiAttachments.set(tabId, list);
+          renderAiAttachments(surface);
+        });
         surface.querySelector('[data-ai-send]')?.addEventListener('click', () => sendAiPrompt(surface));
         surface.querySelector('[data-ai-interrupt]')?.addEventListener('click', () => {
           state.aiConnections.get(surface.dataset.aiTab)?.send({ type: 'interrupt' });

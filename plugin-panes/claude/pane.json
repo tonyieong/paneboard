@@ -3,5 +3,5 @@
   "type": "ai",
   "provider": "claude",
   "implementation": "claude",
-  "icon": "ai"
+  "icon": "claude"
 }
