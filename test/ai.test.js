@@ -8,7 +8,7 @@ const { PassThrough } = require('node:stream');
 const { StateStore } = require('../src/state');
 const {
   AiManager: ClaudeAiManager, ClaudeAdapter, formatToolInput, parseCliArgs, resolveClaudeEffort,
-  isNewerVersion, readUpdateCache, writeUpdateCache, sanitizeImages
+  isNewerVersion, readUpdateCache, writeUpdateCache, sanitizeImages, attachmentsDir
 } = require('../plugin-panes/claude/server');
 const {
   AiManager: CodexAiManager, CodexAdapter, decisionLabel,
@@ -966,7 +966,7 @@ test('claude sendPrompt attaches pasted images as base64 content blocks ahead of
   assert.equal(events[0].text, 'what is this');
 });
 
-test('claude sendPrompt allows an image with no text and labels the bubble accordingly', () => {
+test('claude sendPrompt allows an image with no text, and the bubble carries the image instead of placeholder text', () => {
   const written = [];
   const events = [];
   const adapter = new ClaudeAdapter({
@@ -975,11 +975,12 @@ test('claude sendPrompt allows an image with no text and labels the bubble accor
     onEvent: (event) => events.push(event),
     onStatus: () => {}
   });
-  adapter.sendPrompt('', [{ mimeType: 'image/png', data: 'aGVsbG8=' }]);
+  adapter.sendPrompt('', [{ mimeType: 'image/png', data: 'aGVsbG8=', id: 'img-1.png' }]);
   assert.deepEqual(written[0].message.content, [
     { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } }
   ]);
-  assert.equal(events[0].text, '(image)');
+  assert.equal(events[0].text, '');
+  assert.deepEqual(events[0].images, [{ id: 'img-1.png', mimeType: 'image/png' }]);
 });
 
 test('codex sendPrompt turns pasted images into data-url image inputs ahead of the text', () => {
@@ -1027,6 +1028,41 @@ test('a prompt with only a pasted image reaches the CLI instead of being dropped
   ]);
 });
 
+test('a pasted image is written to disk and the stored transcript event references it by filename', () => {
+  const { manager, store, pane, tabId, root } = managerFixture();
+  const socket = fakeSocket();
+  manager.attach(tabId, socket);
+  socket.fire('message', JSON.stringify({
+    type: 'prompt',
+    text: 'what is this',
+    images: [{ mimeType: 'image/png', data: 'aGVsbG8=' }]
+  }));
+
+  const stored = store.findAiTab(pane.id, tabId).tab.messages.find((event) => event.text === 'what is this');
+  assert.equal(stored.images.length, 1);
+  const [image] = stored.images;
+  assert.match(image.id, /^[0-9a-f-]+\.png$/);
+  assert.equal(image.mimeType, 'image/png');
+
+  const written = fs.readFileSync(path.join(attachmentsDir(root, tabId), image.id));
+  assert.equal(written.toString('base64'), 'aGVsbG8=');
+});
+
+test('clearing an ai tab also deletes its pasted-image attachments', () => {
+  const { manager, pane, tabId, root } = managerFixture();
+  const socket = fakeSocket();
+  manager.attach(tabId, socket);
+  socket.fire('message', JSON.stringify({
+    type: 'prompt',
+    text: 'what is this',
+    images: [{ mimeType: 'image/png', data: 'aGVsbG8=' }]
+  }));
+  assert.ok(fs.existsSync(attachmentsDir(root, tabId)));
+
+  manager.clearTab(pane.id, tabId);
+  assert.equal(fs.existsSync(attachmentsDir(root, tabId)), false);
+});
+
 test('a prompt with no text and no images is still dropped', () => {
   const { manager, tabId, spawns } = managerFixture();
   const socket = fakeSocket();
@@ -1047,7 +1083,15 @@ test('codex queues an image-only prompt arriving over the socket instead of drop
     images: [{ mimeType: 'image/png', data: 'aGVsbG8=' }]
   }));
   const runtime = manager.runtimes.get(tabId);
-  assert.deepEqual(runtime.adapter.queue, [{ text: '', images: [{ mimeType: 'image/png', data: 'aGVsbG8=' }] }]);
+  assert.equal(runtime.adapter.queue.length, 1);
+  const [queued] = runtime.adapter.queue;
+  assert.equal(queued.text, '');
+  assert.equal(queued.images.length, 1);
+  assert.equal(queued.images[0].mimeType, 'image/png');
+  assert.equal(queued.images[0].data, 'aGVsbG8=');
+  // The socket-level handler writes the image to disk before queuing it, so
+  // by the time it is here it carries the filename that got it there.
+  assert.match(queued.images[0].id, /\.png$/);
 });
 
 test('a stale or missing update cache triggers exactly one background refresh at a time', () => {

@@ -1147,6 +1147,31 @@ test('ai transcripts are saved but kept out of the public state', () => {
   assert.equal(publicPane.aiTabs[0].provider, 'claude');
 });
 
+// The bytes never reach state.json -- see AiManager.saveAttachments -- so the
+// event only ever carries the filename that reaches them on disk, and only
+// once it looks like one this store could have produced.
+test('an ai event only keeps image references that match the attachment filename pattern', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const store = new StateStore(root);
+  store.load();
+  const firstPane = store.state.sessions[0].tabs[0].panes[0];
+  const pane = store.createAiPane(firstPane.id, 'claude');
+  const tabId = pane.activeAiTabId;
+
+  const [stored] = store.appendAiMessages(pane.id, tabId, [{
+    role: 'user',
+    kind: 'text',
+    text: '',
+    images: [
+      { id: '3f9c2b6a-1e4d-4c8f-9a2b-6a1e4d4c8f9a.png', mimeType: 'image/png' },
+      { id: '../../etc/passwd', mimeType: 'image/png' },
+      { id: 'no-extension', mimeType: 'image/png' }
+    ]
+  }]);
+
+  assert.deepEqual(stored.images, [{ id: '3f9c2b6a-1e4d-4c8f-9a2b-6a1e4d4c8f9a.png', mimeType: 'image/png' }]);
+});
+
 // Dropping half a turn would leave a tool result with no tool call above it, so
 // the oldest whole turns go instead.
 test('ai history is trimmed a whole turn at a time', () => {

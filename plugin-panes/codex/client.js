@@ -223,12 +223,23 @@
         </div>`;
     }
 
-    function renderAiEvent(event) {
+    function aiAttachmentUrl(paneId, tabId, id) {
+      const token = state.token ? `?token=${encodeURIComponent(state.token)}` : '';
+      return `/api/panes/${encodeURIComponent(paneId)}/ai/tabs/${encodeURIComponent(tabId)}/attachments/${encodeURIComponent(id)}${token}`;
+    }
+
+    function renderAiAttachmentImages(event, paneId, tabId) {
+      const images = Array.isArray(event.images) ? event.images : [];
+      if (!images.length) return '';
+      return `<div class="ai-attachment-images">${images.map((image) => `<img src="${escapeAttr(aiAttachmentUrl(paneId, tabId, image.id))}" alt="" loading="lazy">`).join('')}</div>`;
+    }
+
+    function renderAiEvent(event, paneId, tabId) {
       if (event.kind === 'question') {
         return renderAiQuestion(event);
       }
       if (event.kind === 'text') {
-        return `<div class="ai-bubble ${event.role === 'user' ? 'user' : 'assistant'}" data-ai-event="${event.id}">${renderMarkdown(event.text)}</div>`;
+        return `<div class="ai-bubble ${event.role === 'user' ? 'user' : 'assistant'}" data-ai-event="${event.id}">${renderAiAttachmentImages(event, paneId, tabId)}${renderMarkdown(event.text)}</div>`;
       }
       if (event.kind === 'thinking') {
         return `<details class="ai-thinking" data-ai-event="${event.id}"><summary>${escapeHtml(aiText('Thinking'))}</summary><div>${renderMarkdown(event.text)}</div></details>`;
@@ -682,7 +693,7 @@
         });
         return;
       }
-      const html = renderAiEvent(event);
+      const html = renderAiEvent(event, surface.dataset.aiPane, tabId);
       if (!html) return;
       log.insertAdjacentHTML('beforeend', html);
       follow();
@@ -793,7 +804,7 @@
               const events = (message.events || []).map((item) => (item.kind === 'question' && !item.answer && !pending.has(item.question.requestId)
                 ? { ...item, answer: { cancelled: true } }
                 : item));
-              log.innerHTML = events.map(renderAiEvent).join('');
+              log.innerHTML = events.map((item) => renderAiEvent(item, paneId, tabId)).join('');
               if (scroller) scroller.scrollTop = scroller.scrollHeight;
             }
             state.aiCommands.set(tabId, { list: message.commands || [], ready: Boolean(message.commandsReady) });
@@ -886,6 +897,34 @@
         </span>`).join('');
     }
 
+    // Vision models get nothing extra past this resolution, and it keeps a
+    // pasted screenshot from turning into a multi-megabyte upload -- both for
+    // the CLI call and for its permanent copy on disk (see AiManager.saveAttachments).
+    const MAX_AI_IMAGE_DIMENSION = 1568;
+
+    // Re-encodes as JPEG at a fixed quality, so a pasted image is a few hundred
+    // KB at most regardless of its source format or size. Chat screenshots
+    // rarely depend on transparency, so trading it away here is a fair swap for
+    // a predictable, bounded upload.
+    function resizeAiImage(dataUrl, callback) {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, MAX_AI_IMAGE_DIMENSION / Math.max(img.width, img.height));
+        const width = Math.max(1, Math.round(img.width * scale));
+        const height = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        const resized = canvas.toDataURL('image/jpeg', 0.85);
+        const match = /^data:([^;]+);base64,(.+)$/.exec(resized);
+        callback(match ? { mimeType: match[1], data: match[2], preview: resized } : null);
+      };
+      img.onerror = () => callback(null);
+      img.src = dataUrl;
+    }
+
     // Ctrl+V and a right-click "Paste" both fire the same DOM paste event on a
     // focused text field, so one listener covers both entry points the task
     // asked for.
@@ -901,13 +940,14 @@
         if (!file) continue;
         const reader = new FileReader();
         reader.onload = () => {
-          const match = /^data:([^;]+);base64,(.+)$/.exec(String(reader.result || ''));
-          if (!match) return;
-          const current = state.aiAttachments.get(tabId) || [];
-          if (current.length >= MAX_AI_IMAGES) return;
-          current.push({ mimeType: match[1], data: match[2], preview: String(reader.result) });
-          state.aiAttachments.set(tabId, current);
-          renderAiAttachments(surface);
+          resizeAiImage(String(reader.result || ''), (resized) => {
+            if (!resized) return;
+            const current = state.aiAttachments.get(tabId) || [];
+            if (current.length >= MAX_AI_IMAGES) return;
+            current.push(resized);
+            state.aiAttachments.set(tabId, current);
+            renderAiAttachments(surface);
+          });
         };
         reader.readAsDataURL(file);
       }

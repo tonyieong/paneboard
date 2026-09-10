@@ -13,7 +13,7 @@ const { createSessionToken, hashPassword, validatePassword, verifyPassword, veri
 const files = require('./files');
 const { resolveShell, normalizeCwd } = require('./shell');
 const { listAiSessions } = require('./ai-sessions');
-const { StateStore } = require('./state');
+const { StateStore, AI_ATTACHMENT_FILE } = require('./state');
 const { TerminalManager } = require('./terminal');
 const { startTray } = require('./tray');
 const { loadOrCreateControlToken, requireRuntimeControl } = require('./runtime-control');
@@ -160,6 +160,17 @@ function requireAuth(config) {
 
     res.status(401).json({ error: 'Login required.' });
   };
+}
+
+// Pasted images live under data/ai-attachments/<tabId>/<file>, written by the
+// AI plugin panes' own AiManager.saveAttachments(); this only serves them
+// back out, so the filename is checked against the same pattern state.js
+// uses to accept one into a stored event in the first place.
+function aiAttachmentPath(root, tabId, file) {
+  if (!AI_ATTACHMENT_FILE.test(String(file || ''))) {
+    return null;
+  }
+  return path.join(root, 'data', 'ai-attachments', tabId, file);
 }
 
 function notepadDefaults(config) {
@@ -1388,6 +1399,13 @@ function main() {
       return;
     }
     manager?.killTab(req.params.tabId);
+    // The tab id is either gone or reused for a fresh conversation, so either
+    // way its old attachments are unreachable from the transcript now.
+    try {
+      fs.rmSync(path.join(root, 'data', 'ai-attachments', req.params.tabId), { recursive: true, force: true });
+    } catch (error) {
+      // Nothing left to serve either way.
+    }
     res.json({ ok: true, tab: result.replacement ? aiTabSummary(result.replacement) : null });
   });
 
@@ -1424,6 +1442,25 @@ function main() {
       return;
     }
     res.json({ ok: true });
+  });
+
+  // A pasted image the transcript renders back as an <img>; not tied to a live
+  // CLI process, so this works whether or not the tab's runtime is running.
+  app.get('/api/panes/:paneId/ai/tabs/:tabId/attachments/:file', requireAuth(config), (req, res) => {
+    const found = store.findAiTab(req.params.paneId, req.params.tabId);
+    const filePath = found ? aiAttachmentPath(root, req.params.tabId, req.params.file) : null;
+    if (!filePath || !fs.existsSync(filePath)) {
+      res.status(404).json({ error: 'Attachment not found.' });
+      return;
+    }
+    res.sendFile(filePath, {
+      headers: {
+        'Content-Disposition': 'inline',
+        'Content-Security-Policy': "default-src 'none'; sandbox",
+        'X-Content-Type-Options': 'nosniff',
+        'Cache-Control': 'private, max-age=31536000, immutable'
+      }
+    });
   });
 
   app.patch('/api/panes/:paneId/files/path', requireAuth(config), (req, res) => {

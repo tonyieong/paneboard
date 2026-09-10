@@ -225,6 +225,13 @@ function sanitizeImages(value) {
   return images;
 }
 
+const AI_ATTACHMENTS_DIR = 'ai-attachments';
+const IMAGE_FILE_EXTENSIONS = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
+
+function attachmentsDir(root, tabId) {
+  return path.join(root, 'data', AI_ATTACHMENTS_DIR, tabId);
+}
+
 // The folder name claude derives from a working directory: every character
 // that is not a letter or a digit becomes a dash.
 function claudeProjectDir(cwd, home) {
@@ -870,7 +877,12 @@ class ClaudeAdapter {
 
   sendPrompt(text, images = []) {
     this.turnId = crypto.randomUUID();
-    this.emit({ role: 'user', kind: 'text', text: text || (images.length ? '(image)' : '') });
+    this.emit({
+      role: 'user',
+      kind: 'text',
+      text,
+      ...(images.length ? { images: images.map(({ id, mimeType }) => ({ id, mimeType })) } : {})
+    });
     const content = images.map((image) => ({
       type: 'image',
       source: { type: 'base64', media_type: image.mimeType, data: image.data }
@@ -1873,6 +1885,34 @@ class AiManager {
     });
   }
 
+  // Written to disk rather than kept in the transcript: the CLI still gets the
+  // full bytes for this turn, but state.json -- which every pane shares and
+  // writes atomically as one file -- only ever holds a filename afterwards.
+  saveAttachments(tabId, images) {
+    if (!images.length) {
+      return images;
+    }
+    const dir = attachmentsDir(this.root, tabId);
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch (error) {
+      return images.map((image) => ({ ...image, id: '' }));
+    }
+    return images.map((image) => {
+      const ext = IMAGE_FILE_EXTENSIONS[image.mimeType];
+      if (!ext) {
+        return { ...image, id: '' };
+      }
+      const id = `${crypto.randomUUID()}.${ext}`;
+      try {
+        fs.writeFileSync(path.join(dir, id), Buffer.from(image.data, 'base64'));
+      } catch (error) {
+        return { ...image, id: '' };
+      }
+      return { ...image, id };
+    });
+  }
+
   writeToCli(runtime, message) {
     const line = JSON.stringify(message);
     this.debugLog(runtime, `>> ${line}`);
@@ -2035,7 +2075,7 @@ class AiManager {
   handleClientMessage(runtime, message) {
     if (message.type === 'prompt' && typeof message.text === 'string') {
       const text = message.text.trim();
-      const images = sanitizeImages(message.images);
+      const images = this.saveAttachments(runtime.tabId, sanitizeImages(message.images));
       if (!text && !images.length) {
         return;
       }
@@ -2291,6 +2331,11 @@ class AiManager {
     if (!this.store.clearAiTab(paneId, tabId)) {
       return false;
     }
+    try {
+      fs.rmSync(attachmentsDir(this.root, tabId), { recursive: true, force: true });
+    } catch (error) {
+      // Nothing left to serve either way.
+    }
     const runtime = this.runtimes.get(tabId);
     if (runtime) {
       const clients = [...runtime.clients];
@@ -2336,5 +2381,6 @@ module.exports = {
   isNewerVersion,
   readUpdateCache,
   writeUpdateCache,
-  sanitizeImages
+  sanitizeImages,
+  attachmentsDir
 };

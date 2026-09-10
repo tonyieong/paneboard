@@ -135,6 +135,21 @@
   margin-bottom: 0;
 }
 
+.ai-attachment-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.ai-attachment-images img {
+  max-width: 220px;
+  max-height: 220px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  display: block;
+}
+
 .ai-bubble ul,
 .ai-bubble ol {
   padding-left: 20px;

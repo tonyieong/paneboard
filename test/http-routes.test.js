@@ -428,6 +428,36 @@ test('plugin pane assets and pane creation work through the HTTP layer', async (
   assert.equal(closed.status, 200);
 });
 
+test('a pasted-image attachment is served back by its stored filename and rejected by an invalid one', async () => {
+  const loaded = await request('/api/state');
+  const basePaneId = loaded.json.sessions[0].tabs[0].panes[0].id;
+  const created = await request(`/api/panes/${basePaneId}/plugin`, {
+    method: 'POST',
+    body: { pluginPaneId: 'claude' }
+  });
+  assert.equal(created.status, 201);
+  const paneId = created.json.id;
+  const tabId = created.json.aiTabs[0].id;
+
+  const tabDir = path.join(dataDir, 'ai-attachments', tabId);
+  fs.mkdirSync(tabDir, { recursive: true });
+  const fileName = '3f9c2b6a-1e4d-4c8f-9a2b-6a1e4d4c8f9a.png';
+  fs.writeFileSync(path.join(tabDir, fileName), Buffer.from('hello', 'utf8'));
+
+  const served = await request(`/api/panes/${paneId}/ai/tabs/${tabId}/attachments/${fileName}`);
+  assert.equal(served.status, 200);
+  assert.equal(served.text, 'hello');
+
+  const traversal = await request(`/api/panes/${paneId}/ai/tabs/${tabId}/attachments/${encodeURIComponent('../../config.toml')}`);
+  assert.equal(traversal.status, 404);
+
+  const wrongTab = await request(`/api/panes/${paneId}/ai/tabs/not-a-real-tab/attachments/${fileName}`);
+  assert.equal(wrongTab.status, 404);
+
+  fs.rmSync(path.join(dataDir, 'ai-attachments', tabId), { recursive: true, force: true });
+  await request(`/api/panes/${paneId}`, { method: 'DELETE' });
+});
+
 test('file and notepad panes open with no password set', async () => {
   // Regression: the file-manager routes used to sit behind their own guard,
   // which answered 403 while auth.password_hash was empty, so the default local

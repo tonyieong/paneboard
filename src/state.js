@@ -39,6 +39,10 @@ const MAX_AI_MESSAGES = 1500;
 const MAX_AI_HISTORY_BYTES = 2 * 1024 * 1024;
 const MAX_AI_TEXT_LENGTH = 64 * 1024;
 const MAX_AI_DETAIL_LENGTH = 8 * 1024;
+// Pasted images are written to disk (see plugin-panes/*/server.js) and only
+// referenced here by filename, so they never count against MAX_AI_HISTORY_BYTES.
+const MAX_AI_IMAGES = 4;
+const AI_ATTACHMENT_FILE = /^[0-9a-f-]{20,80}\.(?:png|jpe?g|gif|webp)$/i;
 const AI_TRIM_NOTICE = 'Older messages were dropped from this device\'s copy of the conversation.';
 
 function paneType(value) {
@@ -250,6 +254,18 @@ function aiEvent(value = {}) {
       outputTokens: Number(value.usage.outputTokens) || 0,
       durationMs: Number(value.usage.durationMs) || 0
     };
+  }
+  if (Array.isArray(value.images) && value.images.length) {
+    const images = value.images
+      .filter((image) => AI_ATTACHMENT_FILE.test(String(image?.id || '')))
+      .slice(0, MAX_AI_IMAGES)
+      .map((image) => ({
+        id: String(image.id),
+        mimeType: String(image.mimeType || '').slice(0, 40)
+      }));
+    if (images.length) {
+      event.images = images;
+    }
   }
   if (truncated) {
     event.truncated = true;
@@ -1421,7 +1437,8 @@ class StateStore {
 module.exports = {
   StateStore,
   defaultSession,
-  nextNumberedName
+  nextNumberedName,
+  AI_ATTACHMENT_FILE
 };
 
 // Every pane measurement is in whole grid cells. Cell width is the configured
