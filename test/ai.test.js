@@ -1962,6 +1962,54 @@ test('resuming a codex session leaves out injected AGENTS.md and plugin context'
   ]);
 });
 
+// Regression: codex 0.153+ stopped writing user_message/agent_message events
+// and wraps every turn in item_completed instead, which the reader above did
+// not understand yet -- resuming any session recorded by that CLI replayed no
+// history at all.
+test('resuming a codex session recorded by a current CLI still shows its transcript', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-codex-home-'));
+  const { manager, store, pane, tabId } = managerFixture({ provider: 'codex', env: { CODEX_HOME: home } });
+  store.setAiTabCwd(pane.id, tabId, manager.root);
+  manager.attach(tabId, fakeSocket());
+
+  const dir = path.join(home, 'sessions', '2026', '09', '05');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'rollout-2026-09-05T20-54-22-current-cli-session.jsonl'), [
+    { type: 'session_meta', payload: { id: 'current-cli-session', cwd: manager.root, cli_version: '0.153.4' } },
+    {
+      type: 'event_msg',
+      payload: {
+        type: 'item_completed',
+        item: { type: 'UserMessage', content: [{ type: 'text', text: 'why is the retry helper flaky' }] }
+      }
+    },
+    {
+      type: 'event_msg',
+      payload: {
+        type: 'item_completed',
+        item: { type: 'CommandExecution', command: 'npm test' }
+      }
+    },
+    {
+      type: 'event_msg',
+      payload: {
+        type: 'item_completed',
+        item: { type: 'AgentMessage', content: [{ type: 'Text', text: 'it retries before the mock settles' }] }
+      }
+    }
+  ].map((record) => JSON.stringify(record)).join('\n') + '\n');
+
+  assert.equal(manager.resumeSession(pane.id, tabId, 'current-cli-session', ''), true);
+  await settle();
+
+  const tab = store.findAiTab(pane.id, tabId).tab;
+  assert.deepEqual(tab.messages.map((event) => `${event.role}:${event.text}`), [
+    'user:why is the retry helper flaky',
+    'assistant:it retries before the mock settles',
+    'system:Now continuing an earlier conversation.'
+  ]);
+});
+
 test('a prompt after a codex resume stays with the resumed runtime', async () => {
   const { manager, pane, tabId, spawns } = managerFixture({ provider: 'codex' });
   const socket = fakeSocket();

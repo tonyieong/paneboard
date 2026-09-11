@@ -32,6 +32,8 @@
       'Earlier conversations': '較早的對話',
       'No earlier conversations for this folder.': '這個資料夾沒有較早的對話。',
       'The agent keeps these messages; this tab shows only what happens next.': 'AI 仍然記得這些訊息，這個分頁只會顯示接下來的內容。',
+      'Remove image': '移除圖片',
+      'View image': '查看圖片',
       'Other': '其他',
       'Commands': '指令',
       'Loading commands…': '正在載入指令…',

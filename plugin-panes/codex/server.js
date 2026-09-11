@@ -262,7 +262,9 @@ function transcriptBlockText(content) {
   if (Array.isArray(content)) {
     for (const block of content) {
       if (typeof block === 'string') return block;
-      if (block?.text && block.type === 'text') return block.text;
+      // Codex spells this two different ways across its own item types --
+      // 'text' on a UserMessage block, 'Text' on an AgentMessage one.
+      if (block?.text && String(block.type || '').toLowerCase() === 'text') return block.text;
     }
   }
   return '';
@@ -328,7 +330,18 @@ function readSessionTranscript(provider, sessionId, cwd, env = process.env) {
       // from a real message once they are in that shape.
       if (record.type !== 'event_msg') continue;
       const payload = record.payload || {};
-      if (payload.type === 'user_message' && payload.message) {
+      // Current rollout files (codex 0.153+) wrap every turn's item in
+      // item_completed instead of writing a dedicated user_message/agent_message
+      // event; both are read so a session recorded by an older CLI still resumes.
+      if (payload.type === 'item_completed') {
+        const item = payload.item || {};
+        const text = transcriptBlockText(item.content);
+        if (item.type === 'UserMessage' && text) {
+          events.push({ role: 'user', kind: 'text', text });
+        } else if (item.type === 'AgentMessage' && text) {
+          events.push({ role: 'assistant', kind: 'text', text });
+        }
+      } else if (payload.type === 'user_message' && payload.message) {
         events.push({ role: 'user', kind: 'text', text: payload.message });
       } else if (payload.type === 'agent_message' && payload.phase === 'final_answer' && payload.message) {
         events.push({ role: 'assistant', kind: 'text', text: payload.message });

@@ -231,7 +231,33 @@
     function renderAiAttachmentImages(event, paneId, tabId) {
       const images = Array.isArray(event.images) ? event.images : [];
       if (!images.length) return '';
-      return `<div class="ai-attachment-images">${images.map((image) => `<img src="${escapeAttr(aiAttachmentUrl(paneId, tabId, image.id))}" alt="" loading="lazy">`).join('')}</div>`;
+      return `<div class="ai-attachment-images">${images.map((image) => `
+        <button type="button" class="ai-attachment-image" data-ai-image-zoom aria-label="${escapeAttr(aiText('View image'))}">
+          <img src="${escapeAttr(aiAttachmentUrl(paneId, tabId, image.id))}" alt="" loading="lazy">
+        </button>`).join('')}</div>`;
+    }
+
+    // A click anywhere outside the picture, the close button, or Escape all
+    // dismiss it; there is nothing else to interact with behind the overlay.
+    function openAiImageLightbox(src) {
+      document.querySelector('.ai-image-lightbox')?.remove();
+      const overlay = document.createElement('div');
+      overlay.className = 'ai-image-lightbox';
+      overlay.innerHTML = `
+        <img src="${escapeAttr(src)}" alt="">
+        <button type="button" class="ai-image-lightbox-close" aria-label="${escapeAttr(aiText('Close'))}" title="${escapeAttr(aiText('Close'))}">${fileActionIcon('close')}</button>`;
+      const onKey = (event) => {
+        if (event.key === 'Escape') close();
+      };
+      const close = () => {
+        overlay.remove();
+        document.removeEventListener('keydown', onKey);
+      };
+      overlay.addEventListener('click', (event) => {
+        if (event.target === overlay || event.target.closest('.ai-image-lightbox-close')) close();
+      });
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(overlay);
     }
 
     function renderAiEvent(event, paneId, tabId) {
@@ -1079,6 +1105,11 @@
         });
 
         surface.addEventListener('click', (event) => {
+          const zoom = event.target.closest('[data-ai-image-zoom]');
+          if (zoom) {
+            openAiImageLightbox(zoom.querySelector('img').src);
+            return;
+          }
           const other = event.target.closest('[data-ai-other]');
           if (other && !other.disabled) {
             // "Other" is a choice the CLI never lists but always accepts; it

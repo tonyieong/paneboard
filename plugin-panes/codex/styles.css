@@ -150,6 +150,52 @@
   display: block;
 }
 
+.ai-attachment-image {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+  display: block;
+}
+
+.ai-image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-toast, 100);
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+
+.ai-image-lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.ai-image-lightbox-close {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  cursor: pointer;
+}
+
+.ai-image-lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
 .ai-bubble ul,
 .ai-bubble ol {
   padding-left: 20px;

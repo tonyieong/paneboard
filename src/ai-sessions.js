@@ -70,7 +70,9 @@ function parseLines(text) {
   return records;
 }
 
-// claude writes {type:'text'}; codex writes {type:'input_text'}.
+// claude writes {type:'text'}; codex writes {type:'input_text'} in a
+// response_item and {type:'text'|'Text'} (case varies by item kind) in a
+// rollout's item_completed event.
 function blockText(content) {
   if (typeof content === 'string') {
     return content;
@@ -78,7 +80,8 @@ function blockText(content) {
   if (Array.isArray(content)) {
     for (const block of content) {
       if (typeof block === 'string') return block;
-      if (block?.text && (block.type === 'text' || block.type === 'input_text')) return block.text;
+      const type = String(block?.type || '').toLowerCase();
+      if (block?.text && (type === 'text' || type === 'input_text')) return block.text;
     }
   }
   return '';
@@ -117,11 +120,19 @@ function codexMeta(records) {
 function codexTitle(records) {
   for (const record of records) {
     const payload = record.payload || {};
-    // The event carries the message as the user sent it; the response item is
-    // the same text wrapped for the model.
-    const text = payload.type === 'user_message'
-      ? payload.message
-      : (payload.role === 'user' ? blockText(payload.content) : '');
+    // Current rollout files (codex 0.153+) wrap the user's turn in
+    // item_completed/UserMessage instead of a dedicated user_message event;
+    // both are read so a session from an older CLI still gets a title.
+    let text = '';
+    if (payload.type === 'item_completed' && payload.item?.type === 'UserMessage') {
+      text = blockText(payload.item.content);
+    } else if (payload.type === 'user_message') {
+      text = payload.message;
+    } else if (payload.role === 'user') {
+      // The event carries the message as the user sent it; the response item is
+      // the same text wrapped for the model.
+      text = blockText(payload.content);
+    }
     const title = usableTitle(text);
     if (title) return title;
   }

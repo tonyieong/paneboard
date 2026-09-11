@@ -104,6 +104,28 @@ test('a codex session is still titled when its metadata line is huge', () => {
   assert.equal(sessions[0].title, 'the real question');
 });
 
+// Regression: codex 0.153+ stopped writing a dedicated user_message event and
+// wraps the same turn in item_completed/UserMessage instead, which left every
+// session recorded by a current CLI untitled -- and therefore filtered out of
+// the list entirely, since a title-less session is assumed to have nothing in it.
+test('a codex session recorded by a current CLI is still titled', () => {
+  const home = tempHome('codex');
+  const cwd = 'C:\\work\\project';
+  writeCodexSession(home, cwd, '019d0000-0000-7000-8000-000000000004', [
+    {
+      type: 'event_msg',
+      payload: {
+        type: 'item_completed',
+        item: { type: 'UserMessage', content: [{ type: 'text', text: 'why is the retry helper flaky' }] }
+      }
+    }
+  ]);
+
+  const sessions = listAiSessions('codex', cwd, { CODEX_HOME: home });
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].title, 'why is the retry helper flaky');
+});
+
 test('an unknown folder simply has no sessions', () => {
   const home = tempHome('claude');
   assert.deepEqual(listAiSessions('claude', 'C:\\nothing\\here', { CLAUDE_CONFIG_DIR: home }), []);
