@@ -11,14 +11,14 @@ const TRAY_HEALTHY_MS = 30000;
 const TRAY_RESTART_DELAY_MS = 2000;
 const TRAY_RESTART_LIMIT = 5;
 
-function startTray({ root, url, save, openBrowser, restart, shutdown, log = () => {} }) {
+function startTray({ root, url, port, save, openBrowser, restart, shutdown, log = () => {} }) {
   if (process.platform === 'win32') {
-    return startWindowsNotifyIconTray({ root, url, save, openBrowser, restart, shutdown, log });
+    return startWindowsNotifyIconTray({ root, url, port, save, openBrowser, restart, shutdown, log });
   }
-  return startPortableTray({ root, url, save, openBrowser, restart, shutdown, log });
+  return startPortableTray({ root, url, port, save, openBrowser, restart, shutdown, log });
 }
 
-function startWindowsNotifyIconTray({ root, url, save, openBrowser, restart, shutdown, log }) {
+function startWindowsNotifyIconTray({ root, url, port, save, openBrowser, restart, shutdown, log }) {
   const trayDir = path.join(root, 'data', 'tray');
   fs.mkdirSync(trayDir, { recursive: true });
   const scriptPath = path.join(trayDir, 'wps7-notifyicon.ps1');
@@ -46,6 +46,8 @@ function startWindowsNotifyIconTray({ root, url, save, openBrowser, restart, shu
       root,
       '-Url',
       url,
+      '-Port',
+      String(port),
       '-ServerPid',
       String(process.pid)
     ], {
@@ -126,6 +128,7 @@ param(
   [Parameter(Mandatory=$true)][string]$IconPath,
   [Parameter(Mandatory=$true)][string]$Root,
   [Parameter(Mandatory=$true)][string]$Url,
+  [Parameter(Mandatory=$true)][int]$Port,
   [Parameter(Mandatory=$true)][int]$ServerPid
 )
 
@@ -135,11 +138,11 @@ Add-Type -AssemblyName System.Drawing
 $icon = New-Object System.Drawing.Icon($IconPath)
 $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
 $notifyIcon.Icon = $icon
-$notifyIcon.Text = 'wps7 terminal workspace'
+$notifyIcon.Text = "wps7 terminal workspace (port $Port)"
 $notifyIcon.Visible = $true
 
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
-$statusItem = $menu.Items.Add('Status: running')
+$statusItem = $menu.Items.Add("Status: running (port $Port)")
 $statusItem.Enabled = $false
 $menu.Items.Add('-') | Out-Null
 $openItem = $menu.Items.Add('Open Web UI')
@@ -174,8 +177,14 @@ try {
 `.trim();
 }
 
-function startPortableTray({ root, url, save, openBrowser, restart, shutdown, log }) {
+function startPortableTray({ root, url, port, save, openBrowser, restart, shutdown, log }) {
   const icon = realIconPath(root);
+  const statusItem = {
+    title: `Status: running (port ${port})`,
+    tooltip: '',
+    checked: false,
+    enabled: false
+  };
   const openItem = {
     title: 'Open Web UI',
     tooltip: 'Open wps7 in your browser',
@@ -209,8 +218,8 @@ function startPortableTray({ root, url, save, openBrowser, restart, shutdown, lo
     menu: {
       icon,
       title: 'wps7',
-      tooltip: 'wps7 terminal workspace',
-      items: [openItem, saveItem, restartItem, SysTray.separator, exitItem]
+      tooltip: `wps7 terminal workspace (port ${port})`,
+      items: [statusItem, SysTray.separator, openItem, saveItem, restartItem, SysTray.separator, exitItem]
     },
     debug: Boolean(process.env.WPS7_TRAY_DEBUG),
     copyDir: path.join(root, 'data', 'tray')

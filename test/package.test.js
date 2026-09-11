@@ -29,13 +29,27 @@ test('portable Windows restart waits for the old process before relaunching', ()
   const startIndex = mainSource.indexOf('Start-Process -FilePath $Executable');
   assert.ok(waitIndex >= 0, 'restart helper must wait for the parent process');
   assert.ok(startIndex > waitIndex, 'replacement must start after the parent exits');
-  assert.match(mainSource, /spawn\('powershell\.exe'/);
+  // Routed through cmd's `start` verb, not spawned directly, so the relaunch
+  // helper survives even when wps7.exe itself sits in a job object that kills
+  // its direct children on close.
+  assert.match(mainSource, /spawn\('cmd\.exe', \[\s*\n\s*'\/c', 'start'/);
 });
 
 test('portable tray includes the common status, logs and diagnostics actions', () => {
   for (const label of ['Status: running', 'Open Web UI', 'Save Now', 'Restart wps7', 'View Logs', 'Diagnostics', 'Exit']) {
     assert.match(traySource, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
+});
+
+// The port a fresh install ends up on can differ from the configured one --
+// see listenOnPort()'s fallback -- so the tray is the one place that always
+// knows which port this particular running instance actually bound.
+test('the tray tooltip and menu show the port this instance is running on', () => {
+  assert.match(mainSource, /trayController = startTray\(\{\s*\n\s*root,\s*\n\s*url,\s*\n\s*port,/);
+  assert.match(traySource, /\$notifyIcon\.Text = "wps7 terminal workspace \(port \$Port\)"/);
+  assert.match(traySource, /\$statusItem = \$menu\.Items\.Add\("Status: running \(port \$Port\)"\)/);
+  assert.match(traySource, /tooltip: `wps7 terminal workspace \(port \$\{port\}\)`/);
+  assert.match(traySource, /title: `Status: running \(port \$\{port\}\)`/);
 });
 
 test('portable tray module remains valid JavaScript for pkg discovery', () => {
@@ -63,6 +77,24 @@ test('a tray that dies on its own is relaunched, within a limit', () => {
   assert.match(traySource, /if \(stopping\) \{\s*\n\s*return;/);
   assert.match(traySource, /kill\(exitNode = true\) \{\s*\n\s*stopping = true;/);
   assert.match(traySource, /clearTimeout\(restartTimer\)/);
+});
+
+// Regression: the relaunch args used to be JSON-encoded, handed to the
+// helper script as a -File string parameter, and re-parsed there with
+// ConvertFrom-Json. Round-tripped that way the result comes back wrapped in
+// an extra array -- $Arguments[0] is itself an array -- which fails
+// Start-Process -ArgumentList with "Cannot convert ... to the type
+// System.String" and the relaunch silently never happens. The fix bakes the
+// values into the script text as a PowerShell array literal instead.
+test('the relaunch helper builds its argument list as a literal, not a JSON round trip', () => {
+  assert.doesNotMatch(mainSource, /ArgumentsJson/);
+  // Only the explanatory comment may still say the words "ConvertFrom-Json";
+  // the generated PowerShell itself must not call it.
+  const scriptStart = mainSource.indexOf('param(\n  [Parameter(Mandatory=$true)][int]$ParentPid');
+  assert.ok(scriptStart >= 0, 'expected the relaunch script template');
+  assert.doesNotMatch(mainSource.slice(scriptStart), /ConvertFrom-Json/);
+  assert.match(mainSource, /\$Arguments = \$\{argumentsLiteral\}/);
+  assert.match(mainSource, /function powershellSingleQuoted/);
 });
 
 test('the tray Exit item stops the server', () => {

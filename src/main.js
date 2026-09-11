@@ -652,28 +652,46 @@ function handleRouteError(res, error) {
   res.status(error.statusCode || 500).json({ error: error.message || 'Request failed.' });
 }
 
+// A JSON-encoded array round-tripped through a -File script's own string
+// parameter and ConvertFrom-Json comes back double-wrapped -- $Arguments[0]
+// is itself an array -- which fails Start-Process -ArgumentList with "Cannot
+// convert ... to the type System.String" and silently leaves the relaunch
+// never happening. Baking the values into the script text as a PowerShell
+// array literal instead avoids that round trip entirely; they are this
+// process's own argv, not external input, so embedding them is safe.
+function powershellSingleQuoted(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
 function spawnReplacementProcess(root) {
   const args = process.pkg ? [] : process.argv.slice(1);
   if (process.platform === 'win32') {
     const scriptPath = path.join(root, 'data', 'restart-wps7.ps1');
+    const argumentsLiteral = args.length ? `@(${args.map(powershellSingleQuoted).join(', ')})` : '@()';
     fs.writeFileSync(scriptPath, `
 param(
   [Parameter(Mandatory=$true)][int]$ParentPid,
   [Parameter(Mandatory=$true)][string]$Executable,
-  [Parameter(Mandatory=$true)][string]$WorkingDirectory,
-  [string]$ArgumentsJson = '[]'
+  [Parameter(Mandatory=$true)][string]$WorkingDirectory
 )
 
 Wait-Process -Id $ParentPid -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 150
-$Arguments = @($ArgumentsJson | ConvertFrom-Json)
+$Arguments = ${argumentsLiteral}
 if ($Arguments.Count -gt 0) {
   Start-Process -FilePath $Executable -ArgumentList $Arguments -WorkingDirectory $WorkingDirectory -WindowStyle Hidden
 } else {
   Start-Process -FilePath $Executable -WorkingDirectory $WorkingDirectory -WindowStyle Hidden
 }
 `.trim(), 'utf8');
-    const child = spawn('powershell.exe', [
+    // detached alone does not reliably outlive this process on Windows: if
+    // whatever launched wps7.exe put it in a job object with kill-on-close
+    // semantics, powershell.exe -- still a child of the same job -- dies with
+    // it before Wait-Process ever returns, and the relaunch silently never
+    // happens. Routing through cmd's own `start` verb, the traditional way to
+    // launch something meant to survive its caller, avoids that.
+    const child = spawn('cmd.exe', [
+      '/c', 'start', '""', '/B', 'powershell.exe',
       '-NoProfile',
       '-ExecutionPolicy',
       'Bypass',
@@ -686,9 +704,7 @@ if ($Arguments.Count -gt 0) {
       '-Executable',
       process.execPath,
       '-WorkingDirectory',
-      root,
-      '-ArgumentsJson',
-      JSON.stringify(args)
+      root
     ], {
       cwd: root,
       detached: true,
@@ -2252,6 +2268,7 @@ function main() {
       trayController = startTray({
         root,
         url,
+        port,
         save: () => store.save(),
         openBrowser,
         restart: () => stopRuntime({ restart: true }),
