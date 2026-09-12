@@ -6,6 +6,13 @@ const path = require('node:path');
 const { Readable } = require('node:stream');
 const files = require('../src/files');
 
+// readTextFile also reports the modification stamp the notepad watcher polls,
+// which no encoding assertion cares about.
+function textPayload(result) {
+  const { path: filePath, content, encoding } = result;
+  return { path: filePath, content, encoding };
+}
+
 test('normalizes local drive paths and rejects unsafe roots', () => {
   const root = path.parse(os.tmpdir()).root;
   assert.equal(files.normalizeLocalPath(path.join(root, 'Users')), path.win32.resolve(path.join(root, 'Users')));
@@ -136,10 +143,27 @@ test('reads and writes text files while preserving UTF-8 and UTF-16 encodings', 
   fs.writeFileSync(utf8Path, '\uFEFFone\ntwo', 'utf8');
   fs.writeFileSync(utf16Path, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('甲\n乙', 'utf16le')]));
 
-  assert.deepEqual(files.readTextFile(utf8Path), { path: utf8Path, content: 'one\ntwo', encoding: 'utf8-bom' });
-  assert.deepEqual(files.readTextFile(utf16Path), { path: utf16Path, content: '甲\n乙', encoding: 'utf16le' });
+  assert.deepEqual(textPayload(files.readTextFile(utf8Path)), { path: utf8Path, content: 'one\ntwo', encoding: 'utf8-bom' });
+  assert.deepEqual(textPayload(files.readTextFile(utf16Path)), { path: utf16Path, content: '甲\n乙', encoding: 'utf16le' });
   files.writeTextFile(utf16Path, '新\n文字', 'utf16le');
-  assert.deepEqual(files.readTextFile(utf16Path), { path: utf16Path, content: '新\n文字', encoding: 'utf16le' });
+  assert.deepEqual(textPayload(files.readTextFile(utf16Path)), { path: utf16Path, content: '新\n文字', encoding: 'utf16le' });
+});
+
+test('text files report a modification stamp that follows an external rewrite', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const notePath = path.join(root, 'note.txt');
+  fs.writeFileSync(notePath, 'first');
+
+  const opened = files.readTextFile(notePath);
+  assert.deepEqual(files.fileStamp(notePath), { path: notePath, mtimeMs: opened.mtimeMs, size: opened.size });
+
+  fs.writeFileSync(notePath, 'rewritten by another program');
+  const changed = files.fileStamp(notePath);
+  assert.notDeepEqual([changed.mtimeMs, changed.size], [opened.mtimeMs, opened.size]);
+  assert.equal(files.readTextFile(notePath).content, 'rewritten by another program');
+
+  assert.throws(() => files.fileStamp(root), /not a file/i);
+  assert.throws(() => files.fileStamp('relative\note.txt'), /invalid local path/i);
 });
 
 test('text editor rejects directories and binary files', () => {
@@ -254,8 +278,8 @@ test('reads and writes latin1 and UTF-16 BE text files', () => {
   const utf16bePath = path.join(root, 'utf16be.txt');
 
   files.writeTextFile(latin1Path, 'café', 'latin1');
-  assert.deepEqual(files.readTextFile(latin1Path), { path: latin1Path, content: 'café', encoding: 'latin1' });
+  assert.deepEqual(textPayload(files.readTextFile(latin1Path)), { path: latin1Path, content: 'café', encoding: 'latin1' });
 
   files.writeTextFile(utf16bePath, '甲乙', 'utf16be');
-  assert.deepEqual(files.readTextFile(utf16bePath), { path: utf16bePath, content: '甲乙', encoding: 'utf16be' });
+  assert.deepEqual(textPayload(files.readTextFile(utf16bePath)), { path: utf16bePath, content: '甲乙', encoding: 'utf16be' });
 });

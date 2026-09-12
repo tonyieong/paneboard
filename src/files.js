@@ -176,7 +176,21 @@ function readTextFile(targetPath) {
       encoding = 'latin1';
     }
   }
-  return { path: target, content, encoding };
+  return { path: target, content, encoding, mtimeMs: stat.mtimeMs, size: stat.size };
+}
+
+// A notepad tab polls this to notice that another program rewrote the file it
+// has open. Only the stamp travels, so the check stays cheap even for the 10 MB
+// files readTextFile still accepts.
+function fileStamp(targetPath) {
+  const target = assertLocalPath(targetPath);
+  const stat = fs.statSync(target);
+  if (!stat.isFile()) {
+    const error = new Error('Path is not a file.');
+    error.statusCode = 400;
+    throw error;
+  }
+  return { path: target, mtimeMs: stat.mtimeMs, size: stat.size };
 }
 
 function writeTextFile(targetPath, content, encoding = 'utf8') {
@@ -475,6 +489,7 @@ module.exports = {
   deleteItem,
   deleteItems,
   downloadInfo,
+  fileStamp,
   imageContentType,
   imageInfo,
   listDirectory,

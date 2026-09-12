@@ -506,6 +506,21 @@ test('workspace exposes multi-tab notepad panes with line numbers and text-file 
   assert.match(mainSource, /app\.put\('\/api\/files\/text'/);
 });
 
+test('an open notepad tab follows the file when another program rewrites it', () => {
+  assert.match(mainSource, /app\.get\('\/api\/files\/stat'/);
+  assert.match(appSource, /stamp: \{ mtimeMs: result\.mtimeMs, size: result\.size \}/);
+  assert.match(appSource, /async function pollNotepadFiles\(\)/);
+  assert.match(appSource, /\/api\/files\/stat\?path=\$\{encodeURIComponent\(tab\.path\)\}/);
+  // A reload that discards the reader's caret or their unsaved edits is worse
+  // than showing stale text, so both are guarded.
+  assert.match(appSource, /if \(!data\.dirty\) \{\s*await reloadNotepadTabFromDisk\(paneId, tabId\);/);
+  assert.match(appSource, /nextEditor\.selectionStart = Math\.min\(caret\.start, limit\)/);
+  assert.match(appSource, /data-notepad-status-external/);
+  assert.match(styles, /\.notepad-status-external:empty\s*\{\s*display:\s*none/);
+  assert.match(i18nSource, /'Changed on disk': '磁碟上的檔案已變更'/);
+  assert.match(appSource, /set\('external', data\.externalChange \? \(window\.Wps7I18n\?\.t\('Changed on disk'\)/);
+});
+
 test('files and PowerShell panes share a multi-tab strip like the browser pane', () => {
   assert.match(appSource, /class="pane-tab-strip" data-pane-tab-strip data-pane-title="\$\{pane\.id\}"/);
   assert.match(appSource, /function renderPaneTabs\(pane\)/);

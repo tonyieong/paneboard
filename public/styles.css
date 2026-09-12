@@ -5484,6 +5484,14 @@ a:focus-visible {
   flex: 0 0 auto;
 }
 
+.notepad-status-external {
+  color: var(--accent);
+}
+
+.notepad-status-external:empty {
+  display: none;
+}
+
 .notepad-find-popover,
 .notepad-replace-popover {
   top: 50%;

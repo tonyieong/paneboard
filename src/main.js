@@ -1902,6 +1902,14 @@ function main() {
     }
   });
 
+  app.get('/api/files/stat', requireAuth(config), (req, res) => {
+    try {
+      res.json(files.fileStamp(req.query.path));
+    } catch (error) {
+      handleRouteError(res, error);
+    }
+  });
+
   app.get('/api/files/image', requireAuth(config), (req, res) => {
     let image;
     try {

@@ -259,6 +259,7 @@
       'Untitled.txt': '未命名.txt',
       'This file has unsaved changes. Close anyway?': '此檔案有未儲存的變更，仍要關閉嗎？',
       'Discard unsaved changes and reload from disk?': '捨棄未儲存的變更並從磁碟重新載入嗎？',
+      'Changed on disk': '磁碟上的檔案已變更',
       'Save file': '儲存檔案',
       'Save location': '儲存位置',
       'Folders': '資料夾',

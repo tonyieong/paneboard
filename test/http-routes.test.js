@@ -552,6 +552,29 @@ test('a full create/list/delete round trip through the file manager routes', asy
   assert.equal(deleted.json.ok, true);
 });
 
+test('/api/files/stat reports the modification stamp a notepad tab polls for', async () => {
+  const auth = { Authorization: `Bearer ${sessionToken}` };
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-http-route-test-'));
+  const notePath = path.join(parent, 'watched.txt');
+
+  const saved = await request('/api/files/text', { method: 'PUT', headers: auth, body: { path: notePath, content: 'first' } });
+  assert.equal(saved.status, 200);
+
+  const opened = await request(`/api/files/stat?path=${encodeURIComponent(notePath)}`, { headers: auth });
+  assert.equal(opened.status, 200);
+  assert.deepEqual(opened.json, { path: notePath, mtimeMs: saved.json.mtimeMs, size: saved.json.size });
+
+  fs.writeFileSync(notePath, 'changed outside WPS7');
+  const changed = await request(`/api/files/stat?path=${encodeURIComponent(notePath)}`, { headers: auth });
+  assert.notDeepEqual([changed.json.mtimeMs, changed.json.size], [opened.json.mtimeMs, opened.json.size]);
+
+  const missing = await request(`/api/files/stat?path=${encodeURIComponent(path.join(parent, 'gone.txt'))}`, { headers: auth });
+  assert.equal(missing.status, 500);
+  assert.match(missing.json.error, /no such file/i);
+
+  fs.rmSync(parent, { recursive: true, force: true });
+});
+
 test('a WebSocket upgrade is rejected for an untrusted Host or cross-origin request', async () => {
   const untrustedHost = new WebSocket(`ws://127.0.0.1:${port}/ws?paneId=x`, { headers: { Host: 'evil.example.com' } });
   const untrustedHostClose = await new Promise((resolve, reject) => {

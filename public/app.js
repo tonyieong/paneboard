@@ -1603,11 +1603,14 @@
     return null;
   }
 
+  const NOTEPAD_WATCH_INTERVAL = 2000;
+
   function notepadTabData(tabId) {
     if (!state.notepadTabData[tabId]) {
       const tab = findNotepadTab(tabId);
       state.notepadTabData[tabId] = {
         content: tab?.content || '', encoding: tab?.encoding || 'utf8', dirty: false, loadedPath: '', error: '',
+        stamp: null, externalChange: false,
         wrap: Boolean(tab?.wrap), indentGuides: Boolean(tab?.indentGuides),
         autosave: Boolean(tab?.autosave), fontFamily: tab?.fontFamily || '',
         eol: tab?.eol || 'crlf', language: tab?.language || '', readOnly: Boolean(tab?.readOnly),
@@ -1748,6 +1751,7 @@
         <span data-notepad-status-eol>${escapeHtml(notepadEolLabels[data.eol] || notepadEolLabels.crlf)}</span>
         <span data-notepad-status-encoding>${escapeHtml(notepadEncodingLabels[data.encoding] || 'UTF-8')}</span>
         <span data-notepad-status-mode>${data.readOnly ? 'Read only' : 'INS'}</span>
+        <span class="notepad-status-external" data-notepad-status-external>${data.externalChange ? 'Changed on disk' : ''}</span>
       </div>`;
   }
 
@@ -4142,7 +4146,9 @@
         encoding: result.encoding,
         eol: detectNotepadEol(result.content),
         loadedPath: result.path,
+        stamp: { mtimeMs: result.mtimeMs, size: result.size },
         dirty: false,
+        externalChange: false,
         error: ''
       });
       const found = findPaneState(paneId);
@@ -4884,7 +4890,9 @@
       });
       data.loadedPath = result.path;
       data.encoding = result.encoding;
+      data.stamp = { mtimeMs: result.mtimeMs, size: result.size };
       data.dirty = false;
+      data.externalChange = false;
       data.error = '';
       if (tab.path !== result.path) {
         await api(`/api/panes/${paneId}/notepad/tabs/${tabId}`, {
@@ -5158,8 +5166,69 @@
     const data = notepadTabData(tabId);
     if (!tab?.path) return;
     if (data.dirty && !window.confirm('Discard unsaved changes and reload from disk?')) return;
-    data.loadedPath = '';
+    await reloadNotepadTabFromDisk(paneId, tabId);
+  }
+
+  // Reloading re-renders the whole pane, so the caret and scroll position are
+  // carried over: an automatic reload must not throw away where the reader was.
+  async function reloadNotepadTabFromDisk(paneId, tabId) {
+    const tab = findNotepadTab(tabId);
+    if (!tab?.path) return;
+    const editor = document.querySelector(`[data-pane="${paneId}"] .notepad-editor`);
+    const caret = editor
+      ? { start: editor.selectionStart, end: editor.selectionEnd, scrollTop: editor.scrollTop }
+      : null;
+    notepadTabData(tabId).loadedPath = '';
     await loadNotepadTab(paneId, tabId, tab.path);
+    const nextEditor = document.querySelector(`[data-pane="${paneId}"] .notepad-editor`);
+    if (!nextEditor || !caret) return;
+    const limit = nextEditor.value.length;
+    nextEditor.selectionStart = Math.min(caret.start, limit);
+    nextEditor.selectionEnd = Math.min(caret.end, limit);
+    nextEditor.scrollTop = caret.scrollTop;
+    nextEditor.dispatchEvent(new Event('scroll'));
+  }
+
+  // Another program - an editor, a script, a terminal command - can rewrite the
+  // file an open tab is showing, and the tab has to follow it. Polling the
+  // modification stamp beats fs.watch on the server: Windows editors save by
+  // writing a temporary file and renaming it over the original, which silently
+  // detaches a per-file watcher.
+  async function pollNotepadFiles() {
+    if (document.hidden) return;
+    for (const paneElement of document.querySelectorAll('[data-notepad-pane]')) {
+      const paneId = paneElement.dataset.notepadPane;
+      const tabId = paneElement.dataset.notepadActiveTab;
+      const data = state.notepadTabData[tabId];
+      const tab = findNotepadTab(tabId);
+      if (!tab?.path || !data?.stamp) continue;
+      let stamp;
+      try {
+        stamp = await api(`/api/files/stat?path=${encodeURIComponent(tab.path)}`);
+      } catch (error) {
+        // A save in progress can leave the path missing for an instant; the
+        // next poll sees the finished file.
+        continue;
+      }
+      if (stamp.mtimeMs === data.stamp.mtimeMs && stamp.size === data.stamp.size) continue;
+      if (!data.dirty) {
+        await reloadNotepadTabFromDisk(paneId, tabId);
+        continue;
+      }
+      // Unsaved edits are never discarded silently: the tab says the file moved
+      // on and leaves the choice to reload or save to the person typing.
+      data.stamp = stamp;
+      if (data.externalChange) continue;
+      data.externalChange = true;
+      updateNotepadPane(paneId);
+      showToast(`${notepadTabLabel(tab)} changed on disk. Reload to see the new version.`);
+    }
+  }
+
+  function startNotepadWatch() {
+    return window.setInterval(() => {
+      pollNotepadFiles().catch(() => {});
+    }, NOTEPAD_WATCH_INTERVAL);
   }
 
   async function closeNotepadTabs(paneId, keepTabId) {
@@ -5472,6 +5541,9 @@
     set('eol', notepadEolLabels[data.eol] || notepadEolLabels.crlf);
     set('encoding', notepadEncodingLabels[data.encoding] || 'UTF-8');
     set('mode', data.readOnly ? 'Read only' : 'INS');
+    // This cell is rewritten after i18n has already translated the rendered
+    // pane, so the translation has to be applied here too.
+    set('external', data.externalChange ? (window.Wps7I18n?.t('Changed on disk') ?? 'Changed on disk') : '');
   }
 
   function updateNotepadSearchCount(context) {
@@ -8926,6 +8998,7 @@
         loadHostPanePlugins(state.pluginPanes)
       ]);
       await loadState();
+      startNotepadWatch();
     } catch (error) {
       if (error.status === 401) {
         renderLogin();
