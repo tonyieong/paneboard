@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="88" fill="#111318"/>
-  <rect x="64" y="88" width="384" height="336" rx="28" fill="#05070a" stroke="#38d6c7" stroke-width="18"/>
-  <path d="M126 184l60 72-60 72" fill="none" stroke="#eff2f4" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M226 332h150" fill="none" stroke="#38d6c7" stroke-width="34" stroke-linecap="round"/>
+  <title>Paneboard</title>
+  <rect x="96" y="96" width="320" height="320" rx="48" fill="#05070a" stroke="#38d6c7" stroke-width="24"/>
+  <path d="M232 96v320m0-176h184" fill="none" stroke="#38d6c7" stroke-width="24" stroke-linecap="round"/>
 </svg>

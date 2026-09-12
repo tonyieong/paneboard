@@ -1,5 +1,5 @@
 {
-  "name": "wps7",
+  "name": "paneboard",
   "version": "0.1.6",
   "private": true,
   "license": "MIT",
@@ -36,10 +36,10 @@
     "verify:mobile-scroll": "node scripts/verify-mobile-scroll.js",
     "licenses:sync": "node scripts\\sync-third-party-license-sources.js",
     "licenses:generate": "node scripts\\generate-third-party-notices.js",
-    "package:win": "pkg . --targets node22-win-x64 --output dist/wps7.exe && node scripts\\set-windows-subsystem.js dist\\wps7.exe && powershell -NoProfile -ExecutionPolicy Bypass -Command \"Remove-Item 'dist\\scripts\\scripts','dist\\assets\\assets','dist\\plugin-panes\\plugin-panes' -Recurse -Force -ErrorAction SilentlyContinue; New-Item -ItemType Directory dist\\scripts,dist\\assets,dist\\plugin-panes -Force | Out-Null; Copy-Item scripts\\* dist\\scripts -Recurse -Force; Copy-Item assets\\* dist\\assets -Recurse -Force; Copy-Item plugin-panes\\* dist\\plugin-panes -Recurse -Force\"",
-    "startup:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\install-wps7-startup.ps1",
-    "startup:repair": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\repair-wps7-paths.ps1",
-    "startup:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\uninstall-wps7-startup.ps1"
+    "package:win": "pkg . --targets node22-win-x64 --output dist/paneboard.exe && node scripts\\set-windows-subsystem.js dist\\paneboard.exe && powershell -NoProfile -ExecutionPolicy Bypass -Command \"Remove-Item 'dist\\scripts\\scripts','dist\\assets\\assets','dist\\plugin-panes\\plugin-panes' -Recurse -Force -ErrorAction SilentlyContinue; New-Item -ItemType Directory dist\\scripts,dist\\assets,dist\\plugin-panes -Force | Out-Null; Copy-Item scripts\\* dist\\scripts -Recurse -Force; Copy-Item assets\\* dist\\assets -Recurse -Force; Copy-Item plugin-panes\\* dist\\plugin-panes -Recurse -Force\"",
+    "startup:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\install-paneboard-startup.ps1",
+    "startup:repair": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\repair-paneboard-paths.ps1",
+    "startup:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\uninstall-paneboard-startup.ps1"
   },
   "pkg": {
     "assets": [

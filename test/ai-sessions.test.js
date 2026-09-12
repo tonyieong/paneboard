@@ -26,7 +26,7 @@ function writeCodexSession(home, cwd, id, extra = [], padding = 0) {
 }
 
 function tempHome(label) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), `wps7-${label}-`));
+  return fs.mkdtempSync(path.join(os.tmpdir(), `paneboard-${label}-`));
 }
 
 test('claude sessions are listed for the folder they ran in', () => {

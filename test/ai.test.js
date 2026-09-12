@@ -342,7 +342,7 @@ test('a /effort reply updates the reported effort, which the init frame never ca
 });
 
 test('claude resolves the effective effort from its environment and scoped settings', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-claude-effort-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-claude-effort-'));
   const home = path.join(root, 'home');
   const cwd = path.join(root, 'project');
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
@@ -361,8 +361,8 @@ test('claude resolves the effective effort from its environment and scoped setti
   assert.equal(resolveClaudeEffort({ ai: {} }, path.join(root, 'empty'), { USERPROFILE: path.join(root, 'other') }), 'auto');
 });
 
-test('claude reports a persisted CLI effort when wps7 has no override', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-claude-effort-'));
+test('claude reports a persisted CLI effort when paneboard has no override', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-claude-effort-'));
   const home = path.join(root, 'home');
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({ effortLevel: 'medium' }));
@@ -775,7 +775,7 @@ function fakeSocket() {
 }
 
 function managerFixture({ provider = 'claude', config = {}, env, refreshUpdateCheckImpl = () => Promise.resolve() } = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-ai-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-ai-'));
   const store = new StateStore(root);
   store.load();
   const pane = store.createAiPane(store.state.sessions[0].tabs[0].panes[0].id, provider);
@@ -927,7 +927,7 @@ test('isNewerVersion compares dotted version numbers and never guesses from miss
 });
 
 test('the update cache round-trips through readUpdateCache/writeUpdateCache', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-ai-update-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-ai-update-'));
   assert.equal(readUpdateCache(root), null);
   writeUpdateCache(root, { checkedAt: 123, localVersion: '1.0.0', latestVersion: '1.1.0' });
   assert.deepEqual(readUpdateCache(root), { checkedAt: 123, localVersion: '1.0.0', latestVersion: '1.1.0' });
@@ -1349,7 +1349,7 @@ test('an unknown tab is refused instead of spawning anything', () => {
 // has to relaunch the CLI rather than just update the label.
 test('a tab starts its CLI in its own folder', () => {
   const { manager, store, pane, tabId, spawns, root } = managerFixture();
-  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-work-'));
+  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-work-'));
   store.setAiTabCwd(pane.id, tabId, elsewhere);
 
   manager.attach(tabId, fakeSocket());
@@ -1876,7 +1876,7 @@ test('resuming an earlier session replaces the transcript and restarts the CLI',
 // to disk; resuming reads that file back so the pane is not left with just a
 // note that something continues off-screen.
 test('resuming an earlier session shows the transcript the CLI already wrote', async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-claude-home-'));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-claude-home-'));
   const { manager, store, pane, tabId } = managerFixture({ env: { CLAUDE_CONFIG_DIR: home } });
   store.setAiTabCwd(pane.id, tabId, manager.root);
   manager.attach(tabId, fakeSocket());
@@ -1904,7 +1904,7 @@ test('resuming an earlier session shows the transcript the CLI already wrote', a
 // user had typed it would be as misleading as the notice this whole feature
 // replaced.
 test('resuming a claude session leaves out the CLI\'s own local-command records', async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-claude-home-'));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-claude-home-'));
   const { manager, store, pane, tabId } = managerFixture({ env: { CLAUDE_CONFIG_DIR: home } });
   store.setAiTabCwd(pane.id, tabId, manager.root);
   manager.attach(tabId, fakeSocket());
@@ -1934,7 +1934,7 @@ test('resuming a claude session leaves out the CLI\'s own local-command records'
 // context codex injected ahead of it (AGENTS.md, recommended plugins). Only
 // the former is safe to show back to the user.
 test('resuming a codex session leaves out injected AGENTS.md and plugin context', async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-codex-home-'));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-codex-home-'));
   const { manager, store, pane, tabId } = managerFixture({ provider: 'codex', env: { CODEX_HOME: home } });
   store.setAiTabCwd(pane.id, tabId, manager.root);
   manager.attach(tabId, fakeSocket());
@@ -1967,7 +1967,7 @@ test('resuming a codex session leaves out injected AGENTS.md and plugin context'
 // not understand yet -- resuming any session recorded by that CLI replayed no
 // history at all.
 test('resuming a codex session recorded by a current CLI still shows its transcript', async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-codex-home-'));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-codex-home-'));
   const { manager, store, pane, tabId } = managerFixture({ provider: 'codex', env: { CODEX_HOME: home } });
   store.setAiTabCwd(pane.id, tabId, manager.root);
   manager.attach(tabId, fakeSocket());

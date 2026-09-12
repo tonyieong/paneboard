@@ -1,14 +1,14 @@
-# Contributing to wps7
+# Contributing to Paneboard
 
 Security issues go through [SECURITY.md](SECURITY.md), never a public issue.
-wps7 hands out a shell, so a public report is a working exploit against every
+Paneboard hands out a shell, so a public report is a working exploit against every
 running instance.
 
 Taking part here means following the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Project layout
 
-wps7 is a Windows-focused Node.js terminal workspace. Server modules live in
+Paneboard is a Windows-focused Node.js terminal workspace. Server modules live in
 `src/`, and `main.js` wires the Express and WebSocket routes. Browser code lives
 in `public/`, tests in `test/`, install and packaging helpers in `scripts/`, and
 bundled resources in `assets/`.
@@ -26,11 +26,11 @@ npm run lint       # ESLint; CI fails on errors, warnings are advisory
 node --test test/terminal.test.js   # one file while iterating
 ```
 
-wps7 targets Windows and drives ConPTY through
+Paneboard targets Windows and drives ConPTY through
 `@homebridge/node-pty-prebuilt-multiarch`, so the terminal features cannot be
 developed or tested on Linux or macOS.
 
-If you already have wps7 installed and starting at logon, do not develop against
+If you already have Paneboard installed and starting at logon, do not develop against
 that instance. Use a separate port and data directory so a crash in your build
 cannot take down the one you rely on.
 

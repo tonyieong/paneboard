@@ -80,7 +80,7 @@ test('settings sits above the theme toggle in a shorter sidebar footer', () => {
 test('appearance settings persist the selected interface language locally', () => {
   assert.match(appSource, /<label>Language<select data-language-select>/);
   assert.match(appSource, /value="zh-HK"[^>]*>繁體中文（香港）<\/option>/);
-  assert.match(appSource, /window\.Wps7I18n\.setLocale\(event\.currentTarget\.value\)/);
+  assert.match(appSource, /window\.PaneboardI18n\.setLocale\(event\.currentTarget\.value\)/);
 });
 
 test('terminal scrollback is a fixed internal limit, not a setting', () => {
@@ -253,7 +253,7 @@ test('the board always keeps a few empty columns past the rightmost pane', () =>
 test('sidebar brand is the dedicated collapse control', () => {
   assert.match(appSource, /class="rail-button sidebar-brand"[^>]+data-action="toggle"[^>]+aria-label="Toggle sidebar"/);
   assert.doesNotMatch(appSource, /data-action="toggle"[^>]+title="Sessions"/);
-  assert.match(appSource, /<span class="rail-brand-mark" aria-hidden="true">W7<\/span><span class="rail-label">WPS7<\/span>/);
+  assert.match(appSource, /<span class="rail-brand-mark" aria-hidden="true">\$\{brandIcon\(\)\}<\/span><span class="rail-label">Paneboard<\/span>/);
 });
 
 test('sidebar keeps only a divider above pane tabs and lists every tab on a flat row', () => {
@@ -669,8 +669,8 @@ test('the AI typing cursor blink uses a duration token and honours reduced motio
 
 test('mobile workspace keeps only the brand icon and closes the sidebar after an action', () => {
   const mobileActions = appSource.match(/<div class="mobile-actions">([\s\S]*?)<\/div>/)?.[1] || '';
-  assert.match(mobileActions, /class="mobile-brand"[^>]*>[\s\S]*?<span class="rail-brand-mark"[^>]*>W7<\/span><\/button>/);
-  assert.doesNotMatch(mobileActions, /WPS7|data-action="files"|data-action="settings"/);
+  assert.match(mobileActions, /class="mobile-brand"[^>]*>[\s\S]*?<span class="rail-brand-mark"[^>]*>\$\{brandIcon\(\)\}<\/span><\/button>/);
+  assert.doesNotMatch(mobileActions, /Paneboard|data-action="files"|data-action="settings"/);
   assert.match(appSource, /function closeMobileSidebarAfterAction\(event\)/);
   assert.match(appSource, /app\.querySelector\('\.sidebar'\)\.addEventListener\('click', closeMobileSidebarAfterAction\)/);
 });
@@ -719,7 +719,7 @@ test('display mode and terminal density live in settings with preview semantics'
   assert.match(appSource, /setTerminalDensity\(button\.dataset\.terminalDensity, false\)/);
   assert.match(appSource, /setDisplayMode\(savedDisplayMode, false\)/);
   assert.match(appSource, /setTerminalDensity\(savedTerminalDensity, false\)/);
-  assert.match(appSource, /localStorage\.setItem\('wps7\.displayMode', state\.displayMode\)/);
+  assert.match(appSource, /localStorage\.setItem\('paneboard\.displayMode', state\.displayMode\)/);
   assert.match(styles, /\.segmented-option\.active\s*\{[^}]*border-color:\s*var\(--accent\)[^}]*background:\s*var\(--accent-soft\)/s);
 });
 
@@ -738,7 +738,7 @@ test('settings checkboxes are not styled as text inputs', () => {
 test('login offers browser persistence without persisting ordinary sessions', () => {
   assert.match(appSource, /name="remember" type="checkbox"/);
   assert.match(appSource, /Keep me signed in for 30 days/);
-  assert.match(appSource, /localStorage\.getItem\('wps7\.token'\) \|\| sessionStorage\.getItem\('wps7\.token'\)/);
+  assert.match(appSource, /localStorage\.getItem\('paneboard\.token'\) \|\| sessionStorage\.getItem\('paneboard\.token'\)/);
   assert.match(appSource, /function saveToken\(token, remember\)/);
   assert.match(appSource, /remember: form\.get\('remember'\) === 'on'/);
   assert.match(appSource, /function clearToken\(\)/);
@@ -752,14 +752,14 @@ test('changing the server password revokes remembered and connected sessions', (
 });
 
 test('sidebar expanded state and width are restored from local storage', () => {
-  assert.match(appSource, /localStorage\.getItem\('wps7\.sidebarOpen'\)/);
-  assert.match(appSource, /localStorage\.setItem\('wps7\.sidebarOpen', String\(state\.sidebarOpen\)\)/);
-  assert.match(appSource, /localStorage\.getItem\('wps7\.sidebarWidth'\)/);
-  assert.match(appSource, /localStorage\.setItem\('wps7\.sidebarWidth', String\(width\)\)/);
+  assert.match(appSource, /localStorage\.getItem\('paneboard\.sidebarOpen'\)/);
+  assert.match(appSource, /localStorage\.setItem\('paneboard\.sidebarOpen', String\(state\.sidebarOpen\)\)/);
+  assert.match(appSource, /localStorage\.getItem\('paneboard\.sidebarWidth'\)/);
+  assert.match(appSource, /localStorage\.setItem\('paneboard\.sidebarWidth', String\(width\)\)/);
 });
 
 test('sidebar can be pinned or used as a dismissible floating panel', () => {
-  assert.match(appSource, /localStorage\.getItem\('wps7\.sidebarPinned'\)/);
+  assert.match(appSource, /localStorage\.getItem\('paneboard\.sidebarPinned'\)/);
   const sidebarBrand = appSource.match(/<div class="sidebar-brand-row">([\s\S]*?)<\/div>/)?.[1] || '';
   assert.match(sidebarBrand, /data-action="toggle"/);
   assert.match(sidebarBrand, /data-sidebar-pin[^>]+aria-pressed="\$\{state\.sidebarPinned\}"/);
@@ -1395,7 +1395,7 @@ test('the whiteboard host plugin lazy-loads a fully offline Excalidraw', () => {
   assert.match(whiteboardClientSource, /\['react\.js', 'react-dom\.js', 'jsx-runtime\.js', 'excalidraw\.js'\]/);
   assert.match(whiteboardClientSource, /window\.ReactDOM\.createRoot\(host\)/);
   assert.match(whiteboardClientSource, /window\.ExcalidrawLib\.Excalidraw/);
-  assert.match(whiteboardClientSource, /Wps7HostPanePlugins\.whiteboard/);
+  assert.match(whiteboardClientSource, /PaneboardHostPanePlugins\.whiteboard/);
   assert.match(coreAppSource, /loadHostPanePlugins\(state\.pluginPanes\)/);
   assert.doesNotMatch(coreAppSource, /mountWhiteboard|loadExcalidraw|state\.whiteboards/);
   for (const file of ['excalidraw.js', 'react.js', 'react-dom.js', 'jsx-runtime.js']) {
@@ -2014,7 +2014,7 @@ test('file rows use solid icons, dim hidden entries, and toggle select all', () 
 });
 
 test('appearance stores separate light and dark choices with separate custom palettes', () => {
-  for (const theme of ['WPS7 Dark', 'WPS7 Light', 'Slate Dark', 'Slate Light', 'Ember Dark', 'Ember Light', 'Forest Dark', 'Forest Light', 'Custom']) {
+  for (const theme of ['Paneboard Dark', 'Paneboard Light', 'Slate Dark', 'Slate Light', 'Ember Dark', 'Ember Light', 'Forest Dark', 'Forest Light', 'Custom']) {
     assert.match(appSource, new RegExp(theme));
   }
   const presetsSource = appSource.slice(appSource.indexOf('const themePresets'), appSource.indexOf('const customThemeDefaults'));
@@ -2060,7 +2060,7 @@ test('custom light and dark palettes can be reset to their defaults', () => {
 test('light terminal palettes use a dark warning color for ANSI yellow text', () => {
   assert.match(appSource, /yellow:\s*palette\.warn/);
   assert.match(appSource, /brightYellow:\s*palette\.warn/);
-  assert.match(appSource, /'wps-light':[\s\S]*?warn:\s*'#8a4f00'/);
+  assert.match(appSource, /'paneboard-light':[\s\S]*?warn:\s*'#8a4f00'/);
 });
 
 test('terminal chrome follows the active preset background', () => {
@@ -2349,7 +2349,7 @@ test('light mode muted and accent text clears the 4.5:1 contrast floor', () => {
   // applyTheme() writes the palette as inline custom properties, so the JS
   // preset wins over the stylesheet. Asserting only the CSS block passes while
   // the running app keeps the old colour.
-  assert.match(appSource, /'wps-light':[^}]*muted: '#5d6b78'[^}]*accent: '#0b7561'/);
+  assert.match(appSource, /'paneboard-light':[^}]*muted: '#5d6b78'[^}]*accent: '#0b7561'/);
   assert.match(appSource, /light_muted: '#5d6b78', light_accent: '#0b7561'/);
   // The stylesheet block is the no-JS fallback and has to stay in step.
   const lightStart = styles.indexOf(':root[data-theme="light"]');
@@ -2612,8 +2612,8 @@ test('Claude and Codex load independent implementations from their plugin folder
   assert.match(coreAppSource, /loadAiPanePlugins\(state\.pluginPanes\)/);
   assert.match(coreAppSource, /definition\.clientUrl/);
   assert.match(coreAppSource, /definition\.styleUrl/);
-  assert.match(aiClientSource, /Wps7AiPanePlugins\.claude/);
-  assert.match(codexClientSource, /Wps7AiPanePlugins\.codex/);
+  assert.match(aiClientSource, /PaneboardAiPanePlugins\.claude/);
+  assert.match(codexClientSource, /PaneboardAiPanePlugins\.codex/);
   assert.match(mainSource, /loadAiPluginPanes\(root\)/);
 });
 
@@ -2644,7 +2644,7 @@ test('AI panes are wired on first render and when added incrementally', () => {
 // dictionary over it would rewrite them.
 test('the conversation is excluded from automatic UI translation', () => {
   assert.match(i18nSource, /function shouldSkip\(node\)[\s\S]{0,200}?\.ai-log/);
-  assert.match(appSource, /function aiText\(value\)[\s\S]{0,120}?Wps7I18n\?\.t\(value\)/);
+  assert.match(appSource, /function aiText\(value\)[\s\S]{0,120}?PaneboardI18n\?\.t\(value\)/);
 });
 
 // Markdown is rendered after escaping, never before, and tool output is never

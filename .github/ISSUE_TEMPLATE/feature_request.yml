@@ -1,11 +1,11 @@
 name: Feature request
-description: Suggest a capability wps7 does not have yet.
+description: Suggest a capability Paneboard does not have yet.
 labels: [enhancement]
 body:
   - type: markdown
     attributes:
       value: |
-        wps7 is a Windows-only workspace that hands a browser a PowerShell
+        Paneboard is a Windows-only workspace that hands a browser a PowerShell
         session. Proposals that widen that exposure — remote access, running as
         another account, disabling the host checks — need to explain the
         security tradeoff, not just the convenience.
@@ -21,7 +21,7 @@ body:
   - type: textarea
     id: proposal
     attributes:
-      label: What would you like wps7 to do?
+      label: What would you like Paneboard to do?
     validations:
       required: true
 
@@ -41,6 +41,6 @@ body:
       label: Scope check
       options:
         - label: >-
-            This keeps wps7 usable as a single-user desktop tool, or I have
+            This keeps Paneboard usable as a single-user desktop tool, or I have
             described the security tradeoff above.
           required: true

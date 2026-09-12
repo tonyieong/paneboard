@@ -64,19 +64,19 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           $version = $env:RELEASE_TAG
-          $stage = "staging/wps7-$version-windows-x64"
+          $stage = "staging/paneboard-$version-windows-x64"
           New-Item -ItemType Directory -Path $stage -Force | Out-Null
-          Copy-Item dist/wps7.exe $stage
+          Copy-Item dist/paneboard.exe $stage
           Copy-Item dist/scripts, dist/assets, dist/plugin-panes -Destination $stage -Recurse
           # These travel with the binary because the packaged exe embeds every
           # production dependency and their licenses require the notices.
           Copy-Item LICENSE, THIRD-PARTY-LICENSES.md, README.md, SECURITY.md, config.example.toml $stage
-          Compress-Archive -Path $stage -DestinationPath "wps7-$version-windows-x64.zip"
+          Compress-Archive -Path $stage -DestinationPath "paneboard-$version-windows-x64.zip"
 
       - name: Publish checksums
         shell: pwsh
         run: |
-          $files = Get-ChildItem -Filter 'wps7-*-windows-x64.zip'
+          $files = Get-ChildItem -Filter 'paneboard-*-windows-x64.zip'
           $files | ForEach-Object {
             $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower()
             "$hash  $($_.Name)"
@@ -89,21 +89,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          # wps7 ships unsigned, so SmartScreen will warn. The checksum file is
+          # paneboard ships unsigned, so SmartScreen will warn. The checksum file is
           # the only way a downloader can verify what they got.
           $notes = @"
-          Download **wps7-$($env:RELEASE_TAG)-windows-x64.zip** from the assets
+          Download **paneboard-$($env:RELEASE_TAG)-windows-x64.zip** from the assets
           below. The "Source code" archives GitHub adds to every release hold the
-          source tree only, without wps7.exe.
+          source tree only, without paneboard.exe.
 
-          Extract the zip to a folder, then double click wps7.exe. Opening it
+          Extract the zip to a folder, then double click paneboard.exe. Opening it
           inside the Windows zip viewer unpacks that one file to a temp
           directory and leaves the rest in the archive.
 
           Verify your download before running it:
 
           ``````powershell
-          Get-FileHash .\wps7-$($env:RELEASE_TAG)-windows-x64.zip -Algorithm SHA256
+          Get-FileHash .\paneboard-$($env:RELEASE_TAG)-windows-x64.zip -Algorithm SHA256
           ``````
 
           Compare the result against ``SHA256SUMS.txt``. This build is not code
@@ -115,7 +115,7 @@ jobs:
           lets it through.
           "@
           gh release create $env:RELEASE_TAG `
-            "wps7-$($env:RELEASE_TAG)-windows-x64.zip" SHA256SUMS.txt `
-            --title "wps7 $($env:RELEASE_TAG)" `
+            "paneboard-$($env:RELEASE_TAG)-windows-x64.zip" SHA256SUMS.txt `
+            --title "paneboard $($env:RELEASE_TAG)" `
             --notes $notes `
             --verify-tag

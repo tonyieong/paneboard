@@ -405,15 +405,15 @@ function prepareDownload(targetPath) {
   if (download.type === 'file') {
     return Promise.resolve(download);
   }
-  const archivePath = path.join(os.tmpdir(), `wps7-${crypto.randomUUID()}.zip`);
-  const script = 'Compress-Archive -LiteralPath $env:WPS7_ARCHIVE_SOURCE -DestinationPath $env:WPS7_ARCHIVE_TARGET -Force';
+  const archivePath = path.join(os.tmpdir(), `paneboard-${crypto.randomUUID()}.zip`);
+  const script = 'Compress-Archive -LiteralPath $env:PANEBOARD_ARCHIVE_SOURCE -DestinationPath $env:PANEBOARD_ARCHIVE_TARGET -Force';
   return new Promise((resolve, reject) => {
     const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
       windowsHide: true,
       env: {
         ...process.env,
-        WPS7_ARCHIVE_SOURCE: download.path,
-        WPS7_ARCHIVE_TARGET: archivePath
+        PANEBOARD_ARCHIVE_SOURCE: download.path,
+        PANEBOARD_ARCHIVE_TARGET: archivePath
       }
     });
     let stderr = '';
@@ -450,15 +450,15 @@ function prepareBulkDownload(paths) {
   for (const item of list) {
     fs.statSync(item);
   }
-  const archivePath = path.join(os.tmpdir(), `wps7-${crypto.randomUUID()}.zip`);
-  const script = '$sources = $env:WPS7_ARCHIVE_SOURCE -split "`n" | Where-Object { $_ }; Compress-Archive -LiteralPath $sources -DestinationPath $env:WPS7_ARCHIVE_TARGET -Force';
+  const archivePath = path.join(os.tmpdir(), `paneboard-${crypto.randomUUID()}.zip`);
+  const script = '$sources = $env:PANEBOARD_ARCHIVE_SOURCE -split "`n" | Where-Object { $_ }; Compress-Archive -LiteralPath $sources -DestinationPath $env:PANEBOARD_ARCHIVE_TARGET -Force';
   return new Promise((resolve, reject) => {
     const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
       windowsHide: true,
       env: {
         ...process.env,
-        WPS7_ARCHIVE_SOURCE: list.join('\n'),
-        WPS7_ARCHIVE_TARGET: archivePath
+        PANEBOARD_ARCHIVE_SOURCE: list.join('\n'),
+        PANEBOARD_ARCHIVE_TARGET: archivePath
       }
     });
     let stderr = '';
@@ -473,7 +473,7 @@ function prepareBulkDownload(paths) {
       }
       resolve({
         path: archivePath,
-        name: 'wps7-files.zip',
+        name: 'paneboard-files.zip',
         size: fs.statSync(archivePath).size,
         type: 'archive',
         temporary: true

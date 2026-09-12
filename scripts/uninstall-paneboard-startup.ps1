@@ -1,5 +1,5 @@
 param(
-  # install-wps7-startup.ps1 reuses this script to clear a previous service
+  # install-paneboard-startup.ps1 reuses this script to clear a previous service
   # installation, and rewrites the shortcut itself afterwards.
   [switch]$KeepShortcut
 )
@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 $legacyService = Get-Service -Name 'wps7-server' -ErrorAction SilentlyContinue
 $legacyTasks = @('wps7-server', 'wps7-tray', 'wps7-service-start', 'wps7-service-restart', 'wps7-service-stop')
 $legacyTaskNames = @($legacyTasks | Where-Object { Get-ScheduledTask -TaskName $_ -ErrorAction SilentlyContinue })
-$firewallRules = @(Get-NetFirewallRule -Group 'wps7' -ErrorAction SilentlyContinue)
+$firewallRules = @(Get-NetFirewallRule -Group 'paneboard', 'wps7' -ErrorAction SilentlyContinue)
 
 # Removing a service, elevated tasks or a firewall rule changes machine state.
 # Nothing else here does, so a plain shortcut removal never asks for anything.
@@ -36,14 +36,14 @@ if ($legacyService -or $legacyTaskNames.Count -gt 0 -or $firewallRules.Count -gt
   if ($firewallRules.Count -gt 0) {
     $firewallRules | Remove-NetFirewallRule
   }
-  Write-Host 'Removed the wps7 service, its control tasks, and its firewall rules.'
+  Write-Host 'Removed the Paneboard service, its control tasks, and its firewall rules.'
 }
 
 if (!$KeepShortcut) {
   $shell = New-Object -ComObject WScript.Shell
   $startup = $shell.SpecialFolders.Item('Startup')
-  foreach ($name in @('wps7.lnk', 'wps7 tray.lnk')) {
+  foreach ($name in @('paneboard.lnk', 'wps7.lnk', 'wps7 tray.lnk')) {
     Remove-Item -LiteralPath (Join-Path $startup $name) -Force -ErrorAction SilentlyContinue
   }
-  Write-Host 'Removed the wps7 startup shortcut.'
+  Write-Host 'Removed the Paneboard startup shortcut.'
 }

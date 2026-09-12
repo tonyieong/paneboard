@@ -1,5 +1,10 @@
 (function () {
-  const storageKey = 'wps7.locale';
+  const storageKey = 'paneboard.locale';
+  const legacyLocale = localStorage.getItem('wps7.locale');
+  if (legacyLocale !== null) {
+    if (localStorage.getItem(storageKey) === null) localStorage.setItem(storageKey, legacyLocale);
+    localStorage.removeItem('wps7.locale');
+  }
   const supportedLocales = ['en', 'zh-HK'];
   const translations = {
     'zh-HK': {
@@ -160,7 +165,7 @@
       'Available and allowed in this browser.': '可使用，且已獲瀏覽器允許。',
       'Available. The browser will ask for permission when enabled.': '可使用。啟用時瀏覽器會要求權限。',
       'Blocked: allow notifications in this browser\'s site settings.': '已封鎖：請在此瀏覽器的網站設定中允許通知。',
-      'WPS7 Settings': 'WPS7 設定',
+      'Paneboard Settings': 'Paneboard 設定',
       'Workspace preferences': '工作區偏好設定',
       'Workspace navigation': '工作區導覽',
       'Settings categories': '設定分類',
@@ -316,8 +321,8 @@
       'used': '已使用',
       'Previewed live — Cancel reverts, Save keeps it.': '即時預覽中——取消會還原，儲存會保留。',
       'Live preview': '即時預覽',
-      'Used whenever WPS7 is in light mode.': 'WPS7 使用淺色模式時會採用。',
-      'Used whenever WPS7 is in dark mode.': 'WPS7 使用深色模式時會採用。',
+      'Used whenever Paneboard is in light mode.': 'Paneboard 使用淺色模式時會採用。',
+      'Used whenever Paneboard is in dark mode.': 'Paneboard 使用深色模式時會採用。',
       'Slate Light': '石板淺色',
       'Slate Dark': '石板深色',
       'Ember Light': '餘燼淺色',
@@ -328,7 +333,7 @@
       'Custom Dark': '自訂深色',
       'Custom Light palette': '自訂淺色調色盤',
       'Custom Dark palette': '自訂深色調色盤',
-      'Saved on the WPS7 server and shared across devices.': '已儲存在 WPS7 伺服器，並在裝置間共用。',
+      'Saved on the Paneboard server and shared across devices.': '已儲存在 Paneboard 伺服器，並在裝置間共用。',
       'Reset custom light palette': '重設自訂淺色調色盤',
       'Reset custom dark palette': '重設自訂深色調色盤',
       'Reset to default custom light palette': '重設為預設自訂淺色調色盤',
@@ -402,7 +407,7 @@
       'Existing panes keep their size.': '既有面板會保持原有大小。',
       'Capped at rows per screen, so a new pane never overflows.': '上限為每個畫面的列數，因此新面板不會溢位。',
       'Saving': '儲存',
-      'How often the layout is written to disk. It is also saved whenever WPS7 shuts down.': '版面寫入磁碟的頻率；WPS7 關閉時也會儲存。',
+      'How often the layout is written to disk. It is also saved whenever Paneboard shuts down.': '版面寫入磁碟的頻率；Paneboard 關閉時也會儲存。',
       'Which PowerShell a new pane starts, and how. Panes already open keep what they started with.': '新面板啟動哪個 PowerShell 及方式；已開啟的面板會維持原本設定。',
       'Tried first.': '優先嘗試。',
       'is PowerShell 7.': '是 PowerShell 7。',
@@ -431,10 +436,10 @@
       'Leave blank to keep the current password': '留空以保留目前密碼',
       'Not set — anyone reaching this port can sign in': '未設定——任何連線到此連接埠的人都可登入',
       'At least 12 characters, including an upper case letter, a lower case letter, a number and a symbol. Saving a new one signs every device out.': '至少 12 個字元，包含大寫字母、小寫字母、數字和符號；儲存新密碼會讓所有裝置登出。',
-      'Saved. Restarting WPS7…': '已儲存。正在重新啟動 WPS7…',
-      'Saved. Restart wps7.exe for host/port changes.': '已儲存。變更主機／連接埠後請重新啟動 wps7.exe。',
-      'WPS7 Light': 'WPS7 淺色',
-      'WPS7 Dark': 'WPS7 深色',
+      'Saved. Restarting Paneboard…': '已儲存。正在重新啟動 Paneboard…',
+      'Saved. Restart paneboard.exe for host/port changes.': '已儲存。變更主機／連接埠後請重新啟動 paneboard.exe。',
+      'Paneboard Light': 'Paneboard 淺色',
+      'Paneboard Dark': 'Paneboard 深色',
       '● Live preview': '● 即時預覽',
       'API key': 'API 金鑰',
       'What a Usage pane shows: which provider cards, which quota windows on each card, and when a window changes color.': '用量面板顯示的內容：供應商卡片、每張卡的用量時段，以及時段變色的時機。',
@@ -460,10 +465,10 @@
       'Extra CLI arguments': '額外 CLI 參數',
       'Appended to Claude Code when a new tab starts. Shell operators and quoted arguments are not accepted.': '開啟新分頁時附加至 Claude Code；不接受 shell 運算符及帶引號參數。',
       'Placed before app-server when a new tab starts. For example, --yolo runs codex --yolo app-server.': '開啟新分頁時放在 app-server 之前；例如 --yolo 會執行 codex --yolo app-server。',
-      'Who can reach this workspace, and the password they need. Switching to LAN saves and restarts WPS7 for you.': '可存取此工作區的對象及其所需密碼；切換至區域網絡會為你儲存並重新啟動 WPS7。',
+      'Who can reach this workspace, and the password they need. Switching to LAN saves and restarts Paneboard for you.': '可存取此工作區的對象及其所需密碼；切換至區域網絡會為你儲存並重新啟動 Paneboard。',
       'Local: this machine only. LAN: any device on your network, which requires a password.': '本機：只限此電腦。區域網絡：你的網絡上任何裝置，且需要密碼。',
       'The address becomes http://127.0.0.1:<port>/. Takes effect after a restart.': '網址會變成 http://127.0.0.1:<port>/，重新啟動後生效。',
-      'Open the workspace automatically when WPS7 launches.': 'WPS7 啟動時自動開啟工作區。',
+      'Open the workspace automatically when Paneboard launches.': 'Paneboard 啟動時自動開啟工作區。',
       'One hostname per line, for a reverse proxy that forwards its own name. Addresses and localhost are always accepted. Use * to accept every name, which turns off DNS rebinding protection. This list applies without a restart.': '每行一個主機名稱，供轉送自身名稱的反向代理使用。地址及 localhost 一律接受。使用 * 可接受所有名稱，但會關閉 DNS 重新綁定防護。此清單毋須重新啟動即會套用。'
     }
   };
@@ -548,5 +553,6 @@
     });
   });
 
-  window.Wps7I18n = { getLocale: () => locale, setLocale, supportedLocales, t, translate };
+  window.PaneboardI18n = { getLocale: () => locale, setLocale, supportedLocales, t, translate };
+  window.Wps7I18n = window.PaneboardI18n;
 }());

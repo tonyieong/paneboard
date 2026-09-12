@@ -175,7 +175,7 @@ function fetchLatestNpmVersion(packageName) {
     };
     const req = https.get(`https://registry.npmjs.org/${packageName}/latest`, {
       timeout: 8000,
-      headers: { 'User-Agent': 'wps7' }
+      headers: { 'User-Agent': 'paneboard' }
     }, (res) => {
       let body = '';
       res.on('data', (chunk) => { body += chunk; });
@@ -1008,7 +1008,7 @@ class CodexAdapter {
   start({ sessionId } = {}) {
     this.resumeId = sessionId || '';
     this.request('initialize', {
-      clientInfo: { name: 'wps7', title: 'WPS7', version: '0.1.0' },
+      clientInfo: { name: 'paneboard', title: 'Paneboard', version: '0.1.0' },
       capabilities: {
         // request_user_input, the choice-prompt path, is behind this flag.
         experimentalApi: true,
@@ -1325,7 +1325,7 @@ class CodexAdapter {
     }
     // An unanswered request would stall the turn forever, so anything not
     // understood is declined rather than ignored.
-    this.write({ jsonrpc: '2.0', id, error: { code: -32601, message: `wps7 does not handle ${method}` } });
+    this.write({ jsonrpc: '2.0', id, error: { code: -32601, message: `paneboard does not handle ${method}` } });
   }
 
   openApproval(id, method, params) {

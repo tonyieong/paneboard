@@ -22,7 +22,7 @@ const defaultMobileKeybarButtons = [
 
 // PSReadLine's inline prediction is what greys the rest of a remembered command
 // after the prompt; History is its own default, set explicitly so a profile that
-// turned it off still gets it back in a wps7 pane.
+// turned it off still gets it back in a paneboard pane.
 const defaultShellArgsLine = 'args = ["-NoLogo", "-NoExit", "-Command", "try { Set-PSReadLineOption -PredictionSource History } catch {}"]';
 
 const defaultConfig = {
@@ -111,8 +111,8 @@ const defaultConfig = {
     debug_log: false
   },
   custom_theme: {
-    selected_light: 'wps-light',
-    selected_dark: 'wps-dark',
+    selected_light: 'paneboard-light',
+    selected_dark: 'paneboard-dark',
     mode: 'dark',
     ink: '#0c1017',
     panel: '#161b24',
@@ -143,10 +143,10 @@ const defaultConfig = {
 
 const defaultConfigText = `# Settings saved in the web UI update this file.
 # Hot reload: [auth], [shell], [persistence], [ui]
-# Restart wps7.exe: server.host, server.port, server.protocol
+# Restart paneboard.exe: server.host, server.port, server.protocol
 
 [server]
-# Requires restart: host, port and protocol are bound when wps7.exe starts.
+# Requires restart: host, port and protocol are bound when paneboard.exe starts.
 # Hot reload: open_browser only affects future browser opens.
 host = "127.0.0.1"
 port = 5000
@@ -170,8 +170,8 @@ password_hash = ""
 preferred = "pwsh.exe"
 fallback = "powershell.exe"
 ${defaultShellArgsLine}
-# Folders appended to PATH for new panes. wps7 inherits the PATH it had at
-# logon, so a tool installed after that goes missing until wps7 restarts: npm's
+# Folders appended to PATH for new panes. paneboard inherits the PATH it had at
+# logon, so a tool installed after that goes missing until paneboard restarts: npm's
 # global folder, where claude and codex land, is the usual one.
 # extra_path = ["C:\\\\Users\\\\yourname\\\\AppData\\\\Roaming\\\\npm"]
 # Panes run whatever those folders hold, so it is editable here only, never
@@ -278,8 +278,8 @@ codex_args = "--yolo"
 debug_log = false
 
 [custom_theme]
-selected_light = "wps-light"
-selected_dark = "wps-dark"
+selected_light = "paneboard-light"
+selected_dark = "paneboard-dark"
 mode = "dark"
 ink = "#0c1017"
 panel = "#161b24"
@@ -472,6 +472,8 @@ mobile_keybar_buttons = ${formatTomlValue(defaultMobileKeybarButtons)}
   for (const [key, value] of Object.entries(defaultConfig.custom_theme)) {
     nextText = ensureTomlKey(nextText, 'custom_theme', key, value);
   }
+  // Preserve existing theme selections when upgrading from the previous brand.
+  nextText = nextText.replace(/^(selected_(?:light|dark)\s*=\s*["'])wps-(light|dark)(["'].*)$/gm, '$1paneboard-$2$3');
 
   return nextText;
 }

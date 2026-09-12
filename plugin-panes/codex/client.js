@@ -172,7 +172,7 @@
     // agent's own words are never rewritten, so its fixed labels are translated
     // here instead.
     function aiText(value) {
-      return window.Wps7I18n?.t(value) ?? value;
+      return window.PaneboardI18n?.t(value) ?? value;
     }
 
     function aiEventLabel(event) {
@@ -1181,6 +1181,6 @@
     };
   }
 
-  window.Wps7AiPanePlugins = window.Wps7AiPanePlugins || {};
-  window.Wps7AiPanePlugins.codex = { create: createAiPane };
+  window.PaneboardAiPanePlugins = window.PaneboardAiPanePlugins || {};
+  window.PaneboardAiPanePlugins.codex = { create: createAiPane };
 })();

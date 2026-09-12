@@ -60,9 +60,9 @@ function resolveShell(config) {
   };
 }
 
-// wps7 inherits the PATH it had at logon, so a tool folder added after that --
+// paneboard inherits the PATH it had at logon, so a tool folder added after that --
 // npm's global folder, where claude and codex live, is the usual one -- is
-// missing until wps7 restarts, and the shell answers "not recognized" for
+// missing until paneboard restarts, and the shell answers "not recognized" for
 // commands that work in a normal terminal. shell.extra_path adds them back.
 // Appending rather than prepending keeps a machine-wide tool the one that wins.
 function shellEnv(config, env = process.env) {

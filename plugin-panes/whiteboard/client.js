@@ -104,6 +104,6 @@
     };
   }
 
-  window.Wps7HostPanePlugins = window.Wps7HostPanePlugins || {};
-  window.Wps7HostPanePlugins.whiteboard = { create: createWhiteboardPane };
+  window.PaneboardHostPanePlugins = window.PaneboardHostPanePlugins || {};
+  window.PaneboardHostPanePlugins.whiteboard = { create: createWhiteboardPane };
 }());

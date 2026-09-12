@@ -8,7 +8,7 @@ const { StateStore } = require('../src/state');
 // Terminal output is never collected here any more: the headless terminal the
 // server keeps per runtime is what a reconnecting client replays from.
 test('the store holds no terminal output at all', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const paneId = store.state.sessions[0].tabs[0].panes[0].id;
@@ -20,7 +20,7 @@ test('the store holds no terminal output at all', () => {
 });
 
 test('saved state keeps layout only', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const paneId = store.state.sessions[0].tabs[0].panes[0].id;
@@ -37,7 +37,7 @@ test('saved state keeps layout only', () => {
 });
 
 test('pane font size is validated and persisted per pane', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const paneId = store.state.sessions[0].tabs[0].panes[0].id;
@@ -53,7 +53,7 @@ test('pane font size is validated and persisted per pane', () => {
 });
 
 test('loading old state strips non-layout terminal data', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const dataDir = path.join(root, 'data');
   fs.mkdirSync(dataDir, { recursive: true });
   fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({
@@ -90,7 +90,7 @@ test('loading old state strips non-layout terminal data', () => {
 });
 
 test('new sessions and panes use unique default names', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
 
@@ -110,7 +110,7 @@ test('new sessions and panes use unique default names', () => {
 
 // Dragging a workspace title to a new slot in the strip.
 test('moveSession reorders the workspaces and keeps the index in range', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   store.createSession();
@@ -145,7 +145,7 @@ test('moveSession reorders the workspaces and keeps the index in range', () => {
 });
 
 test('placePane refuses a position that would overlap another pane', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const paneId = store.state.sessions[0].tabs[0].panes[0].id;
@@ -170,7 +170,7 @@ test('placePane refuses a position that would overlap another pane', () => {
 });
 
 test('overlaps left by older layouts are pushed apart on load', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const dataDir = path.join(root, 'data');
   fs.mkdirSync(dataDir, { recursive: true });
   fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({
@@ -201,7 +201,7 @@ test('overlaps left by older layouts are pushed apart on load', () => {
 });
 
 test('changing vertical slots rescales every pane and keeps them apart', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root, { verticalSlots: 12 });
   store.load();
   const tab = store.state.sessions[0].tabs[0];
@@ -222,7 +222,7 @@ test('changing vertical slots rescales every pane and keeps them apart', () => {
 });
 
 test('a configured default pane width sizes the first pane and every new pane', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root, { defaultPaneWidth: 4 });
   store.load();
   const firstPane = store.state.sessions[0].tabs[0].panes[0];
@@ -239,14 +239,14 @@ test('a configured default pane width sizes the first pane and every new pane', 
 });
 
 test('out-of-range default pane widths clamp instead of breaking the board', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root, { defaultPaneWidth: 0 });
   store.load();
   assert.deepEqual(store.state.sessions[0].tabs[0].panes[0].layout, { x: 0, y: 0, w: 1, h: 12 });
 });
 
 test('a configured default pane height sizes the first pane and every new pane', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root, { verticalSlots: 12, defaultPaneHeight: 4 });
   store.load();
   const firstPane = store.state.sessions[0].tabs[0].panes[0];
@@ -265,7 +265,7 @@ test('a configured default pane height sizes the first pane and every new pane',
 });
 
 test('a default pane height above rows per screen clamps to the row count', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root, { verticalSlots: 8, defaultPaneHeight: 99 });
   store.load();
   assert.equal(store.defaultPaneHeight, 8);
@@ -273,7 +273,7 @@ test('a default pane height above rows per screen clamps to the row count', () =
 });
 
 test('applyGrid re-clamps the default pane height when rows per screen shrinks', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root, { verticalSlots: 12, defaultPaneHeight: 10 });
   store.load();
 
@@ -282,7 +282,7 @@ test('applyGrid re-clamps the default pane height when rows per screen shrinks',
 });
 
 test('applyGrid updates the default pane width without resizing existing panes', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root, { defaultPaneWidth: 6 });
   store.load();
   const firstPane = store.state.sessions[0].tabs[0].panes[0];
@@ -297,7 +297,7 @@ test('applyGrid updates the default pane width without resizing existing panes',
 
 test('new panes open past the rightmost edge at full height', () => {
   for (const type of ['terminal', 'files']) {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
     const store = new StateStore(root);
     store.load();
     const firstPane = store.state.sessions[0].tabs[0].panes[0];
@@ -315,7 +315,7 @@ test('new panes open past the rightmost edge at full height', () => {
 });
 
 test('a new pane fills the leftmost free space before clearing the rightmost edge', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const paneId = store.state.sessions[0].tabs[0].panes[0].id;
@@ -331,7 +331,7 @@ test('a new pane fills the leftmost free space before clearing the rightmost edg
 });
 
 test('loading legacy cell layouts migrates them to grid cells', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const dataDir = path.join(root, 'data');
   fs.mkdirSync(dataDir, { recursive: true });
   fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({
@@ -371,7 +371,7 @@ test('loading legacy cell layouts migrates them to grid cells', () => {
 });
 
 test('loading freeform canvas layouts migrates them to grid cells', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const dataDir = path.join(root, 'data');
   fs.mkdirSync(dataDir, { recursive: true });
   fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({
@@ -411,7 +411,7 @@ test('loading freeform canvas layouts migrates them to grid cells', () => {
 });
 
 test('grid size and vertical slots are configurable and clamp pane sizes', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root, { gridSize: 60, verticalSlots: 8 });
   store.load();
   const paneId = store.state.sessions[0].tabs[0].panes[0].id;
@@ -431,7 +431,7 @@ test('grid size and vertical slots are configurable and clamp pane sizes', () =>
 });
 
 test('pane move reorders panes inside its tab', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const paneId = store.state.sessions[0].tabs[0].panes[0].id;
@@ -448,7 +448,7 @@ test('pane move reorders panes inside its tab', () => {
 // Dragging a pane's own tab to reorder it, or dropping it on another pane of
 // the same kind to hand it over.
 test('moveTab reorders a pane\'s own tabs and hands one to another pane of the same kind', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const paneId = store.state.sessions[0].tabs[0].panes[0].id;
@@ -477,7 +477,7 @@ test('moveTab reorders a pane\'s own tabs and hands one to another pane of the s
 });
 
 test('moveTab refuses to empty a pane and refuses a kind mismatch', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const paneId = store.state.sessions[0].tabs[0].panes[0].id;
@@ -495,7 +495,7 @@ test('moveTab refuses to empty a pane and refuses a kind mismatch', () => {
 });
 
 test('files panes persist type and path without scrollback', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const store = new StateStore(root);
   store.load();
   const paneId = store.state.sessions[0].tabs[0].panes[0].id;
@@ -514,7 +514,7 @@ test('files panes persist type and path without scrollback', () => {
 });
 
 test('allows more than one files pane in the same tab', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const store = new StateStore(root);
   store.load();
   const paneId = store.state.sessions[0].tabs[0].panes[0].id;
@@ -527,7 +527,7 @@ test('allows more than one files pane in the same tab', () => {
 });
 
 test('usage panes persist as workspace panes', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const firstPane = store.state.sessions[0].tabs[0].panes[0];
@@ -545,7 +545,7 @@ test('usage panes persist as workspace panes', () => {
 });
 
 test('plugin panes persist their manifest id and bounded JSON data', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const firstPaneId = store.state.sessions[0].tabs[0].panes[0].id;
@@ -572,7 +572,7 @@ test('plugin panes persist their manifest id and bounded JSON data', () => {
 });
 
 test('legacy local panes migrate to plugin panes on load', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   store.save();
@@ -592,7 +592,7 @@ test('legacy local panes migrate to plugin panes on load', () => {
 });
 
 test('browser and notepad panes persist their URL and file path', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const firstPane = store.state.sessions[0].tabs[0].panes[0];
@@ -613,7 +613,7 @@ test('browser and notepad panes persist their URL and file path', () => {
 });
 
 test('terminal panes persist multiple tabs and their active tab', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const pane = store.state.sessions[0].tabs[0].panes[0];
@@ -652,7 +652,7 @@ test('terminal panes persist multiple tabs and their active tab', () => {
 });
 
 test('a renamed terminal tab keeps its name while the shell keeps announcing titles', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const pane = store.state.sessions[0].tabs[0].panes[0];
@@ -687,7 +687,7 @@ test('a renamed terminal tab keeps its name while the shell keeps announcing tit
 });
 
 test('files panes persist multiple tabs and follow the active tab path', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const firstPane = store.state.sessions[0].tabs[0].panes[0];
@@ -720,7 +720,7 @@ test('files panes persist multiple tabs and follow the active tab path', () => {
 });
 
 test('browser panes persist multiple tabs and their active tab', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const firstPane = store.state.sessions[0].tabs[0].panes[0];
@@ -746,7 +746,7 @@ test('browser panes persist multiple tabs and their active tab', () => {
 });
 
 test('new notepad panes and tabs adopt the configured editor defaults', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const firstPane = store.state.sessions[0].tabs[0].panes[0];
@@ -768,7 +768,7 @@ test('new notepad panes and tabs adopt the configured editor defaults', () => {
 });
 
 test('notepad panes persist multiple tabs and their active tab', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const firstPane = store.state.sessions[0].tabs[0].panes[0];
@@ -791,7 +791,7 @@ test('notepad panes persist multiple tabs and their active tab', () => {
 });
 
 test('notepad autosave drafts and editor preferences persist without a file path', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const firstPane = store.state.sessions[0].tabs[0].panes[0];
@@ -825,7 +825,7 @@ test('notepad autosave drafts and editor preferences persist without a file path
 });
 
 test('notepad tabs persist their line ending, language override, and read-only lock', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const firstPane = store.state.sessions[0].tabs[0].panes[0];
@@ -851,7 +851,7 @@ test('notepad tabs persist their line ending, language override, and read-only l
 });
 
 test('legacy terminal pane mode is discarded', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const dataDir = path.join(root, 'data');
   fs.mkdirSync(dataDir, { recursive: true });
   fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({
@@ -879,7 +879,7 @@ test('legacy terminal pane mode is discarded', () => {
 });
 
 test('loading state with a deleted or moved pane cwd falls back to the app root', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const dataDir = path.join(root, 'data');
   fs.mkdirSync(dataDir, { recursive: true });
   const missingCwd = path.join(root, 'moved-away-folder');
@@ -904,7 +904,7 @@ test('loading state with a deleted or moved pane cwd falls back to the app root'
 });
 
 test('loading legacy panes marks them as terminal', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const dataDir = path.join(root, 'data');
   fs.mkdirSync(dataDir, { recursive: true });
   fs.writeFileSync(path.join(dataDir, 'state.json'), JSON.stringify({
@@ -927,7 +927,7 @@ test('loading legacy panes marks them as terminal', () => {
 });
 
 test('legacy whiteboard panes migrate to the whiteboard plugin without losing their scene', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const scene = JSON.stringify({ elements: [{ id: 'a', type: 'rectangle' }], appState: { gridSize: 20 } });
   const dataDir = path.join(root, 'data');
   fs.mkdirSync(dataDir, { recursive: true });
@@ -956,7 +956,7 @@ test('legacy whiteboard panes migrate to the whiteboard plugin without losing th
 });
 
 test('saving keeps the previous file as a backup and leaves no temp file behind', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   // renameSession persists on its own, so these are two consecutive writes.
@@ -972,7 +972,7 @@ test('saving keeps the previous file as a backup and leaves no temp file behind'
 });
 
 test('loading recovers from the backup when state.json is truncated', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   store.renameSession(store.state.activeSessionId, 'Survivor');
@@ -988,7 +988,7 @@ test('loading recovers from the backup when state.json is truncated', () => {
 });
 
 test('loading falls back to a fresh workspace when both copies are unreadable', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   store.save();
@@ -1005,7 +1005,7 @@ test('loading falls back to a fresh workspace when both copies are unreadable', 
 });
 
 test('image panes persist only their current picture path', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const basePaneId = store.state.sessions[0].tabs[0].panes[0].id;
@@ -1028,7 +1028,7 @@ test('image panes persist only their current picture path', () => {
 });
 
 test('a cmd pane names and stores its own shell, and its tabs inherit it', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const paneId = store.state.sessions[0].tabs[0].panes[0].id;
@@ -1058,7 +1058,7 @@ test('a cmd pane names and stores its own shell, and its tabs inherit it', () =>
 // Closing the last tab restarts the shell in place, so it has to restart the
 // same shell rather than falling back to PowerShell.
 test('closing the last cmd tab restarts cmd', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const paneId = store.state.sessions[0].tabs[0].panes[0].id;
@@ -1074,7 +1074,7 @@ test('closing the last cmd tab restarts cmd', () => {
 // and its own resume id, exactly like a terminal pane's tabs are separate
 // shells.
 test('ai panes persist a conversation per tab', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const firstPane = store.state.sessions[0].tabs[0].panes[0];
@@ -1111,7 +1111,7 @@ test('ai panes persist a conversation per tab', () => {
 });
 
 test('a drop-in AI plugin provider survives a state reload', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const firstPane = store.state.sessions[0].tabs[0].panes[0];
@@ -1127,7 +1127,7 @@ test('a drop-in AI plugin provider survives a state reload', () => {
 // The transcript is the one piece of pane state that grows without bound, so
 // /api/state must not carry it; the pane's socket replays it instead.
 test('ai transcripts are saved but kept out of the public state', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const firstPane = store.state.sessions[0].tabs[0].panes[0];
@@ -1151,7 +1151,7 @@ test('ai transcripts are saved but kept out of the public state', () => {
 // event only ever carries the filename that reaches them on disk, and only
 // once it looks like one this store could have produced.
 test('an ai event only keeps image references that match the attachment filename pattern', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const firstPane = store.state.sessions[0].tabs[0].panes[0];
@@ -1175,7 +1175,7 @@ test('an ai event only keeps image references that match the attachment filename
 // Dropping half a turn would leave a tool result with no tool call above it, so
 // the oldest whole turns go instead.
 test('ai history is trimmed a whole turn at a time', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const firstPane = store.state.sessions[0].tabs[0].panes[0];
@@ -1202,7 +1202,7 @@ test('ai history is trimmed a whole turn at a time', () => {
 // Clearing has to drop the CLI session id too, or the next prompt resumes the
 // conversation the user just asked to forget.
 test('clearing an ai tab drops the transcript and the resume id', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const firstPane = store.state.sessions[0].tabs[0].panes[0];
@@ -1220,7 +1220,7 @@ test('clearing an ai tab drops the transcript and the resume id', () => {
 // A pending question that is answered later is patched in place, so a reload
 // shows the answer rather than a dead set of buttons.
 test('ai question events can be answered in place', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const firstPane = store.state.sessions[0].tabs[0].panes[0];
@@ -1249,7 +1249,7 @@ test('ai question events can be answered in place', () => {
 // A second tab is opened beside the first, so it continues with the same CLI in
 // the same folder rather than falling back to the configured default.
 test('a new ai tab follows the tab it was opened beside', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();
   const pane = store.createAiPane(store.state.sessions[0].tabs[0].panes[0].id, 'codex');
@@ -1265,8 +1265,8 @@ test('a new ai tab follows the tab it was opened beside', () => {
 });
 
 test('an ai pane and tab can be started in a chosen folder', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-state-'));
-  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-work-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
+  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-work-'));
   const store = new StateStore(root);
   store.load();
 

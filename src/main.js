@@ -57,9 +57,9 @@ function ensurePackagedIcon(root) {
   if (!process.pkg) {
     return;
   }
-  const source = path.join(__dirname, '..', 'assets', 'wps7.ico');
+  const source = path.join(__dirname, '..', 'assets', 'paneboard.ico');
   const targetDir = path.join(root, 'data');
-  const target = path.join(targetDir, 'wps7.ico');
+  const target = path.join(targetDir, 'paneboard.ico');
   fs.mkdirSync(targetDir, { recursive: true });
   if (!fs.existsSync(target)) {
     fs.copyFileSync(source, target);
@@ -585,11 +585,12 @@ function sanitizeSettingsUpdates(updates) {
   }
   if (updates.custom_theme) {
     next.custom_theme = {};
-    const lightThemeIds = ['wps-light', 'slate-light', 'ember-light', 'forest-light', 'custom-light'];
-    const darkThemeIds = ['wps-dark', 'slate-dark', 'ember-dark', 'forest-dark', 'custom-dark'];
+    const lightThemeIds = ['paneboard-light', 'slate-light', 'ember-light', 'forest-light', 'custom-light'];
+    const darkThemeIds = ['paneboard-dark', 'slate-dark', 'ember-dark', 'forest-dark', 'custom-dark'];
     for (const [key, themeIds] of [['selected_light', lightThemeIds], ['selected_dark', darkThemeIds]]) {
-      if (themeIds.includes(updates.custom_theme[key])) {
-        next.custom_theme[key] = updates.custom_theme[key];
+      const selection = String(updates.custom_theme[key] || '').replace(/^wps-(light|dark)$/, 'paneboard-$1');
+      if (themeIds.includes(selection)) {
+        next.custom_theme[key] = selection;
       } else if (Object.prototype.hasOwnProperty.call(updates.custom_theme, key)) {
         throw new Error(`Unknown ${key === 'selected_light' ? 'light' : 'dark'} theme selection.`);
       }
@@ -666,7 +667,7 @@ function powershellSingleQuoted(value) {
 function spawnReplacementProcess(root) {
   const args = process.pkg ? [] : process.argv.slice(1);
   if (process.platform === 'win32') {
-    const scriptPath = path.join(root, 'data', 'restart-wps7.ps1');
+    const scriptPath = path.join(root, 'data', 'restart-paneboard.ps1');
     const argumentsLiteral = args.length ? `@(${args.map(powershellSingleQuoted).join(', ')})` : '@()';
     fs.writeFileSync(scriptPath, `
 param(
@@ -685,7 +686,7 @@ if ($Arguments.Count -gt 0) {
 }
 `.trim(), 'utf8');
     // detached alone does not reliably outlive this process on Windows: if
-    // whatever launched wps7.exe put it in a job object with kill-on-close
+    // whatever launched paneboard.exe put it in a job object with kill-on-close
     // semantics, powershell.exe -- still a child of the same job -- dies with
     // it before Wait-Process ever returns, and the relaunch silently never
     // happens. Routing through cmd's own `start` verb, the traditional way to
@@ -1596,7 +1597,7 @@ function main() {
       return;
     }
     if (url && isOwnServerWebsite(url, config.server.port)) {
-      res.status(400).json({ error: 'WPS7 cannot open its own server address in a Browser pane.' });
+      res.status(400).json({ error: 'Paneboard cannot open its own server address in a Browser pane.' });
       return;
     }
     const pane = store.createBrowserPane(req.params.paneId, url || '', req.body.emulationMode);
@@ -1618,7 +1619,7 @@ function main() {
       return;
     }
     if (url && isOwnServerWebsite(url, config.server.port)) {
-      res.status(400).json({ error: 'WPS7 cannot open its own server address in a Browser pane.' });
+      res.status(400).json({ error: 'Paneboard cannot open its own server address in a Browser pane.' });
       return;
     }
     if (!store.setBrowserPaneUrl(req.params.paneId, url || '')) {

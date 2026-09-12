@@ -7,11 +7,11 @@ const { listPluginPanes, loadAiPluginPanes, resolvePluginPaneAsset, resolveTrust
 
 const aiFiles = {
   'server.js': 'module.exports = { AiManager: class AiManager {} };',
-  'client.js': 'window.Wps7AiPanePlugins = window.Wps7AiPanePlugins || {};',
+  'client.js': 'window.PaneboardAiPanePlugins = window.PaneboardAiPanePlugins || {};',
   'styles.css': '.drop-in-agent {}'
 };
 const hostFiles = {
-  'client.js': 'window.Wps7HostPanePlugins = window.Wps7HostPanePlugins || {};',
+  'client.js': 'window.PaneboardHostPanePlugins = window.PaneboardHostPanePlugins || {};',
   'styles.css': '.host-chart {}'
 };
 
@@ -27,7 +27,7 @@ function writePane(root, id, manifest, files = {}) {
 }
 
 test('discovers sandboxed and built-in plugin pane manifests', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-plugin-panes-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-plugin-panes-'));
   writePane(root, 'private-dashboard', { name: 'Private dashboard', entry: 'ui/index.html' }, {
     'ui/index.html': '<h1>Private</h1>'
   });
@@ -48,7 +48,7 @@ test('discovers sandboxed and built-in plugin pane manifests', () => {
 });
 
 test('loads a copied AI plugin backend and exposes only its browser assets', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-ai-plugin-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-ai-plugin-'));
   writePane(root, 'drop-in-agent', { name: 'Drop-in agent', type: 'ai', provider: 'drop-in-agent', implementation: 'drop-in-agent' }, aiFiles);
 
   const plugins = loadAiPluginPanes(root);
@@ -63,7 +63,7 @@ test('loads a copied AI plugin backend and exposes only its browser assets', () 
 });
 
 test('resolves files inside one sandboxed plugin without allowing traversal', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-plugin-panes-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-plugin-panes-'));
   writePane(root, 'private-dashboard', { name: 'Private dashboard' }, {
     'index.html': '<script src="app.js"></script>',
     'app.js': 'document.body.dataset.ready = "true";'
@@ -78,7 +78,7 @@ test('resolves files inside one sandboxed plugin without allowing traversal', ()
 });
 
 test('a trusted host plugin exposes only its browser source and assets', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-host-plugin-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-host-plugin-'));
   writePane(root, 'host-chart', { name: 'Host chart', type: 'host' }, {
     ...hostFiles,
     'assets/chart.js': 'window.Chart = {};',
@@ -150,7 +150,7 @@ test('Whiteboard source and its complete offline runtime live under one plugin f
   assert.doesNotMatch(main, /\/api\/panes\/:paneId\/whiteboard/);
   assert.doesNotMatch(state, /createWhiteboardPane|setWhiteboard/);
   assert.match(app, /loadHostPanePlugins\(state\.pluginPanes\)/);
-  assert.match(client, /Wps7HostPanePlugins\.whiteboard/);
+  assert.match(client, /PaneboardHostPanePlugins\.whiteboard/);
   assert.deepEqual(manifest.legacy, { paneType: 'whiteboard', dataField: 'whiteboard' });
 });
 

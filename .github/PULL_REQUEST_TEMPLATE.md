@@ -1,6 +1,6 @@
 <!--
 Security fixes do not start here. Report them privately through SECURITY.md —
-wps7 serves a shell, so a public patch is a working exploit against every
+Paneboard serves a shell, so a public patch is a working exploit against every
 running instance until people upgrade.
 -->
 

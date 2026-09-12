@@ -68,7 +68,7 @@ function systemNodePath() {
 }
 
 // Proxy rules that route by process name match node.exe but not the packaged
-// wps7.exe, so usage lookups are sent through the system Node binary instead.
+// paneboard.exe, so usage lookups are sent through the system Node binary instead.
 function systemNodeFetch(url, options = {}, spawnImpl = spawn) {
   return new Promise((resolve, reject) => {
     const nodePath = systemNodePath();
@@ -197,7 +197,7 @@ function fetchCodexCliUsage({ codexHome, spawnImpl = spawn }) {
         windowsHide: true
       });
     } catch (error) {
-      reject(new Error('Codex CLI could not be started by the account running wps7.'));
+      reject(new Error('Codex CLI could not be started by the account running Paneboard.'));
       return;
     }
 
@@ -220,7 +220,7 @@ function fetchCodexCliUsage({ codexHome, spawnImpl = spawn }) {
       else resolve(value);
     };
 
-    child.on('error', () => finish(new Error('Codex CLI could not be started by the account running wps7.')));
+    child.on('error', () => finish(new Error('Codex CLI could not be started by the account running Paneboard.')));
     child.on('exit', (code) => {
       if (!settled) {
         const detail = stderr.trim() ? ` ${stderr.trim().slice(0, 240)}` : '';
@@ -247,7 +247,7 @@ function fetchCodexCliUsage({ codexHome, spawnImpl = spawn }) {
       } else if (message.id === 2) {
         account = message.result?.account || null;
         if (!account || account.type !== 'chatgpt') {
-          finish(new Error('Codex subscription login is not available to the account running wps7.'));
+          finish(new Error('Codex subscription login is not available to the account running Paneboard.'));
           return;
         }
         send({ method: 'account/rateLimits/read', id: 3 });
@@ -259,7 +259,7 @@ function fetchCodexCliUsage({ codexHome, spawnImpl = spawn }) {
     send({
       method: 'initialize',
       id: 1,
-      params: { clientInfo: { name: 'wps7', title: 'WPS7', version: '0.1.0' } }
+      params: { clientInfo: { name: 'paneboard', title: 'Paneboard', version: '0.1.0' } }
     });
   });
 }
@@ -292,11 +292,11 @@ function codexUsageResult(payload) {
 }
 
 // The CLIs write their credentials under the profile of whoever ran `codex
-// login` or `claude`, so wps7 running as a different account finds nothing in
+// login` or `claude`, so paneboard running as a different account finds nothing in
 // its own. The other profiles beside it are then the only place left to look.
 // Reading them needs the privileges to do so and skips whatever it cannot open.
 // A terminal pane can already read the same files, so this reaches no further
-// than the rest of wps7 does.
+// than the rest of paneboard does.
 function signedInProfileHomes({ subfolder, marker, profileRoot }) {
   let entries;
   try {
@@ -487,7 +487,7 @@ function refreshClaudeLogin({ claudeHome, credentialsPath, previousAccessToken, 
       });
     } catch (error) {
       log(`claude cli spawn failed: ${error.message}`);
-      finish(new Error('Claude Code CLI could not be started by the account running wps7.'));
+      finish(new Error('Claude Code CLI could not be started by the account running Paneboard.'));
       return;
     }
     proc.onData((chunk) => {
@@ -548,7 +548,7 @@ async function fetchClaudeUsage({ claudeHome, fetchImpl = defaultFetch, ptyImpl 
         });
         log(`claude refreshed tokenLength=${tokenLength(accessToken)}`);
       } catch (refreshError) {
-        throw new Error(`${refreshError.message} Run /login in Claude Code as the account running wps7.`);
+        throw new Error(`${refreshError.message} Run /login in Claude Code as the account running Paneboard.`);
       }
       payload = await fetchUsage(accessToken);
     } else {
@@ -608,7 +608,7 @@ async function fetchMiniMaxUsage({ apiKey, region = 'global', fetchImpl = defaul
       Authorization: `Bearer ${token}`,
       Accept: 'application/json',
       'Content-Type': 'application/json',
-      'MM-API-Source': 'WPS7'
+      'MM-API-Source': 'Paneboard'
     }
   }, fetchImpl);
   const baseResponse = payload.base_resp || payload.data?.base_resp;

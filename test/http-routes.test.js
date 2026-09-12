@@ -224,7 +224,7 @@ before(async () => {
     '}',
     'module.exports = { AiManager };'
   ].join('\n'));
-  fs.writeFileSync(path.join(aiPluginFixtureDir, 'client.js'), `window.Wps7AiPanePlugins = window.Wps7AiPanePlugins || {}; window.Wps7AiPanePlugins['${aiPluginFixtureId}'] = { create() {} };`);
+  fs.writeFileSync(path.join(aiPluginFixtureDir, 'client.js'), `window.PaneboardAiPanePlugins = window.PaneboardAiPanePlugins || {}; window.PaneboardAiPanePlugins['${aiPluginFixtureId}'] = { create() {} };`);
   fs.writeFileSync(path.join(aiPluginFixtureDir, 'styles.css'), '.drop-in-ai-fixture {}');
 
   fs.writeFileSync(configPath, [
@@ -254,7 +254,7 @@ before(async () => {
 after(async () => {
   try {
     const controlToken = fs.readFileSync(controlTokenPath, 'utf8').trim();
-    await request('/api/runtime/shutdown', { method: 'POST', headers: { 'X-WPS7-Control-Token': controlToken } });
+    await request('/api/runtime/shutdown', { method: 'POST', headers: { 'X-Paneboard-Control-Token': controlToken } });
   } catch {
     // Nothing to shut down cleanly with; the kill below covers it.
   }
@@ -475,7 +475,7 @@ test('file and notepad panes open with no password set', async () => {
   assert.equal(notepadPane.status, 201);
   assert.equal(notepadPane.json.type, 'notepad');
 
-  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-no-password-test-'));
+  const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-no-password-test-'));
   const listed = await request(`/api/files?path=${encodeURIComponent(folder)}`);
   assert.equal(listed.status, 200);
   fs.rmSync(folder, { recursive: true, force: true });
@@ -537,7 +537,7 @@ test('saved notepad pane settings survive a reopen of the settings dialog', asyn
 
 test('a full create/list/delete round trip through the file manager routes', async () => {
   const auth = { Authorization: `Bearer ${sessionToken}` };
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-http-route-test-'));
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-http-route-test-'));
 
   const created = await request('/api/files/folder', { method: 'POST', headers: auth, body: { path: parent, name: 'route-test-folder' } });
   assert.equal(created.status, 201);

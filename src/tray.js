@@ -21,7 +21,7 @@ function startTray({ root, url, port, save, openBrowser, restart, shutdown, log 
 function startWindowsNotifyIconTray({ root, url, port, save, openBrowser, restart, shutdown, log }) {
   const trayDir = path.join(root, 'data', 'tray');
   fs.mkdirSync(trayDir, { recursive: true });
-  const scriptPath = path.join(trayDir, 'wps7-notifyicon.ps1');
+  const scriptPath = path.join(trayDir, 'paneboard-notifyicon.ps1');
   fs.writeFileSync(scriptPath, windowsNotifyIconScript(), 'utf8');
   const iconPath = realIconPath(root);
 
@@ -138,7 +138,7 @@ Add-Type -AssemblyName System.Drawing
 $icon = New-Object System.Drawing.Icon($IconPath)
 $notifyIcon = New-Object System.Windows.Forms.NotifyIcon
 $notifyIcon.Icon = $icon
-$notifyIcon.Text = "wps7 terminal workspace (port $Port)"
+$notifyIcon.Text = "Paneboard terminal workspace (port $Port)"
 $notifyIcon.Visible = $true
 
 $menu = New-Object System.Windows.Forms.ContextMenuStrip
@@ -147,7 +147,7 @@ $statusItem.Enabled = $false
 $menu.Items.Add('-') | Out-Null
 $openItem = $menu.Items.Add('Open Web UI')
 $saveItem = $menu.Items.Add('Save Now')
-$restartItem = $menu.Items.Add('Restart wps7')
+$restartItem = $menu.Items.Add('Restart Paneboard')
 $menu.Items.Add('-') | Out-Null
 $logsItem = $menu.Items.Add('View Logs')
 $diagnosticsItem = $menu.Items.Add('Diagnostics')
@@ -161,7 +161,7 @@ $logsItem.add_Click({ Start-Process explorer.exe -ArgumentList (Join-Path $Root 
 $diagnosticsItem.add_Click({
   $newline = [Environment]::NewLine
   $message = 'Status: running' + $newline + "URL: $Url" + $newline + "Server PID: $ServerPid" + $newline + "Data: $(Join-Path $Root 'data')"
-  [System.Windows.Forms.MessageBox]::Show($message, 'WPS7 Diagnostics', 'OK', 'Information') | Out-Null
+  [System.Windows.Forms.MessageBox]::Show($message, 'Paneboard Diagnostics', 'OK', 'Information') | Out-Null
 })
 $exitItem.add_Click({ [Console]::Out.WriteLine('exit'); [Console]::Out.Flush() })
 $notifyIcon.add_DoubleClick({ [Console]::Out.WriteLine('open'); [Console]::Out.Flush() })
@@ -187,7 +187,7 @@ function startPortableTray({ root, url, port, save, openBrowser, restart, shutdo
   };
   const openItem = {
     title: 'Open Web UI',
-    tooltip: 'Open wps7 in your browser',
+    tooltip: 'Open Paneboard in your browser',
     checked: false,
     enabled: true,
     click: () => openBrowser(url)
@@ -201,14 +201,14 @@ function startPortableTray({ root, url, port, save, openBrowser, restart, shutdo
   };
   const exitItem = {
     title: 'Exit',
-    tooltip: 'Save and exit wps7',
+    tooltip: 'Save and exit Paneboard',
     checked: false,
     enabled: true,
     click: shutdown
   };
   const restartItem = {
-    title: 'Restart wps7',
-    tooltip: 'Restart wps7',
+    title: 'Restart Paneboard',
+    tooltip: 'Restart Paneboard',
     checked: false,
     enabled: true,
     click: restart
@@ -217,11 +217,11 @@ function startPortableTray({ root, url, port, save, openBrowser, restart, shutdo
   const tray = new SysTray({
     menu: {
       icon,
-      title: 'wps7',
-      tooltip: `wps7 terminal workspace (port ${port})`,
+      title: 'Paneboard',
+      tooltip: `Paneboard terminal workspace (port ${port})`,
       items: [statusItem, SysTray.separator, openItem, saveItem, restartItem, SysTray.separator, exitItem]
     },
-    debug: Boolean(process.env.WPS7_TRAY_DEBUG),
+    debug: Boolean(process.env.PANEBOARD_TRAY_DEBUG ?? process.env.WPS7_TRAY_DEBUG),
     copyDir: path.join(root, 'data', 'tray')
   });
 
@@ -246,13 +246,13 @@ function startPortableTray({ root, url, port, save, openBrowser, restart, shutdo
 }
 
 function realIconPath(root) {
-  const source = path.join(__dirname, '..', 'assets', 'wps7.ico');
+  const source = path.join(__dirname, '..', 'assets', 'paneboard.ico');
   if (!process.pkg) {
     return source;
   }
 
   const targetDir = path.join(root, 'data');
-  const target = path.join(targetDir, 'wps7.ico');
+  const target = path.join(targetDir, 'paneboard.ico');
   fs.mkdirSync(targetDir, { recursive: true });
   if (!fs.existsSync(target)) {
     fs.copyFileSync(source, target);

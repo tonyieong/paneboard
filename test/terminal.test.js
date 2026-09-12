@@ -28,7 +28,7 @@ function createHeadlessRuntime() {
 }
 
 test('terminal manager rejects files panes', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const store = new StateStore(root);
   store.load();
   const paneId = store.state.sessions[0].tabs[0].panes[0].id;
@@ -44,7 +44,7 @@ test('terminal manager rejects files panes', () => {
 });
 
 test('terminal manager resolves runtimes by terminal tab id', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const store = new StateStore(root);
   store.load();
   const pane = store.state.sessions[0].tabs[0].panes[0];
@@ -66,7 +66,7 @@ test('terminal manager resolves runtimes by terminal tab id', () => {
 });
 
 test('terminal manager clears the headless replay buffer for a live runtime', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const store = new StateStore(root);
   store.load();
   const tabId = store.state.sessions[0].tabs[0].panes[0].activeTerminalTabId;
@@ -93,7 +93,7 @@ test('terminal manager clears the headless replay buffer for a live runtime', as
 });
 
 test('clearing a terminal clears the ConPTY screen buffer through the shell', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const store = new StateStore(root);
   store.load();
   const tabId = store.state.sessions[0].tabs[0].panes[0].activeTerminalTabId;
@@ -138,7 +138,7 @@ test('terminal spawn options use the Windows system ConPTY', () => {
 });
 
 test('terminal height-only resizes stay in the browser after the initial PTY size', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const store = new StateStore(root);
   store.load();
   const tabId = store.state.sessions[0].tabs[0].panes[0].activeTerminalTabId;
@@ -196,7 +196,7 @@ test('output sender coalesces terminal chunks', async () => {
 });
 
 test('a pane with no live shell reports nothing running', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const store = new StateStore(root);
   store.load();
   const pane = store.state.sessions[0].tabs[0].panes[0];
@@ -215,7 +215,7 @@ test('a pane with no live shell reports nothing running', async () => {
 });
 
 test('an exited runtime is never reported as running', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const store = new StateStore(root);
   store.load();
   const pane = store.state.sessions[0].tabs[0].panes[0];
@@ -241,7 +241,7 @@ test('a console with no such shell reports no foreground process', async () => {
 });
 
 test('a shell tells an idle prompt from a running command', windowsOnly, async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const store = new StateStore(root);
   store.load();
   const pane = store.state.sessions[0].tabs[0].panes[0];
@@ -268,7 +268,7 @@ test('a shell tells an idle prompt from a running command', windowsOnly, async (
 });
 
 test('terminal status does not expose a separate history API', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const store = new StateStore(root);
   store.load();
   const paneId = store.state.sessions[0].tabs[0].panes[0].id;
@@ -284,7 +284,7 @@ test('terminal status does not expose a separate history API', () => {
 });
 
 test('a cmd tab spawns cmd.exe instead of the configured PowerShell', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const store = new StateStore(root);
   store.load();
   const paneId = store.state.sessions[0].tabs[0].panes[0].id;

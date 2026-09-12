@@ -5,18 +5,18 @@ param(
 $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path -LiteralPath $Root).Path
 
-function Resolve-Wps7RuntimeRoot {
-  if (Test-Path -LiteralPath (Join-Path $Root 'wps7.exe')) {
+function Resolve-PaneboardRuntimeRoot {
+  if (Test-Path -LiteralPath (Join-Path $Root 'paneboard.exe')) {
     return $Root
   }
   $distRoot = Join-Path $Root 'dist'
-  if (Test-Path -LiteralPath (Join-Path $distRoot 'wps7.exe')) {
+  if (Test-Path -LiteralPath (Join-Path $distRoot 'paneboard.exe')) {
     return $distRoot
   }
-  throw "wps7.exe was not found below $Root. Run npm run package:win first."
+  throw "paneboard.exe was not found below $Root. Run npm run package:win first."
 }
 
-function Read-Wps7ConfigValue {
+function Read-PaneboardConfigValue {
   param(
     [string]$RuntimeRoot,
     [string]$Section,
@@ -41,13 +41,13 @@ function Read-Wps7ConfigValue {
   return $Default
 }
 
-$runtimeRoot = Resolve-Wps7RuntimeRoot
-$executable = Join-Path $runtimeRoot 'wps7.exe'
+$runtimeRoot = Resolve-PaneboardRuntimeRoot
+$executable = Join-Path $runtimeRoot 'paneboard.exe'
 
-$serverHost = Read-Wps7ConfigValue -RuntimeRoot $runtimeRoot -Section 'server' -Key 'host' -Default '127.0.0.1'
-$passwordHash = Read-Wps7ConfigValue -RuntimeRoot $runtimeRoot -Section 'auth' -Key 'password_hash' -Default ''
+$serverHost = Read-PaneboardConfigValue -RuntimeRoot $runtimeRoot -Section 'server' -Key 'host' -Default '127.0.0.1'
+$passwordHash = Read-PaneboardConfigValue -RuntimeRoot $runtimeRoot -Section 'auth' -Key 'password_hash' -Default ''
 if ($serverHost -eq '0.0.0.0' -and !$passwordHash) {
-  throw 'Refusing to expose wps7 on the LAN without an auth.password_hash. Set a strong password or use host = "127.0.0.1".'
+  throw 'Refusing to expose Paneboard on the LAN without an auth.password_hash. Set a strong password or use host = "127.0.0.1".'
 }
 
 # Earlier versions ran the server as an NSSM service, which put it in session 0
@@ -60,9 +60,9 @@ $legacyService = Get-Service -Name 'wps7-server' -ErrorAction SilentlyContinue
 $legacyTaskNames = @($legacyTasks | Where-Object { Get-ScheduledTask -TaskName $_ -ErrorAction SilentlyContinue })
 $legacyFirewall = @(Get-NetFirewallRule -Group 'wps7' -ErrorAction SilentlyContinue)
 if ($legacyService -or $legacyTaskNames.Count -gt 0 -or $legacyFirewall.Count -gt 0) {
-  $uninstall = Join-Path $runtimeRoot 'scripts\uninstall-wps7-startup.ps1'
+  $uninstall = Join-Path $runtimeRoot 'scripts\uninstall-paneboard-startup.ps1'
   if (!(Test-Path -LiteralPath $uninstall)) {
-    $uninstall = Join-Path (Split-Path -Parent $PSCommandPath) 'uninstall-wps7-startup.ps1'
+    $uninstall = Join-Path (Split-Path -Parent $PSCommandPath) 'uninstall-paneboard-startup.ps1'
   }
   Write-Host 'Removing the previous service installation (this needs Administrator once)...'
   $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$uninstall`" -KeepShortcut"
@@ -75,20 +75,29 @@ if ($legacyService -or $legacyTaskNames.Count -gt 0 -or $legacyFirewall.Count -g
 # A Startup shortcut runs as the logged-in user in their own session, so no
 # service account, no stored password, and no elevation are involved.
 $shell = New-Object -ComObject WScript.Shell
-$shortcutPath = Join-Path $shell.SpecialFolders.Item('Startup') 'wps7.lnk'
+$shortcutPath = Join-Path $shell.SpecialFolders.Item('Startup') 'paneboard.lnk'
 $shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = $executable
 $shortcut.WorkingDirectory = $runtimeRoot
-$shortcut.Description = 'wps7 terminal workspace'
+$shortcut.Description = 'Paneboard terminal workspace'
 $shortcut.Save()
 
+# Retire only an old-brand shortcut pointing at this installation.
+$oldShortcutPath = Join-Path $shell.SpecialFolders.Item('Startup') 'wps7.lnk'
+if (Test-Path -LiteralPath $oldShortcutPath) {
+  $oldShortcut = $shell.CreateShortcut($oldShortcutPath)
+  if ($oldShortcut.TargetPath -eq (Join-Path $runtimeRoot 'wps7.exe')) {
+    Remove-Item -LiteralPath $oldShortcutPath -Force
+  }
+}
+
 if ($serverHost -eq '0.0.0.0') {
-  $serverPort = [int](Read-Wps7ConfigValue -RuntimeRoot $runtimeRoot -Section 'server' -Key 'port' -Default '5000')
+  $serverPort = [int](Read-PaneboardConfigValue -RuntimeRoot $runtimeRoot -Section 'server' -Key 'port' -Default '5000')
   Write-Host "Allowing inbound TCP $serverPort in Windows Firewall (this needs Administrator)..."
-  $rule = "New-NetFirewallRule -DisplayName 'wps7 TCP $serverPort' -Group 'wps7' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $serverPort -Profile Any | Out-Null"
+  $rule = "New-NetFirewallRule -DisplayName 'paneboard TCP $serverPort' -Group 'paneboard' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $serverPort -Profile Any | Out-Null"
   Start-Process -FilePath 'powershell.exe' -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"$rule`"" -Verb RunAs -Wait
 }
 
 Write-Host "Installed startup shortcut: $shortcutPath"
-Write-Host "wps7 starts at logon in your own session, with its tray icon."
+Write-Host "Paneboard starts at logon in your own session, with its tray icon."
 Write-Host "Start it now by running: $executable"

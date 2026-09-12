@@ -1,6 +1,6 @@
 // On-demand regression check for the mobile PowerShell pane's touch-scroll
 // direction. Not part of `npm test` / CI: it needs a real Chromium (via
-// `playwright`, a devDependency) and spawns a real, isolated WPS7 instance.
+// `playwright`, a devDependency) and spawns a real, isolated Paneboard instance.
 //
 // Why this exists: `installMobileTerminalTouchScroll` in public/app.js turns
 // finger movement into a synthetic `WheelEvent` dispatched on
@@ -99,7 +99,7 @@ function requestShutdown(port, token) {
       port,
       path: '/api/runtime/shutdown',
       method: 'POST',
-      headers: { 'X-WPS7-Control-Token': token }
+      headers: { 'X-Paneboard-Control-Token': token }
     }, (res) => {
       res.resume();
       resolve();

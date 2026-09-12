@@ -4,7 +4,7 @@ const { Readable } = require('node:stream');
 const { createUploadParser } = require('../src/upload');
 
 test('upload parser decodes utf8 filenames from browser multipart forms', async () => {
-  const boundary = 'wps7-boundary';
+  const boundary = 'paneboard-boundary';
   const filename = '中文檔案.txt';
   const body = Buffer.from([
     `--${boundary}`,

@@ -11,7 +11,7 @@ const {
 } = require('../src/runtime-control');
 
 test('runtime control token is created and reused', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-control-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-control-'));
   const token = loadOrCreateControlToken(root);
   assert.equal(token.length > 20, true);
   assert.equal(fs.readFileSync(controlTokenPath(root), 'utf8').trim(), token);
@@ -27,14 +27,14 @@ test('runtime control only accepts loopback requests with the token', () => {
   const token = 'secret';
   assert.equal(verifyRuntimeControlRequest({
     socket: { remoteAddress: '127.0.0.1' },
-    headers: { 'x-wps7-control-token': token }
+    headers: { 'x-paneboard-control-token': token }
   }, token), true);
   assert.equal(verifyRuntimeControlRequest({
     socket: { remoteAddress: '127.0.0.1' },
-    headers: { 'x-wps7-control-token': 'wrong' }
+    headers: { 'x-paneboard-control-token': 'wrong' }
   }, token), false);
   assert.equal(verifyRuntimeControlRequest({
     socket: { remoteAddress: '10.0.0.5' },
-    headers: { 'x-wps7-control-token': token }
+    headers: { 'x-paneboard-control-token': token }
   }, token), false);
 });

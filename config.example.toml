@@ -1,9 +1,9 @@
 # Settings saved in the web UI update this file.
 # Hot reload: [auth], [shell], [persistence], [ui]
-# Restart wps7.exe: server.host, server.port, server.protocol
+# Restart paneboard.exe: server.host, server.port, server.protocol
 
 [server]
-# Requires restart: host, port and protocol are bound when wps7.exe starts.
+# Requires restart: host, port and protocol are bound when paneboard.exe starts.
 # Hot reload: open_browser only affects future browser opens.
 host = "127.0.0.1"
 port = 5000
@@ -29,8 +29,8 @@ password_hash = ""
 preferred = "pwsh.exe"
 fallback = "powershell.exe"
 args = ["-NoLogo", "-NoExit", "-Command", "try { Set-PSReadLineOption -PredictionSource History } catch {}"]
-# Folders appended to PATH for new panes. wps7 inherits the PATH it had at
-# logon, so a tool installed after that goes missing until wps7 restarts: npm's
+# Folders appended to PATH for new panes. paneboard inherits the PATH it had at
+# logon, so a tool installed after that goes missing until paneboard restarts: npm's
 # global folder, where claude and codex land, is the usual one.
 # extra_path = ["C:\\Users\\yourname\\AppData\\Roaming\\npm"]
 # Panes run whatever those folders hold, so it is editable here only, never

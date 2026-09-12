@@ -3,17 +3,22 @@
 English | [繁體中文](plugin-panes.zh-TW.md)
 
 A plugin pane is a self-contained private extension loaded from
-`plugin-panes/`. Once a version of wps7 with plugin-pane support is
+`plugin-panes/`. Once a version of Paneboard with plugin-pane support is
 installed, adding or changing a pane does not require editing the application
 source.
+
+New plugins register with `window.PaneboardAiPanePlugins` or
+`window.PaneboardHostPanePlugins` and translate through `window.PaneboardI18n`.
+The former `Wps7AiPanePlugins`, `Wps7HostPanePlugins`, and `Wps7I18n` globals
+remain aliases for existing private plugins.
 
 ## Install location
 
 When running from source, place panes under the repository's `plugin-panes/`
-directory. For a packaged app, use `plugin-panes/` beside `wps7.exe`; this is
-`dist/plugin-panes/` when running `dist/wps7.exe` from a source checkout.
-Refresh the wps7 page after copying an HTML or host pane directory. AI pane
-backends load at process startup, so restart wps7 after copying an AI pane
+directory. For a packaged app, use `plugin-panes/` beside `paneboard.exe`; this is
+`dist/plugin-panes/` when running `dist/paneboard.exe` from a source checkout.
+Refresh the Paneboard page after copying an HTML or host pane directory. AI pane
+backends load at process startup, so restart Paneboard after copying an AI pane
 directory.
 
 ## Directory format
@@ -61,7 +66,7 @@ plugin-panes/
 
 Keep scripts, styles, images, configuration, and pane-specific instructions in
 the same directory and refer to assets with relative paths. An invalid
-manifest or missing entry file causes wps7 to leave the pane out of the
+manifest or missing entry file causes Paneboard to leave the pane out of the
 sidebar.
 
 Claude and Codex are fully self-contained AI plugins. Each provider's
@@ -79,9 +84,9 @@ styles. The directory name, `provider`, and `implementation` must match:
 ```
 
 An AI plugin is discovered from this manifest and the fixed `server.js`,
-`client.js`, and `styles.css` files. wps7 does not contain a Claude/Codex asset
+`client.js`, and `styles.css` files. Paneboard does not contain a Claude/Codex asset
 or backend registration list. Their complete plugin directories are tracked
-with wps7; all other directories under `plugin-panes/` are ignored by Git so
+with Paneboard; all other directories under `plugin-panes/` are ignored by Git so
 private panes remain local.
 
 The Whiteboard is a self-contained trusted host plugin. Host plugins use fixed
@@ -97,7 +102,7 @@ The Whiteboard is a self-contained trusted host plugin. Host plugins use fixed
 }
 ```
 
-Host plugins register a renderer in `window.Wps7HostPanePlugins` and receive a
+Host plugins register a renderer in `window.PaneboardHostPanePlugins` and receive a
 generic `saveData` callback. Their JSON data is persisted with the pane, so the
 application does not need a plugin-specific route or state field. Optional
 `translations` keep the plugin's own name local, while `legacy` migrates data
@@ -106,9 +111,9 @@ from an older built-in pane without teaching the application about that pane.
 ## Share a pane
 
 Copy the whole pane directory to the same install location on another machine.
-The receiving machine must run a compatible version of wps7 with plugin-pane
+The receiving machine must run a compatible version of Paneboard with plugin-pane
 support. No application source changes are needed. Refresh after copying
-`whiteboard/`. After copying `claude/` or `codex/`, restart wps7 and make sure
+`whiteboard/`. After copying `claude/` or `codex/`, restart Paneboard and make sure
 the matching CLI is installed and signed in.
 
 Before sharing, remove passwords, tokens, personal data, and machine-specific
@@ -118,12 +123,12 @@ not force-add them.
 
 ## Security boundary
 
-HTML plugin panes run in a sandboxed iframe. They cannot read the main wps7
-document, call the wps7 API, or connect to external services. This makes them
+HTML plugin panes run in a sandboxed iframe. They cannot read the main Paneboard
+document, call the Paneboard API, or connect to external services. This makes them
 suitable for self-contained HTML, CSS, JavaScript, and bundled assets.
 Functionality that needs host file access or a backend requires an explicit
 application capability.
 
 Host and AI plugins are different: host `client.js` runs in the main page, and
-wps7 executes AI `server.js` with the same local permissions as the app. Only
+Paneboard executes AI `server.js` with the same local permissions as the app. Only
 copy either kind from someone you trust, and review its code before loading it.

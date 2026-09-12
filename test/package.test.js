@@ -9,7 +9,7 @@ const { setWindowsGuiSubsystem, subsystemOffset } = require('../scripts/set-wind
 
 const mainSource = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8');
 const traySource = fs.readFileSync(path.join(__dirname, '..', 'src', 'tray.js'), 'utf8');
-const startupInstallerSource = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'install-wps7-startup.ps1'), 'utf8');
+const startupInstallerSource = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'install-paneboard-startup.ps1'), 'utf8');
 const releaseWorkflow = fs.readFileSync(path.join(__dirname, '..', '.github', 'workflows', 'release.yml'), 'utf8');
 
 test('Windows package includes the bundled ConPTY runtime', () => {
@@ -30,13 +30,13 @@ test('portable Windows restart waits for the old process before relaunching', ()
   assert.ok(waitIndex >= 0, 'restart helper must wait for the parent process');
   assert.ok(startIndex > waitIndex, 'replacement must start after the parent exits');
   // Routed through cmd's `start` verb, not spawned directly, so the relaunch
-  // helper survives even when wps7.exe itself sits in a job object that kills
+  // helper survives even when paneboard.exe itself sits in a job object that kills
   // its direct children on close.
   assert.match(mainSource, /spawn\('cmd\.exe', \[\s*\n\s*'\/c', 'start'/);
 });
 
 test('portable tray includes the common status, logs and diagnostics actions', () => {
-  for (const label of ['Status: running', 'Open Web UI', 'Save Now', 'Restart wps7', 'View Logs', 'Diagnostics', 'Exit']) {
+  for (const label of ['Status: running', 'Open Web UI', 'Save Now', 'Restart Paneboard', 'View Logs', 'Diagnostics', 'Exit']) {
     assert.match(traySource, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
 });
@@ -46,9 +46,9 @@ test('portable tray includes the common status, logs and diagnostics actions', (
 // knows which port this particular running instance actually bound.
 test('the tray tooltip and menu show the port this instance is running on', () => {
   assert.match(mainSource, /trayController = startTray\(\{\s*\n\s*root,\s*\n\s*url,\s*\n\s*port,/);
-  assert.match(traySource, /\$notifyIcon\.Text = "wps7 terminal workspace \(port \$Port\)"/);
+  assert.match(traySource, /\$notifyIcon\.Text = "Paneboard terminal workspace \(port \$Port\)"/);
   assert.match(traySource, /\$statusItem = \$menu\.Items\.Add\("Status: running \(port \$Port\)"\)/);
-  assert.match(traySource, /tooltip: `wps7 terminal workspace \(port \$\{port\}\)`/);
+  assert.match(traySource, /tooltip: `Paneboard terminal workspace \(port \$\{port\}\)`/);
   assert.match(traySource, /title: `Status: running \(port \$\{port\}\)`/);
 });
 
@@ -108,7 +108,7 @@ test('the tray Exit item stops the server', () => {
 // no access to the signed-in user's profile. Starting at logon instead is what
 // puts terminal panes, GUI programs and CLI credentials in one session.
 test('startup installs a logon shortcut rather than a service', () => {
-  assert.match(startupInstallerSource, /\$runtimeRoot = Resolve-Wps7RuntimeRoot/);
+  assert.match(startupInstallerSource, /\$runtimeRoot = Resolve-PaneboardRuntimeRoot/);
   assert.match(startupInstallerSource, /\$shortcut\.TargetPath = \$executable/);
   assert.match(startupInstallerSource, /\$shortcut\.WorkingDirectory = \$runtimeRoot/);
   // Comments explain the removed service, so only the code is checked for it.
@@ -121,8 +121,8 @@ test('startup installs a logon shortcut rather than a service', () => {
 });
 
 test('startup clears a previous service installation', () => {
-  const uninstallSource = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'uninstall-wps7-startup.ps1'), 'utf8');
-  assert.match(startupInstallerSource, /uninstall-wps7-startup\.ps1/);
+  const uninstallSource = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'uninstall-paneboard-startup.ps1'), 'utf8');
+  assert.match(startupInstallerSource, /uninstall-paneboard-startup\.ps1/);
   assert.match(startupInstallerSource, /Get-Service -Name 'wps7-server'/);
   for (const task of ['wps7-service-start', 'wps7-service-restart', 'wps7-service-stop']) {
     assert.ok(uninstallSource.includes(task), `${task} must be removed on uninstall`);
@@ -134,26 +134,26 @@ test('startup clears a previous service installation', () => {
 });
 
 test('moved installations include a path repair command', () => {
-  const repairPath = path.join(__dirname, '..', 'scripts', 'repair-wps7-paths.ps1');
-  assert.ok(fs.existsSync(repairPath), 'repair-wps7-paths.ps1 must exist');
+  const repairPath = path.join(__dirname, '..', 'scripts', 'repair-paneboard-paths.ps1');
+  assert.ok(fs.existsSync(repairPath), 'repair-paneboard-paths.ps1 must exist');
   const repairSource = fs.readFileSync(repairPath, 'utf8');
-  assert.equal(packageJson.scripts['startup:repair'], 'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\repair-wps7-paths.ps1');
+  assert.equal(packageJson.scripts['startup:repair'], 'powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\repair-paneboard-paths.ps1');
   assert.match(repairSource, /\$shortcut\.TargetPath = \$executable/);
-  assert.match(repairSource, /wps7\.lnk/);
+  assert.match(repairSource, /paneboard\.lnk/);
   // The shortcut is the only registration left, so repairing it needs no rights.
   assert.doesNotMatch(repairSource, /RunAs|Register-ScheduledTask|nssm/i);
 });
 
 test('the service stack is gone from the scripts and the npm commands', () => {
   const scripts = fs.readdirSync(path.join(__dirname, '..', 'scripts'));
-  for (const removed of ['install-nssm.ps1', 'control-wps7-service.ps1', 'wps7-tray-companion.ps1']) {
+  for (const removed of ['install-nssm.ps1', 'control-paneboard-service.ps1', 'wps7-tray-companion.ps1']) {
     assert.ok(!scripts.includes(removed), `${removed} must not come back`);
   }
   assert.equal(packageJson.scripts['nssm:install'], undefined);
   // Both runtime modes existed for the service: NSSM owned the restart, and it
-  // set WPS7_HEADLESS=1 because session 0 could not show a tray icon. Nothing
+  // set PANEBOARD_HEADLESS=1 because session 0 could not show a tray icon. Nothing
   // sets either now, so the server must not read them.
-  assert.doesNotMatch(mainSource, /WPS7_SERVICE_MANAGED|serviceManaged|WPS7_HEADLESS|isHeadlessMode/);
+  assert.doesNotMatch(mainSource, /PANEBOARD_SERVICE_MANAGED|serviceManaged|PANEBOARD_HEADLESS|isHeadlessMode/);
   // The tray is unconditional, which is the whole point of running at logon.
   // It sits inside the listen-success callback of the port-fallback retry
   // helper, one indent level deeper than the old direct server.listen() call.
@@ -181,7 +181,7 @@ test('release archive carries the external plugin pane resources', () => {
 });
 
 test('packaging leaves the executable on the windows subsystem', { skip: process.platform !== 'win32' }, () => {
-  assert.match(packageJson.scripts['package:win'], /node scripts\\set-windows-subsystem\.js dist\\wps7\.exe/);
+  assert.match(packageJson.scripts['package:win'], /node scripts\\set-windows-subsystem\.js dist\\paneboard\.exe/);
 
   // The packaged exe is pkg's Node base with the project appended, so the base
   // this suite runs on carries the subsystem packaging has to rewrite. Only the
@@ -195,7 +195,7 @@ test('packaging leaves the executable on the windows subsystem', { skip: process
   }
   assert.equal(head.readUInt16LE(subsystemOffset(head)), 3, 'the pkg base is a console binary');
 
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-subsystem-'));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-subsystem-'));
   try {
     // hostname.exe is a small console program, so the rewrite can be applied to
     // a real binary and the result actually run.

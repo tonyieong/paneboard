@@ -21,7 +21,7 @@ output/
 2.1.4/
 
 # Nothing at the repo root should be an image or a binary. A mistyped build
-# output (dist\wps7-new.exe losing its separator) lands here as a 68 MB file
+# output (dist\paneboard-new.exe losing its separator) lands here as a 68 MB file
 # that "git add -A" would otherwise commit.
 /*.png
 /*.jpg

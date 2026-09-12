@@ -12,9 +12,9 @@ test('trusted hosts accept addresses but reject rebinding domains', () => {
   // A DNS rebinding attack has to use a name the attacker controls, so a Host
   // header that is not an address is only trusted when it was configured.
   assert.equal(isTrustedHost('attacker.example.com:5000', []), false);
-  assert.equal(isTrustedHost('wps7.internal:5000', ['wps7.internal']), true);
-  assert.equal(isTrustedHost('WPS7.Internal:5000', ['wps7.internal']), true);
-  assert.equal(isTrustedHost('attacker.example.com:5000', ['wps7.internal']), false);
+  assert.equal(isTrustedHost('paneboard.internal:5000', ['paneboard.internal']), true);
+  assert.equal(isTrustedHost('Paneboard.Internal:5000', ['paneboard.internal']), true);
+  assert.equal(isTrustedHost('attacker.example.com:5000', ['paneboard.internal']), false);
   assert.equal(isTrustedHost('', []), false);
   assert.equal(isTrustedHost(undefined, []), false);
 });
@@ -22,7 +22,7 @@ test('trusted hosts accept addresses but reject rebinding domains', () => {
 test('a wildcard entry accepts every name but still needs a Host header', () => {
   assert.equal(isTrustedHost('win-ai:5000', ['*']), true);
   assert.equal(isTrustedHost('attacker.example.com:5000', ['*']), true);
-  assert.equal(isTrustedHost('wps7.internal:5000', ['wps7.internal', '*']), true);
+  assert.equal(isTrustedHost('paneboard.internal:5000', ['paneboard.internal', '*']), true);
   assert.equal(isTrustedHost(' * ', ['*']), false);
   assert.equal(isTrustedHost('', ['*']), false);
   assert.equal(isTrustedHost(undefined, ['*']), false);

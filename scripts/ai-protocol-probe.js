@@ -51,7 +51,7 @@ function parseArgs(argv) {
 }
 
 function probeCwd() {
-  const dir = path.join(os.tmpdir(), 'wps7-ai-probe');
+  const dir = path.join(os.tmpdir(), 'paneboard-ai-probe');
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -282,7 +282,7 @@ function probeCodex() {
   send({
     method: 'initialize',
     id: 1,
-    params: { clientInfo: { name: 'wps7-probe', title: 'WPS7 probe', version: '0.1.0' } }
+    params: { clientInfo: { name: 'paneboard-probe', title: 'Paneboard probe', version: '0.1.0' } }
   });
 }
 

@@ -836,7 +836,13 @@ textarea {
 }
 
 .sidebar-brand .rail-label {
-  letter-spacing: .08em;
+  letter-spacing: .02em;
+}
+
+.paneboard-mark {
+  width: 20px;
+  height: 20px;
+  flex: none;
 }
 
 .rail-brand-mark {
@@ -1638,7 +1644,7 @@ textarea {
   }
 }
 
-/* WPS7 workspace redesign */
+/* Paneboard workspace redesign */
 :root {
   color-scheme: dark;
   --ink: #08131f;

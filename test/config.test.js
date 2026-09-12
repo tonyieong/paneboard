@@ -6,7 +6,7 @@ const path = require('node:path');
 const { loadConfig, updateConfigFile } = require('../src/config');
 
 test('creates default config with localhost port 5000', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const { config } = loadConfig(root);
   assert.equal(config.server.host, '127.0.0.1');
   assert.equal(config.server.port, 5000);
@@ -45,8 +45,8 @@ test('creates default config with localhost port 5000', () => {
     { label: 'Ctrl', action: 'modifier', value: 'Control', enabled: true }
   ]);
   assert.equal(config.custom_theme.mode, 'dark');
-  assert.equal(config.custom_theme.selected_light, 'wps-light');
-  assert.equal(config.custom_theme.selected_dark, 'wps-dark');
+  assert.equal(config.custom_theme.selected_light, 'paneboard-light');
+  assert.equal(config.custom_theme.selected_dark, 'paneboard-dark');
   assert.equal(config.custom_theme.accent, '#6ee7c2');
   assert.equal(config.custom_theme.light_accent, '#159d83');
   assert.equal(config.usage.minimax_api_key, '');
@@ -71,13 +71,13 @@ test('creates default config with localhost port 5000', () => {
 });
 
 test('rejects 0.0.0.0 without password hash', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   fs.writeFileSync(path.join(root, 'config.toml'), '[server]\nhost = "0.0.0.0"\n');
   assert.throws(() => loadConfig(root), /requires auth\.password_hash/);
 });
 
 test('does not save LAN binding until a password hash is present', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   loadConfig(root);
   const configPath = path.join(root, 'config.toml');
   const before = fs.readFileSync(configPath, 'utf8');
@@ -89,7 +89,7 @@ test('does not save LAN binding until a password hash is present', () => {
 });
 
 test('saves LAN binding when the same update supplies a password hash', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   loadConfig(root);
   const { hashPassword } = require('../src/auth');
 
@@ -103,21 +103,21 @@ test('saves LAN binding when the same update supplies a password hash', () => {
 });
 
 test('falls back to default port when config port is invalid', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   fs.writeFileSync(path.join(root, 'config.toml'), '[server]\nport = "hello"\n');
   const { config } = loadConfig(root);
   assert.equal(config.server.port, 5000);
 });
 
 test('falls back to http when config protocol is invalid', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   fs.writeFileSync(path.join(root, 'config.toml'), '[server]\nprotocol = "ftp"\n');
   const { config } = loadConfig(root);
   assert.equal(config.server.protocol, 'http');
 });
 
 test('adds server.protocol to an older config file', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const configPath = path.join(root, 'config.toml');
   fs.writeFileSync(configPath, '[server]\nhost = "127.0.0.1"\nport = 5000\n');
 
@@ -128,7 +128,7 @@ test('adds server.protocol to an older config file', () => {
 });
 
 test('saves https protocol through updateConfigFile', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   loadConfig(root);
 
   const { config } = updateConfigFile(root, {
@@ -139,7 +139,7 @@ test('saves https protocol through updateConfigFile', () => {
 });
 
 test('rejects an unknown protocol through updateConfigFile', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   loadConfig(root);
   const configPath = path.join(root, 'config.toml');
   const before = fs.readFileSync(configPath, 'utf8');
@@ -151,7 +151,7 @@ test('rejects an unknown protocol through updateConfigFile', () => {
 });
 
 test('adds workspace defaults to an older config file', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const configPath = path.join(root, 'config.toml');
   fs.writeFileSync(configPath, '[ui]\nsidebar_width = 286\n');
 
@@ -167,7 +167,7 @@ test('adds workspace defaults to an older config file', () => {
 });
 
 test('shell args load profile without clearing restored scrollback', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   fs.writeFileSync(path.join(root, 'config.toml'), [
     '[shell]',
     'args = ["-NoLogo", "-NoProfile", "-NoExit", "-Command", "try { Set-PSReadLineOption -PredictionSource None } catch {}; Clear-Host"]',
@@ -183,7 +183,7 @@ test('shell args load profile without clearing restored scrollback', () => {
 });
 
 test('shell args turn PSReadLine command predictions back on', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   fs.writeFileSync(path.join(root, 'config.toml'), [
     '[shell]',
     'args = ["-NoLogo", "-NoExit", "-Command", "try { Set-PSReadLineOption -PredictionSource None } catch {}"]',
@@ -193,7 +193,7 @@ test('shell args turn PSReadLine command predictions back on', () => {
   const { config } = loadConfig(root);
   assert.equal(config.shell.args.some((arg) => arg.includes('-PredictionSource History')), true);
   assert.equal(config.shell.args.some((arg) => arg.includes('-PredictionSource None')), false);
-  assert.deepEqual(loadConfig(fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'))).config.shell.args, [
+  assert.deepEqual(loadConfig(fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'))).config.shell.args, [
     '-NoLogo',
     '-NoExit',
     '-Command',
@@ -202,20 +202,20 @@ test('shell args turn PSReadLine command predictions back on', () => {
 });
 
 test('shell extra_path is added to older configs and stays out of the web UI', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   fs.writeFileSync(path.join(root, 'config.toml'), '[shell]\npreferred = "pwsh.exe"\n');
 
   const { config } = loadConfig(root);
   assert.deepEqual(config.shell.extra_path, []);
   assert.match(fs.readFileSync(path.join(root, 'config.toml'), 'utf8'), /^extra_path = \[\]$/m);
 
-  // The shell runs as the wps7 account, so PATH entries are config.toml only.
+  // The shell runs as the paneboard account, so PATH entries are config.toml only.
   updateConfigFile(root, { shell: { extra_path: ['C:\\Users\\someone\\AppData\\Roaming\\npm'] } });
   assert.deepEqual(loadConfig(root).config.shell.extra_path, []);
 });
 
 test('updates known config values while preserving loadability', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   loadConfig(root);
 
   const { config } = updateConfigFile(root, {
@@ -352,7 +352,7 @@ test('updates known config values while preserving loadability', () => {
 });
 
 test('updates password hash without storing plain password', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   loadConfig(root);
 
   const { hashPassword, verifyPassword } = require('../src/auth');
@@ -371,7 +371,7 @@ test('updates password hash without storing plain password', () => {
 // Older permission controls migrate to the equivalent CLI arguments so an
 // upgrade does not silently broaden or narrow an existing installation.
 test('ai CLI arguments are added to older configs and preserve legacy permissions', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   fs.writeFileSync(path.join(root, 'config.toml'), `[shell]
 preferred = "pwsh.exe"
 

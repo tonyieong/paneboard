@@ -34,7 +34,7 @@ function fakeNodeSpawn(handler) {
 }
 
 test('reads Codex rate limits from the local OAuth account without exposing identity', async () => {
-  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-codex-'));
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-codex-'));
   fs.writeFileSync(path.join(codexHome, 'auth.json'), JSON.stringify({
     tokens: { access_token: 'secret-token' }
   }));
@@ -66,7 +66,7 @@ test('reads Codex rate limits from the local OAuth account without exposing iden
 });
 
 test('uses Codex app-server to refresh subscription login and read rate limits', async () => {
-  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-codex-'));
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-codex-'));
   fs.writeFileSync(path.join(codexHome, 'auth.json'), JSON.stringify({
     tokens: { access_token: 'expired-token', refresh_token: 'refresh-token' }
   }));
@@ -123,7 +123,7 @@ test('uses Codex app-server to refresh subscription login and read rate limits',
 });
 
 test('reads Codex banked reset credits alongside rate limits', async () => {
-  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-codex-'));
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-codex-'));
   fs.writeFileSync(path.join(codexHome, 'auth.json'), JSON.stringify({
     tokens: { access_token: 'secret-token', account_id: 'acct-123' }
   }));
@@ -157,7 +157,7 @@ test('reads Codex banked reset credits alongside rate limits', async () => {
 });
 
 test('does not fail Codex usage when the reset-credit lookup fails', async () => {
-  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-codex-'));
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-codex-'));
   fs.writeFileSync(path.join(codexHome, 'auth.json'), JSON.stringify({
     tokens: { access_token: 'secret-token' }
   }));
@@ -203,7 +203,7 @@ test('reads MiniMax Coding Plan windows with bearer authentication', async () =>
 });
 
 test('reads Claude Code limits from the local OAuth account without exposing identity', async () => {
-  const claudeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-claude-'));
+  const claudeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-claude-'));
   fs.writeFileSync(path.join(claudeHome, '.credentials.json'), JSON.stringify({
     claudeAiOauth: { accessToken: 'claude-secret-token' }
   }));
@@ -236,7 +236,7 @@ test('reads Claude Code limits from the local OAuth account without exposing ide
 });
 
 test('refreshes an expired Claude subscription login through the CLI before retrying usage', async () => {
-  const claudeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-claude-'));
+  const claudeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-claude-'));
   const credentialsPath = path.join(claudeHome, '.credentials.json');
   fs.writeFileSync(credentialsPath, JSON.stringify({
     claudeAiOauth: { accessToken: 'expired-token', refreshToken: 'refresh-token' }
@@ -290,7 +290,7 @@ test('refreshes an expired Claude subscription login through the CLI before retr
 // Claude Code CLI signed in as the same account draws on that budget, so the
 // pane sees a 429 while the login is perfectly good.
 test('reports a Claude rate limit as such and does not re-login over it', async () => {
-  const claudeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-claude-'));
+  const claudeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-claude-'));
   fs.writeFileSync(path.join(claudeHome, '.credentials.json'), JSON.stringify({
     claudeAiOauth: { accessToken: 'claude-token' }
   }));
@@ -379,7 +379,7 @@ test('reports a clear error when the system Node lookup fails to run', async () 
 });
 
 test('logs Claude usage diagnostics without exposing the access token', async () => {
-  const claudeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-claude-'));
+  const claudeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-claude-'));
   fs.writeFileSync(path.join(claudeHome, '.credentials.json'), JSON.stringify({
     claudeAiOauth: { accessToken: 'sk-ant-oat01-supersecretvalue', expiresAt: 1785087789090 }
   }));
@@ -426,7 +426,7 @@ test('usage overview keeps enabled providers available when another fails', asyn
 });
 
 test('codex window kinds follow the reported window length, not the window slot', async () => {
-  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-codex-'));
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-codex-'));
   fs.writeFileSync(path.join(codexHome, 'auth.json'), JSON.stringify({
     tokens: { access_token: 'codex-token' }
   }));
@@ -454,11 +454,11 @@ test('codex window kinds follow the reported window length, not the window slot'
 // only source and the error must not suggest configuring a key.
 test('reports a missing CLI sign-in without mentioning an API key', async () => {
   await assert.rejects(
-    fetchCodexUsage({ codexHome: path.join(os.tmpdir(), 'wps7-codex-missing') }),
+    fetchCodexUsage({ codexHome: path.join(os.tmpdir(), 'paneboard-codex-missing') }),
     (error) => error.message === 'Codex is not signed in on this server.'
   );
   await assert.rejects(
-    fetchClaudeUsage({ claudeHome: path.join(os.tmpdir(), 'wps7-claude-missing') }),
+    fetchClaudeUsage({ claudeHome: path.join(os.tmpdir(), 'paneboard-claude-missing') }),
     (error) => error.message === 'Claude Code is not signed in on this server.'
   );
 });
@@ -499,7 +499,7 @@ test('usage overview omits disabled providers', async () => {
 // codex login / claude write credentials under the profile of whoever ran them,
 // so an account that never ran them has to look at the profiles beside its own.
 function profileTree(logins) {
-  const profileRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-profiles-'));
+  const profileRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-profiles-'));
   for (const [index, { user, subfolder, marker }] of logins.entries()) {
     const home = path.join(profileRoot, user, subfolder);
     fs.mkdirSync(home, { recursive: true });

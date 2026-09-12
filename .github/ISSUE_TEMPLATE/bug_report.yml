@@ -1,11 +1,11 @@
 name: Bug report
-description: Something in wps7 does not behave the way it should.
+description: Something in Paneboard does not behave the way it should.
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        **Do not report a security vulnerability here.** wps7 hands out a shell,
+        **Do not report a security vulnerability here.** Paneboard hands out a shell,
         so a public report is a working exploit against every running instance.
         Use the process in [SECURITY.md](https://github.com/tonyieong/wps7/blob/main/SECURITY.md) instead.
 
@@ -24,7 +24,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: wps7 version
+      label: Paneboard version
       description: >-
         The version from the release you downloaded, or the commit hash if you
         are running from source.
@@ -35,9 +35,9 @@ body:
   - type: dropdown
     id: install
     attributes:
-      label: How are you running wps7?
+      label: How are you running Paneboard?
       options:
-        - Packaged wps7.exe from a release zip
+        - Packaged paneboard.exe from a release zip
         - From source (npm start)
         - Packaged, started at logon via npm run startup:install
     validations:
@@ -71,9 +71,9 @@ body:
   - type: dropdown
     id: shell
     attributes:
-      label: Which PowerShell is wps7 using?
+      label: Which PowerShell is Paneboard using?
       description: >-
-        wps7 prefers `pwsh.exe` and falls back to `powershell.exe`. The web UI
+        Paneboard prefers `pwsh.exe` and falls back to `powershell.exe`. The web UI
         shows a PowerShell 7 install warning when it had to fall back.
       options:
         - pwsh.exe (PowerShell 7)
@@ -85,7 +85,7 @@ body:
   - type: dropdown
     id: client
     attributes:
-      label: Which browser are you viewing wps7 in?
+      label: Which browser are you viewing Paneboard in?
       options:
         - Desktop Chrome or Edge
         - Desktop Firefox
@@ -99,7 +99,7 @@ body:
     attributes:
       label: Relevant lines from data/runtime.log
       description: >-
-        Paste only the lines around the failure. wps7 never writes credentials
+        Paste only the lines around the failure. Paneboard never writes credentials
         to this log, but review what you paste before posting it — your paths
         and machine name are in there.
       render: text

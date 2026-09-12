@@ -1,4 +1,9 @@
-# wps7
+# Paneboard
+
+前身為 WPS7。新版執行檔為 `paneboard.exe`；升級時將原有 `config.toml`、
+`data/` 及私人 `plugin-panes/` 保留在執行檔旁。瀏覽器偏好、已儲存的主題及
+舊有插件註冊名稱均保留相容性。在新安裝目錄執行 `npm run startup:repair`
+可更新登入時啟動的捷徑。GitHub repository 網址沿用現有名稱。
 
 繁體中文 | [English](README.md)
 
@@ -7,25 +12,27 @@
 使用，並在重新開機後重建原本的版面配置。
 
 > [!WARNING]
-> **wps7 等於把 PowerShell 和整個檔案系統開放給網頁瀏覽器存取。**
+> **Paneboard 等於把 PowerShell 和整個檔案系統開放給網頁瀏覽器存取。**
 > 任何人只要能連到監聽的連接埠並通過驗證，就能以執行伺服器的帳戶身分執行任意指令。
 >
 > 預設設定綁定在 `127.0.0.1` 且不設密碼，這是為了單人桌面使用而設計的。
 > **在把 `server.host` 改成 `0.0.0.0` 之前，請先設定一組強密碼** —— 安裝程式之所以
-> 拒絕在沒有 `auth.password_hash` 的情況下把 wps7 暴露到區域網路，正是這個原因。
+> 拒絕在沒有 `auth.password_hash` 的情況下把 Paneboard 暴露到區域網路，正是這個原因。
 >
 > 目前沒有 TLS。在區域網路上，密碼、工作階段權杖以及所有終端輸出都是以明文傳輸的。
-> 若要用在信任網路以外的環境，請把 wps7 放在能終結 TLS 的反向代理後面。
+> 若要用在信任網路以外的環境，請把 Paneboard 放在能終結 TLS 的反向代理後面。
 > 詳見 [SECURITY.md](SECURITY.md)。
 
-![一個 wps7 工作區：PowerShell 窗格、檔案管理員、記事本與用量窗格並排在版面上](docs/screenshots/workspace.png)
+以下截圖使用示範工作區內容。
+
+![一個 Paneboard 工作區：PowerShell 與專案筆記並排在版面上](docs/screenshots/workspace.png)
 
 ## 配合任務調整的工作區
 
 每個窗格都可以在可自訂的格線上獨立移動和調整大小。你可以拉闊終端、把檔案管理員
-疊在記事本上方，或讓白板佔滿整個高度；wps7 會保留版面和每個窗格的工作目錄。
+疊在記事本上方，或讓白板佔滿整個高度；Paneboard 會保留版面和每個窗格的工作目錄。
 
-![終端、檔案管理員、記事本與白板以不同闊度和高度排列](docs/screenshots/resizable-panes.png)
+![終端與記事本以不同闊度和高度排列](docs/screenshots/resizable-panes.png)
 
 桌面工作區的右邊沒有固定界線。新增窗格或把窗格移到更右的位置時，畫布會繼續橫向
 延伸；底部捲動列讓你在不同窗格群組之間移動，不需要縮窄已經排好的窗格。
@@ -38,34 +45,34 @@
 
 ## 適合的使用場景
 
-**在自己的電腦上執行。** 維持預設的 `127.0.0.1`，把 wps7 當成本機工作台：終端、
+**在自己的電腦上執行。** 維持預設的 `127.0.0.1`，把 Paneboard 當成本機工作台：終端、
 檔案、筆記和白板都在一個瀏覽器分頁裡，版面在每次重新開機後自動還原，所有資料都
 不會離開這台機器。
 
-**在長開的機器上執行，透過 VPN 連入。** 把 wps7 裝在放著你的專案與 CLI 登入憑證
+**在長開的機器上執行，透過 VPN 連入。** 把 Paneboard 裝在放著你的專案與 CLI 登入憑證
 的那台機器上 —— 家用伺服器、閒置的桌機、或一台 Windows 虛擬機 —— 再把它加入一個
 私有網路（WireGuard、Tailscale，或公司的 VPN）。其他裝置只要開瀏覽器就能進入同一個
 工作區：筆電、平板或手機都可以操作跑在那台機器上的 Codex 與 Claude Code 工作階段、
 盯著長時間的建置跑完、瀏覽該機器的檔案系統，用戶端完全不用安裝任何東西。
 
-VPN 補上的正是 wps7 沒有提供的部分。程式本身沒有 TLS，因此加密流量的是通道，
+VPN 補上的正是 Paneboard 沒有提供的部分。程式本身沒有 TLS，因此加密流量的是通道，
 決定誰連得到這個連接埠的則是那個私有網路。請把 `server.host` 設為 `0.0.0.0`，
-VPN 網卡才會被涵蓋（wps7 只接受 `127.0.0.1` 和 `0.0.0.0` 這兩個值），
+VPN 網卡才會被涵蓋（Paneboard 只接受 `127.0.0.1` 和 `0.0.0.0` 這兩個值），
 **並且設定一組強密碼**，同時在所有對外網路介面上保持連接埠關閉。用 VPN 的 IP
 位址連入可以直接運作；若要用主機名稱（例如 Tailscale 的 MagicDNS 名稱），就必須
 把它列進 `server.allowed_hosts`，否則 `Host` 檢查會擋下請求。
 
 ## 下載
 
-請到[發行頁面](../../releases)下載 `wps7-<版本>-windows-x64.zip`。GitHub 一併產生的
-「Source code」壓縮檔只包含原始碼，裡面沒有 `wps7.exe`。
+請到[發行頁面](../../releases)下載 `paneboard-<版本>-windows-x64.zip`。GitHub 一併產生的
+「Source code」壓縮檔只包含原始碼，裡面沒有 `paneboard.exe`。
 
-請先把整個 zip 解壓縮到資料夾，再連按兩下 `wps7.exe`。直接在 Windows 的壓縮檔檢視器
+請先把整個 zip 解壓縮到資料夾，再連按兩下 `paneboard.exe`。直接在 Windows 的壓縮檔檢視器
 裡開啟任何檔案，只會把那一個檔案解到暫存目錄，其餘檔案仍留在壓縮檔內。
 
-wps7 沒有程式碼簽章，因此下載回來的版本第一次執行時 SmartScreen 會提出警告。請先用
+Paneboard 沒有程式碼簽章，因此下載回來的版本第一次執行時 SmartScreen 會提出警告。請先用
 `SHA256SUMS.txt` 比對 SHA256，然後在解壓縮前清除下載標記 —— 對 zip 按右鍵、開啟內容、
-勾選「解除封鎖」、按確定。或者自己先執行一次 `wps7.exe`，選擇「更多資訊」再選「仍要
+勾選「解除封鎖」、按確定。或者自己先執行一次 `paneboard.exe`，選擇「更多資訊」再選「仍要
 執行」；取消該提示正是啟動器回報 `800704C7` 的原因。
 
 ## 從原始碼執行
@@ -81,13 +88,13 @@ npm start
 
 ## 登入時自動啟動
 
-若要讓 wps7 在你每次登入時自動啟動：
+若要讓 Paneboard 在你每次登入時自動啟動：
 
 ```powershell
 npm run startup:install
 ```
 
-這會建立指向 `wps7.exe` 的 `Startup\wps7.lnk`。wps7 便以你的身分、在你自己的工作階段
+這會建立指向 `paneboard.exe` 的 `Startup\paneboard.lnk`。Paneboard 便以你的身分、在你自己的工作階段
 中執行，系統匣圖示也顯示在那裡。
 
 在你的工作階段中執行，其他功能才成立：從終端窗格啟動的 GUI 程式會出現在你的桌面上，
@@ -98,14 +105,14 @@ Claude Code 登入。Windows 服務做不到這些，因為服務執行於工作
 這裡沒有任何步驟需要系統管理員權限。安裝只有兩種情況會要求提權：移除舊版所安裝的服務，
 以及在 `server.host = "0.0.0.0"` 時開啟防火牆連接埠。
 
-系統匣圖示提供開啟網頁介面、立即儲存、重新啟動 wps7、檢視記錄、診斷與結束。「結束」會
+系統匣圖示提供開啟網頁介面、立即儲存、重新啟動 Paneboard、檢視記錄、診斷與結束。「結束」會
 儲存狀態並停止伺服器。
 
-若 wps7 仍在執行但圖示消失了，它會在數秒後自動重新啟動；連續五次啟動失敗則不再重試。
+若 Paneboard 仍在執行但圖示消失了，它會在數秒後自動重新啟動；連續五次啟動失敗則不再重試。
 每一次嘗試都會記錄在 `data/runtime.log`。
 
 如果你為了區域網路存取而設定 `server.host = "0.0.0.0"`，請先設定一組強度足夠的網頁密碼。
-安裝程式在沒有 `auth.password_hash` 的情況下會拒絕把 wps7 暴露到區域網路，因為這個程式
+安裝程式在沒有 `auth.password_hash` 的情況下會拒絕把 Paneboard 暴露到區域網路，因為這個程式
 提供的是瀏覽器對 PowerShell 的存取權。
 
 若要移除啟動捷徑，以及舊版服務安裝殘留的任何項目：
@@ -120,9 +127,9 @@ npm run startup:uninstall
 npm run package:win
 ```
 
-打包後的執行檔會輸出到 `dist/wps7.exe`。pkg 是以主控台子系統（console subsystem）的
+打包後的執行檔會輸出到 `dist/paneboard.exe`。pkg 是以主控台子系統（console subsystem）的
 Node 執行檔為基底建置的，那會讓伺服器在整個執行期間都掛著一個主控台視窗，因此打包時會
-把 PE 子系統改寫成 `windows`。連按兩下 `dist/wps7.exe` 就會在沒有主控台視窗的情況下啟動。
+把 PE 子系統改寫成 `windows`。連按兩下 `dist/paneboard.exe` 就會在沒有主控台視窗的情況下啟動。
 
 ## 插件窗格
 
@@ -131,13 +138,13 @@ Node 執行檔為基底建置的，那會讓伺服器在整個執行期間都掛
 
 ## 還原機制
 
-Windows 在重新開機後無法還原任意行程的記憶體內容。wps7 會儲存工作區、窗格、工作目錄
+Windows 在重新開機後無法還原任意行程的記憶體內容。Paneboard 會儲存工作區、窗格、工作目錄
 中繼資料、終端捲動緩衝以及最後一個指令的提示。重新啟動時它會重建窗格，但只會自動重跑
 列在 `restore.allowlist` 中的指令。
 
 ## PowerShell
 
-wps7 優先使用 `pwsh.exe`，找不到時才退回 `powershell.exe`。若使用了退回選項，網頁介面
+Paneboard 優先使用 `pwsh.exe`，找不到時才退回 `powershell.exe`。若使用了退回選項，網頁介面
 會顯示建議安裝 PowerShell 7 的提示。
 
 ## AI 窗格
@@ -182,13 +189,13 @@ AI 反問你時，它提供的選項會變成按鈕，另外還有一個「其�
 Code，並以 `codex --yolo app-server` 啟動 Codex；若想讓 CLI 詢問權限，請移除或改寫這些參數。
 無論哪種設定，AI 自己的提問都一定會顯示。新參數會在開啟新 AI 分頁時生效。
 
-這個窗格需要 wps7 在登入時繼承到的 PATH 裡有該 CLI；如果 `claude` 或 `codex` 裝在 npm 的
+這個窗格需要 Paneboard 在登入時繼承到的 PATH 裡有該 CLI；如果 `claude` 或 `codex` 裝在 npm 的
 全域資料夾而窗格找不到，請把該資料夾加進 `config.toml` 的 `shell.extra_path`。
 
 ## 用量窗格
 
 用量窗格顯示你的 Codex、Claude Code 與 MiniMax 方案還剩多少額度。這些數字是在執行
-wps7 的機器上讀取的，來源是那些工具本來就寫在該機器上的憑證：
+Paneboard 的機器上讀取的，來源是那些工具本來就寫在該機器上的憑證：
 
 - `%USERPROFILE%\.codex\auth.json` —— Codex 的 OAuth 存取權杖。
 - `%USERPROFILE%\.claude\.credentials.json` —— Claude Code 的 OAuth 存取權杖。
@@ -198,9 +205,9 @@ wps7 的機器上讀取的，來源是那些工具本來就寫在該機器上的
 每一個權杖只會送往它所屬的供應商，而且只用於讀取額度。這些權杖都不會存進
 `data/state.json`；`data/runtime.log` 只記錄權杖的長度，不會記錄權杖本身。
 
-當 wps7 自己的 profile 裡沒有這些憑證時，查找程序**會搜尋旁邊其他使用者的 profile**，
-並採用最近一次登入的那一組。在共用電腦上，這代表只要執行 wps7 的帳戶有權讀取該
-profile，wps7 就可能顯示另一個帳戶的額度。你可以用 `usage.codex_home` 與
+當 Paneboard 自己的 profile 裡沒有這些憑證時，查找程序**會搜尋旁邊其他使用者的 profile**，
+並採用最近一次登入的那一組。在共用電腦上，這代表只要執行 Paneboard 的帳戶有權讀取該
+profile，Paneboard 就可能顯示另一個帳戶的額度。你可以用 `usage.codex_home` 與
 `usage.claude_home` 指定固定資料夾，或用 `usage.show_codex`、`show_claude`、
 `show_minimax` 關閉個別供應商。這三項預設都是開啟的。
 
@@ -213,7 +220,7 @@ profile，wps7 就可能顯示另一個帳戶的額度。你可以用 `usage.cod
 
 MIT —— 詳見 [LICENSE](LICENSE)。
 
-wps7 會重新散布第三方程式碼：打包後的執行檔內嵌了所有正式相依套件，而 `public/vendor/`
+Paneboard 會重新散布第三方程式碼：打包後的執行檔內嵌了所有正式相依套件，而 `public/vendor/`
 與納入 Git 的 plugin folder 則附帶預先建置的 Excalidraw、React、xterm.js 以及它們使用的字型。這些元件的授權聲明
 彙整在 [THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md)，可用
 `npm run licenses:generate` 重新產生。固定版本的上游授權檔可以先用

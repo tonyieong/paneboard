@@ -29,12 +29,12 @@ test('remote browser launches an isolated headless Chromium profile', () => {
   });
   assert.match(executable, /Google\\Chrome\\Application\\chrome\.exe$/);
 
-  const args = chromeArguments('C:\\wps7\\data\\browser-profile');
+  const args = chromeArguments('C:\\paneboard\\data\\browser-profile');
   assert.ok(args.includes('--headless=new'));
   assert.ok(args.includes('--remote-debugging-port=0'));
-  assert.ok(args.includes('--user-data-dir=C:\\wps7\\data\\browser-profile'));
+  assert.ok(args.includes('--user-data-dir=C:\\paneboard\\data\\browser-profile'));
   assert.ok(args.includes('--auto-accept-this-tab-capture'));
-  assert.ok(args.includes('--auto-select-tab-capture-source-by-title=WPS7 Capture Target'));
+  assert.ok(args.includes('--auto-select-tab-capture-source-by-title=Paneboard Capture Target'));
   assert.ok(args.includes('--autoplay-policy=no-user-gesture-required'));
 });
 
@@ -52,7 +52,7 @@ test('headless Chromium does not announce itself as automation controlled', () =
   // Headless Chromium sets navigator.webdriver to true, which every major bot
   // check (reCAPTCHA, Cloudflare, Akamai) reads first. It made Browser panes
   // hit "verify you are human" interstitials on ordinary browsing.
-  assert.ok(chromeArguments('C:\\wps7\\data\\browser-profile').includes('--disable-blink-features=AutomationControlled'));
+  assert.ok(chromeArguments('C:\\paneboard\\data\\browser-profile').includes('--disable-blink-features=AutomationControlled'));
 });
 
 test('a masked user agent ships the matching Client Hints metadata', () => {
@@ -80,17 +80,17 @@ test('a masked user agent ships the matching Client Hints metadata', () => {
 });
 
 test('mobile emulation borrows a real device model rather than an invented one', () => {
-  // "WPS7 Mobile" is a device model no bot check has ever seen, so it read as
+  // "Paneboard Mobile" is a device model no bot check has ever seen, so it read as
   // a forged identity on every mobile-mode page load.
   const agent = mobileUserAgent('Mozilla/5.0 Chrome/150.0.7339.12 Safari/537.36');
-  assert.doesNotMatch(agent, /WPS7/);
+  assert.doesNotMatch(agent, /Paneboard/);
   assert.equal(userAgentMetadata('mobile').model, 'Pixel 7');
 });
 
 test('starting Chromium first clears out any stale process still holding the profile lock', async () => {
-  const command = chromiumProfileCleanupCommand('C:\\wps7\\data\\browser-profile');
+  const command = chromiumProfileCleanupCommand('C:\\paneboard\\data\\browser-profile');
   assert.match(command, /Name='chrome\.exe' OR Name='msedge\.exe'/);
-  assert.match(command, /CommandLine\.Contains\('C:\\wps7\\data\\browser-profile'\)/);
+  assert.match(command, /CommandLine\.Contains\('C:\\paneboard\\data\\browser-profile'\)/);
   assert.match(command, /Stop-Process -Id \$_\.ProcessId -Force/);
 
   const calls = [];
@@ -98,7 +98,7 @@ test('starting Chromium first clears out any stale process still holding the pro
     calls.push({ file, args, options });
     callback(null, '', '');
   };
-  await terminateStaleChromium('C:\\wps7\\data\\browser-profile', run);
+  await terminateStaleChromium('C:\\paneboard\\data\\browser-profile', run);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].file, 'powershell.exe');
   assert.match(calls[0].args.join(' '), /browser-profile/);
@@ -106,14 +106,14 @@ test('starting Chromium first clears out any stale process still holding the pro
   // A prior instance's stale-cleanup attempt must never block a fresh launch,
   // even if the check itself fails (e.g. powershell.exe missing from PATH).
   const failingRun = (file, args, options, callback) => callback(new Error('spawn failed'));
-  await assert.doesNotReject(terminateStaleChromium('C:\\wps7\\data\\browser-profile', failingRun));
+  await assert.doesNotReject(terminateStaleChromium('C:\\paneboard\\data\\browser-profile', failingRun));
 });
 
 test('the stale-Chromium cleanup command escapes a single quote in the profile path', () => {
   // The path is interpolated into a PowerShell single-quoted string; an
   // unescaped ' would break out of it and change what the command matches.
-  const command = chromiumProfileCleanupCommand("C:\\wps7's data\\browser-profile");
-  assert.match(command, /CommandLine\.Contains\('C:\\wps7''s data\\browser-profile'\)/);
+  const command = chromiumProfileCleanupCommand("C:\\paneboard's data\\browser-profile");
+  assert.match(command, /CommandLine\.Contains\('C:\\paneboard''s data\\browser-profile'\)/);
 });
 
 test('remote browser viewport is bounded for safe screencasting', () => {
@@ -526,7 +526,7 @@ test('tab capture ending signals every WebRTC peer sharing the stream', () => {
 });
 
 test('tab capture leaves the page title alone', () => {
-  // The capture used to rename the page to "WPS7 Capture Target" so
+  // The capture used to rename the page to "Paneboard Capture Target" so
   // --auto-select-tab-capture-source-by-title would match it, which made the
   // rename observable to the site and briefly replaced the real title. The flag
   // still auto-selects the pane's own tab without it; dropping the flag as well
@@ -538,8 +538,8 @@ test('tab capture leaves the page title alone', () => {
 
   assert.doesNotMatch(expression, /document\.title/);
   assert.match(expression, /preferCurrentTab: true/);
-  assert.ok(chromeArguments('C:\\wps7\\data\\browser-profile')
-    .includes('--auto-select-tab-capture-source-by-title=WPS7 Capture Target'));
+  assert.ok(chromeArguments('C:\\paneboard\\data\\browser-profile')
+    .includes('--auto-select-tab-capture-source-by-title=Paneboard Capture Target'));
 });
 
 test('tab capture crops WebRTC video to the emulated page viewport when Chromium supports it', () => {
@@ -553,7 +553,7 @@ test('tab capture crops WebRTC video to the emulated page viewport when Chromium
   assert.match(expression, /videoTrack\.cropTo\(cropTarget\)/);
 });
 
-test('remote browser blocks every local interface on the WPS7 server port', () => {
+test('remote browser blocks every local interface on the Paneboard server port', () => {
   const interfaces = {
     Ethernet: [
       { address: '192.168.1.25' },
@@ -582,7 +582,7 @@ test('isOwnServerWebsite recognizes the host name and tolerates a malformed URL'
 });
 
 test('browser resize waits for the initial frame before handling client messages', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-browser-test-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-browser-test-'));
   const pane = {
     id: 'pane-1',
     type: 'browser',
@@ -627,7 +627,7 @@ test('browser resize waits for the initial frame before handling client messages
 });
 
 test('a new browser manager defaults new tabs to the app\'s dark theme background', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-browser-test-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-browser-test-'));
   const manager = new BrowserManager({
     root,
     store: { findPane: () => null },
@@ -643,7 +643,7 @@ test('a new browser manager defaults new tabs to the app\'s dark theme backgroun
 });
 
 test('a download is only served once Chromium reports it complete and the file is actually on disk', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-browser-test-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-browser-test-'));
   const manager = new BrowserManager({
     root,
     store: { findPane: () => null },
@@ -676,7 +676,7 @@ test('a download is only served once Chromium reports it complete and the file i
 });
 
 test('assertWebsiteAllowed blocks the app\'s own address and lets everything else through', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-browser-test-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-browser-test-'));
   const manager = new BrowserManager({
     root,
     store: { findPane: () => null },
@@ -693,7 +693,7 @@ test('assertWebsiteAllowed blocks the app\'s own address and lets everything els
 });
 
 test('killSession tears down every pane across every tab, tolerating a session with no tabs', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-browser-test-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-browser-test-'));
   const manager = new BrowserManager({
     root,
     store: { findPane: () => null },

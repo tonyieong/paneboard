@@ -1,10 +1,10 @@
 # Security Policy
 
-## What wps7 exposes
+## What Paneboard exposes
 
-wps7 serves an interactive PowerShell session and a file manager over HTTP. Anyone
+Paneboard serves an interactive PowerShell session and a file manager over HTTP. Anyone
 who can reach the listening port and pass authentication can run arbitrary commands
-and read or write files as the account running the server. Treat a wps7 endpoint
+and read or write files as the account running the server. Treat a Paneboard endpoint
 with the same care as an SSH endpoint.
 
 ## Reporting a vulnerability
@@ -24,7 +24,7 @@ These are documented design gaps, not new findings. Reports about them are welco
 only if you have a concrete exploitation path beyond what is described here.
 
 - **No TLS.** Traffic is plain HTTP. Over a LAN the password, the session token,
-  and all terminal output travel unencrypted. Put wps7 behind a reverse proxy that
+  and all terminal output travel unencrypted. Put Paneboard behind a reverse proxy that
   terminates TLS, or keep it bound to `127.0.0.1`.
 - **Session tokens can be passed in the query string.** They therefore appear in
   proxy and server access logs. `Authorization: Bearer` is supported and preferred.
@@ -39,10 +39,10 @@ only if you have a concrete exploitation path beyond what is described here.
   files with the same account either way.
 - **The usage pane reads the AI CLI credentials on the host.** It loads the OAuth
   access tokens from `.codex\auth.json` and `.claude\.credentials.json` to read
-  plan quota, and it is enabled by default. When wps7's own profile holds neither
+  plan quota, and it is enabled by default. When Paneboard's own profile holds neither
   file, the lookup searches the user profiles beside it and takes the most recent
-  login, so on a multi-user machine wps7 may read another account's credentials
-  if the account running wps7 has permission to. The tokens go only to their own
+  login, so on a multi-user machine Paneboard may read another account's credentials
+  if the account running Paneboard has permission to. The tokens go only to their own
   provider and are never persisted or logged, but anyone with access to the web UI
   learns that those accounts exist and what quota they have left. Set
   `usage.show_codex` and `usage.show_claude` to `false`, or pin `usage.codex_home`

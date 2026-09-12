@@ -21,7 +21,7 @@ test('normalizes local drive paths and rejects unsafe roots', () => {
 });
 
 test('manages folders and files inside a local path', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   const created = files.createFolder(root, 'folder-a');
   assert.equal(created.type, 'directory');
 
@@ -39,8 +39,8 @@ test('manages folders and files inside a local path', async () => {
 });
 
 test('copies files and folders without disturbing the source, deduping name clashes', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
-  const source = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-src-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
+  const source = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-src-'));
   const sourceFile = path.join(source, 'note.txt');
   fs.writeFileSync(sourceFile, 'hello');
   fs.mkdirSync(path.join(source, 'nested'));
@@ -67,7 +67,7 @@ test('repairs utf8 filenames decoded as latin1 mojibake', async () => {
 });
 
 test('creates empty files and preserves uploaded folder paths', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   const created = files.createFile(root, 'empty.txt');
   assert.equal(created.type, 'file');
   assert.equal(fs.readFileSync(created.path, 'utf8'), '');
@@ -82,7 +82,7 @@ test('creates empty files and preserves uploaded folder paths', async () => {
 });
 
 test('marks dot files hidden and recursively deletes folders', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   fs.writeFileSync(path.join(root, '.hidden.txt'), 'hidden');
   fs.mkdirSync(path.join(root, 'folder', 'nested'), { recursive: true });
   fs.writeFileSync(path.join(root, 'folder', 'nested', 'note.txt'), 'note');
@@ -95,7 +95,7 @@ test('marks dot files hidden and recursively deletes folders', () => {
 });
 
 test('bulk delete continues past failures and reports each item', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   const keep = path.join(root, 'keep.txt');
   const gone = path.join(root, 'gone.txt');
   fs.writeFileSync(keep, 'keep');
@@ -112,7 +112,7 @@ test('bulk delete continues past failures and reports each item', () => {
 });
 
 test('bulk download rejects empty selections and delegates single items', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   const only = path.join(root, 'only.txt');
   fs.writeFileSync(only, 'only');
 
@@ -123,7 +123,7 @@ test('bulk download rejects empty selections and delegates single items', async 
 });
 
 test('bulk download archives multiple items into one zip', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   const first = path.join(root, 'first.txt');
   const second = path.join(root, 'second.txt');
   fs.writeFileSync(first, 'first');
@@ -137,7 +137,7 @@ test('bulk download archives multiple items into one zip', async () => {
 });
 
 test('reads and writes text files while preserving UTF-8 and UTF-16 encodings', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   const utf8Path = path.join(root, 'notes.txt');
   const utf16Path = path.join(root, 'unicode.txt');
   fs.writeFileSync(utf8Path, '\uFEFFone\ntwo', 'utf8');
@@ -167,7 +167,7 @@ test('text files report a modification stamp that follows an external rewrite', 
 });
 
 test('text editor rejects directories and binary files', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   const binaryPath = path.join(root, 'binary.bin');
   fs.writeFileSync(binaryPath, Buffer.from([0, 1, 2, 3]));
 
@@ -176,7 +176,7 @@ test('text editor rejects directories and binary files', () => {
 });
 
 test('image viewer resolves supported types and rejects everything else', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   const pngPath = path.join(root, 'photo.png');
   const textPath = path.join(root, 'notes.txt');
   fs.writeFileSync(pngPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
@@ -190,7 +190,7 @@ test('image viewer resolves supported types and rejects everything else', () => 
 });
 
 test('image siblings list the pictures beside a file in name order', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   for (const name of ['b.png', 'a.jpg', 'notes.txt', 'c.webp']) {
     fs.writeFileSync(path.join(root, name), 'x');
   }
@@ -201,14 +201,14 @@ test('image siblings list the pictures beside a file in name order', () => {
 });
 
 test('image siblings still include a picture whose folder cannot be listed', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   const missing = path.join(root, 'gone', 'photo.png');
 
   assert.deepEqual(files.listImageSiblings(missing).entries, [path.win32.resolve(missing)]);
 });
 
 test('moves a file into a destination folder', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   const source = path.join(root, 'source.txt');
   fs.writeFileSync(source, 'moved');
   const folder = files.createFolder(root, 'dest-folder');
@@ -220,7 +220,7 @@ test('moves a file into a destination folder', () => {
 });
 
 test('moving onto an existing file path overwrites it, and a missing destination throws', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   const source = path.join(root, 'source.txt');
   const existing = path.join(root, 'existing.txt');
   fs.writeFileSync(source, 'new content');
@@ -235,7 +235,7 @@ test('moving onto an existing file path overwrites it, and a missing destination
 });
 
 test('creating a folder or file that already exists throws', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   files.createFolder(root, 'dup-folder');
   files.createFile(root, 'dup-file.txt');
 
@@ -244,7 +244,7 @@ test('creating a folder or file that already exists throws', () => {
 });
 
 test('renaming rejects "." and ".." as the new name', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   const target = path.join(root, 'note.txt');
   fs.writeFileSync(target, 'hi');
 
@@ -254,7 +254,7 @@ test('renaming rejects "." and ".." as the new name', () => {
 });
 
 test('writeTextFile rejects directories, missing parents and oversized content', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   const folder = files.createFolder(root, 'a-folder');
 
   assert.throws(() => files.writeTextFile(folder.path, 'x'), /not a file/i);
@@ -265,7 +265,7 @@ test('writeTextFile rejects directories, missing parents and oversized content',
 });
 
 test('readTextFile rejects files over the 10 MB limit', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   const hugePath = path.join(root, 'huge.txt');
   fs.writeFileSync(hugePath, Buffer.alloc(10 * 1024 * 1024 + 1, 'x'));
 
@@ -273,7 +273,7 @@ test('readTextFile rejects files over the 10 MB limit', () => {
 });
 
 test('reads and writes latin1 and UTF-16 BE text files', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   const latin1Path = path.join(root, 'latin1.txt');
   const utf16bePath = path.join(root, 'utf16be.txt');
 

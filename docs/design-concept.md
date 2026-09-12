@@ -1,10 +1,10 @@
-# WPS7 介面設計理念
+# Paneboard 介面設計理念
 
 ## 1. 設計定位
 
-WPS7 係一個以瀏覽器操作嘅 Windows 終端工作區，核心價值唔只係「開啟 PowerShell」，而係令使用者可以持續管理工作階段、終端分頁、Pane 佈局、檔案及重啟後還原狀態。
+Paneboard 係一個以瀏覽器操作嘅 Windows 終端工作區，核心價值唔只係「開啟 PowerShell」，而係令使用者可以持續管理工作階段、終端分頁、Pane 佈局、檔案及重啟後還原狀態。
 
-今次設計完全以產品功能重新建立介面語言，並無沿用現有 WPS7 畫面。整體定位係：
+今次設計完全以產品功能重新建立介面語言，並無沿用現有 Paneboard 畫面。整體定位係：
 
 > 一個安靜、可靠、資訊密度適中，而且適合長時間使用嘅專業終端控制台。
 
@@ -84,7 +84,7 @@ Amber 只用於警告、需要重新啟動或受保護存取，避免同一般�
 
 ## 4. 工作區設計
 
-![WPS7 可調整大小及橫向延伸的工作區](./screenshots/resizable-panes.png)
+![Paneboard 可調整大小及橫向延伸的工作區](./screenshots/resizable-panes.png)
 
 工作區由以下部分組成：
 
@@ -92,7 +92,7 @@ Amber 只用於警告、需要重新啟動或受保護存取，避免同一般�
 
 集中顯示：
 
-- WPS7 品牌及工作區名稱
+- Paneboard 品牌及工作區名稱
 - 工作區切換
 - 服務在線狀態
 - 視窗及全域操作
@@ -169,7 +169,7 @@ Resize Handle 及分隔線需要有清楚嘅 Hover／Active 回饋。活動 Pane
 
 ## 6. 設定界面
 
-![WPS7 設定界面](./screenshots/settings.png)
+![Paneboard 設定界面](./screenshots/settings.png)
 
 設定介面採用固定分類導覽、中央表單及右側即時預覽，解決大量設定全部放喺單一長表單嘅問題。
 
@@ -201,13 +201,13 @@ Host、Port 或部分後端設定需要清楚標示「Requires restart」。儲�
 
 ## 7. 登入界面
 
-![WPS7 登入界面](./screenshots/login.png)
+![Paneboard 登入界面](./screenshots/login.png)
 
-登入畫面需要明確表達 WPS7 係受保護嘅本機終端入口，而唔係一般雲端 SaaS 產品。
+登入畫面需要明確表達 Paneboard 係受保護嘅本機終端入口，而唔係一般雲端 SaaS 產品。
 
 主要元素：
 
-- WPS7 品牌
+- Paneboard 品牌
 - Password 欄位
 - 顯示／隱藏密碼
 - Remember this device

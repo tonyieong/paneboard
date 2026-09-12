@@ -133,17 +133,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   points security reports at the private advisory form instead of a public
   issue, and blank issues are turned off.
 - `engines` and `os` fields in `package.json`, declaring the Node 22 floor that
-  CI and the `pkg` target already assumed, and that wps7 is Windows-only.
+  CI and the `pkg` target already assumed, and that Paneboard is Windows-only.
   Repository, homepage, bugs, author, and keyword metadata as well.
 
 ### Changed
 
 - The `LICENSE` copyright holder now reads `tonyieong`, matching the account
   that publishes the repository and releases.
-- Wording that still described wps7 as a Windows service running under
+- Wording that still described Paneboard as a Windows service running under
   LocalSystem. `shell.extra_path` is documented against the real reason a folder
   goes missing — the PATH is the one inherited at logon — and the usage pane
-  reports a CLI it cannot run as unavailable to "the account running wps7"
+  reports a CLI it cannot run as unavailable to "the account running Paneboard"
   instead of to a service account that no longer exists.
 
 ## [0.1.1] - 2026-08-15
@@ -166,8 +166,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- wps7 starts at logon instead of running as a Windows service. `npm run
-  startup:install` now writes a `Startup\wps7.lnk` shortcut and needs no
+- Paneboard starts at logon instead of running as a Windows service. `npm run
+  startup:install` now writes a `Startup\paneboard.lnk` shortcut and needs no
   Administrator, no service account and no stored Windows password; it removes a
   service left by an earlier version, which is the one step that elevates. A
   service runs in session 0, where it has no interactive desktop and no access
@@ -176,15 +176,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   logins. Running as the logged-in user removes all of that.
 - The Codex and Claude Code home folders are found without configuration. The
   CLIs write their credentials under the profile of whoever signed in, so when
-  wps7 runs as another account it now searches the profiles beside its own and
+  Paneboard runs as another account it now searches the profiles beside its own and
   takes the most recent login. `usage.codex_home` and `usage.claude_home` still
   pin a folder, but leaving them blank is the normal case.
-- Packaging rewrites the PE subsystem of `dist/wps7.exe` from `console` to
+- Packaging rewrites the PE subsystem of `dist/paneboard.exe` from `console` to
   `windows`. pkg builds on a console-subsystem Node binary, so Explorer opened a
   console window that stayed for the life of the server.
 - A tray that exits while the server is still running is relaunched after two
   seconds. The icon is the only way into a process with no console, so losing it
-  left wps7 running and unreachable. Shutdown is exempt, and a tray that keeps
+  left Paneboard running and unreachable. Shutdown is exempt, and a tray that keeps
   dying immediately is given up on after five attempts rather than respawned
   forever; every step is in `data/runtime.log`.
 - Tray diagnostics go to `data/runtime.log` instead of `console.error`. The
@@ -201,24 +201,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Notepad pane settings reverted after Save/Apply.
 - A brace in a typed command was read as key syntax by the PowerShell toolbar.
 - The usage pane stayed readable when a provider rate limits the lookup.
-- Sidebar pane tab labels, and the launcher's messages for a missing `wps7.exe`
+- Sidebar pane tab labels, and the launcher's messages for a missing `paneboard.exe`
   and a dismissed SmartScreen prompt.
 
 ### Removed
 
 - The NSSM service stack: `scripts/install-nssm.ps1`,
-  `scripts/control-wps7-service.ps1`, `scripts/wps7-tray-companion.ps1`, the
+  `scripts/control-paneboard-service.ps1`, `scripts/wps7-tray-companion.ps1`, the
   `wps7-service-start` / `-restart` / `-stop` elevated tasks, the
-  `npm run nssm:install` command, and the `WPS7_SERVICE_MANAGED` mode. The tray
+  `npm run nssm:install` command, and the `PANEBOARD_SERVICE_MANAGED` mode. The tray
   companion existed only because the service could not draw its own icon from
   session 0; `src/tray.js` shows it directly now. `npm run startup:uninstall`
   removes an existing service installation.
-- `start-wps7.vbs`. Hiding the console window was the only thing it did, and the
-  packaged exe no longer opens one. Double click `wps7.exe` instead.
+- `start-paneboard.vbs`. Hiding the console window was the only thing it did, and the
+  packaged exe no longer opens one. Double click `paneboard.exe` instead.
 - The `tools/` resource directory, which only ever held the downloaded
   `nssm.exe`. Packaging no longer copies it or embeds `tools/**/*`.
-- `WPS7_HEADLESS`. NSSM set it because a service in session 0 cannot show a tray
-  icon; with wps7 running at logon the tray always applies, so the server no
+- `PANEBOARD_HEADLESS`. NSSM set it because a service in session 0 cannot show a tray
+  icon; with Paneboard running at logon the tray always applies, so the server no
   longer reads the variable and `startTray()` is unconditional.
 - The terminal backend and resize debounce settings, and both scrollback
   settings. Terminal history is no longer trimmed.
@@ -231,7 +231,7 @@ First public release.
 
 - MIT `LICENSE`, and `THIRD-PARTY-LICENSES.md` generated by
   `npm run licenses:generate` covering every production dependency embedded in
-  `wps7.exe` plus the vendored front-end code and fonts.
+  `paneboard.exe` plus the vendored front-end code and fonts.
 - Per-directory license files under `public/vendor/`.
 - `SECURITY.md` with a private vulnerability reporting channel and a list of
   known design limitations, `CONTRIBUTING.md`, and this changelog.
@@ -262,7 +262,7 @@ First public release.
   change and the unit suite does not exercise routing. node-pty was verified by
   driving a real ConPTY session in the packaged executable.
 - The release notes and both READMEs name the asset to download. The
-  GitHub-generated "Source code" archives contain no `wps7.exe`, and extracting
+  GitHub-generated "Source code" archives contain no `paneboard.exe`, and extracting
   the release zip is required before running anything from it.
 - `.gitattributes` pins line endings, and the workflow actions moved to v7.
 

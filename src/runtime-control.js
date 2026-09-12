@@ -31,7 +31,7 @@ function verifyRuntimeControlRequest(req, token) {
   if (!isLoopbackAddress(req.socket?.remoteAddress)) {
     return false;
   }
-  return req.headers['x-wps7-control-token'] === token;
+  return (req.headers['x-paneboard-control-token'] ?? req.headers['x-wps7-control-token']) === token;
 }
 
 function requireRuntimeControl(token) {

@@ -8,7 +8,7 @@ const source = fs.readFileSync(path.join(__dirname, '..', 'public', 'i18n.js'), 
 const appSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
 
 function loadI18n({ savedLocale, language = 'en-US' } = {}) {
-  const storage = new Map(savedLocale ? [['wps7.locale', savedLocale]] : []);
+  const storage = new Map(savedLocale ? [['paneboard.locale', savedLocale]] : []);
   const documentElement = { lang: '' };
   const document = {
     documentElement,
@@ -28,7 +28,7 @@ function loadI18n({ savedLocale, language = 'en-US' } = {}) {
   };
   context.window = context;
   vm.runInNewContext(source, context);
-  return { i18n: context.Wps7I18n, documentElement, storage };
+  return { i18n: context.PaneboardI18n, documentElement, storage };
 }
 
 test('i18n uses the saved locale and updates the document language', () => {
@@ -38,7 +38,7 @@ test('i18n uses the saved locale and updates the document language', () => {
   assert.equal(documentElement.lang, 'zh-HK');
   i18n.setLocale('en');
   assert.equal(documentElement.lang, 'en');
-  assert.equal(storage.get('wps7.locale'), 'en');
+  assert.equal(storage.get('paneboard.locale'), 'en');
 });
 
 test('i18n falls back to English and translates known interface copy', () => {

@@ -1,7 +1,26 @@
 (function () {
+  // Move browser preferences once, without overwriting choices saved under the new name.
+  for (const storage of [localStorage, sessionStorage]) {
+    for (const key of ['token', 'sidebarOpen', 'sidebarPinned', 'sidebarWidth', 'browserAudioEnabled', 'displayMode', 'mobileTerminalDensity', 'theme', 'filePathHistory']) {
+      const value = storage.getItem(`wps7.${key}`);
+      if (value !== null) {
+        if (storage.getItem(`paneboard.${key}`) === null) storage.setItem(`paneboard.${key}`, value);
+        storage.removeItem(`wps7.${key}`);
+      }
+    }
+  }
+  const oldTheme = localStorage.getItem('paneboard.theme');
+  if (oldTheme === 'wps-dark' || oldTheme === 'wps-light') {
+    localStorage.setItem('paneboard.theme', oldTheme.replace('wps-', 'paneboard-'));
+  }
+
+  function brandIcon() {
+    return '<svg class="paneboard-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M11 3v18m0-10h10"/></svg>';
+  }
+
   const themePresets = {
-    'wps-dark': { label: 'WPS7 Dark', mode: 'dark', ink: '#08131f', panel: '#0e1c2a', rail: '#0b1926', terminal: '#07131e', surfaceRaised: '#142536', surfaceSoft: '#102131', line: '#25394a', lineStrong: '#385064', text: '#f2f6f7', muted: '#91a3b2', accent: '#48d6b2', accentStrong: '#22b993', warn: '#f1b84b', danger: '#ff7474', shadow: 'rgba(0, 0, 0, .34)', terminalBg: '#06111b', terminalFg: '#eef5f4' },
-    'wps-light': { label: 'WPS7 Light', mode: 'light', ink: '#f5f7f8', panel: '#ffffff', rail: '#f2f5f6', terminal: '#f8fafb', surfaceRaised: '#ffffff', surfaceSoft: '#edf3f3', line: '#d7e0e4', lineStrong: '#b9c8cf', text: '#14202b', muted: '#5d6b78', accent: '#0b7561', accentStrong: '#0d806a', warn: '#8a4f00', danger: '#c43d4b', shadow: 'rgba(31, 49, 61, .14)', terminalBg: '#ffffff', terminalFg: '#17232d' },
+    'paneboard-dark': { label: 'Paneboard Dark', mode: 'dark', ink: '#08131f', panel: '#0e1c2a', rail: '#0b1926', terminal: '#07131e', surfaceRaised: '#142536', surfaceSoft: '#102131', line: '#25394a', lineStrong: '#385064', text: '#f2f6f7', muted: '#91a3b2', accent: '#48d6b2', accentStrong: '#22b993', warn: '#f1b84b', danger: '#ff7474', shadow: 'rgba(0, 0, 0, .34)', terminalBg: '#06111b', terminalFg: '#eef5f4' },
+    'paneboard-light': { label: 'Paneboard Light', mode: 'light', ink: '#f5f7f8', panel: '#ffffff', rail: '#f2f5f6', terminal: '#f8fafb', surfaceRaised: '#ffffff', surfaceSoft: '#edf3f3', line: '#d7e0e4', lineStrong: '#b9c8cf', text: '#14202b', muted: '#5d6b78', accent: '#0b7561', accentStrong: '#0d806a', warn: '#8a4f00', danger: '#c43d4b', shadow: 'rgba(31, 49, 61, .14)', terminalBg: '#ffffff', terminalFg: '#17232d' },
     'slate-dark': { label: 'Slate Dark', mode: 'dark', ink: '#101114', panel: '#1c1c1e', rail: '#161618', terminal: '#0b0c0f', surfaceRaised: '#242428', surfaceSoft: '#202024', line: '#38383d', lineStrong: '#54545b', text: '#f5f5f7', muted: '#a1a1a6', accent: '#0a84ff', accentStrong: '#409cff', warn: '#ffd60a', danger: '#ff453a', shadow: 'rgba(0, 0, 0, .34)', terminalBg: '#0b0c0f', terminalFg: '#f5f5f7' },
     'slate-light': { label: 'Slate Light', mode: 'light', ink: '#f2f2f7', panel: '#ffffff', rail: '#f7f7fa', terminal: '#fbfbfd', surfaceRaised: '#ffffff', surfaceSoft: '#e9e9ee', line: '#d1d1d6', lineStrong: '#aeaeb2', text: '#1c1c1e', muted: '#636366', accent: '#0066cc', accentStrong: '#004f9e', warn: '#7a4b00', danger: '#c9342f', shadow: 'rgba(31, 31, 35, .14)', terminalBg: '#ffffff', terminalFg: '#1c1c1e' },
     'ember-dark': { label: 'Ember Dark', mode: 'dark', ink: '#1f1b18', panel: '#29231f', rail: '#241f1b', terminal: '#171411', surfaceRaised: '#342c27', surfaceSoft: '#302823', line: '#4a3e36', lineStrong: '#685548', text: '#f5eee8', muted: '#b5a79b', accent: '#e58b55', accentStrong: '#f0a36d', warn: '#f2c14e', danger: '#ff7a70', shadow: 'rgba(20, 12, 7, .38)', terminalBg: '#171411', terminalFg: '#f5eee8' },
@@ -10,7 +29,7 @@
     'forest-light': { label: 'Forest Light', mode: 'light', ink: '#f3f5f2', panel: '#ffffff', rail: '#eef1ed', terminal: '#fcfdfb', surfaceRaised: '#ffffff', surfaceSoft: '#e7ece6', line: '#d0d7cf', lineStrong: '#aeb9ad', text: '#182019', muted: '#5d6b60', accent: '#147a36', accentStrong: '#0c652a', warn: '#7c4d00', danger: '#b7333e', shadow: 'rgba(28, 45, 31, .14)', terminalBg: '#fcfdfb', terminalFg: '#182019' }
   };
   const customThemeDefaults = {
-    selected_light: 'wps-light', selected_dark: 'wps-dark', mode: 'dark',
+    selected_light: 'paneboard-light', selected_dark: 'paneboard-dark', mode: 'dark',
     ink: '#0c1017', panel: '#161b24', rail: '#111721', surface: '#202735', line: '#394354', text: '#f4f7fa', muted: '#9aa7b8', accent: '#6ee7c2', warn: '#f0b35a', danger: '#ff7676', terminal_bg: '#080c12', terminal_fg: '#f4f7fa',
     light_ink: '#f5f7f8', light_panel: '#ffffff', light_rail: '#f2f5f6', light_surface: '#edf3f3', light_line: '#d7e0e4', light_text: '#14202b', light_muted: '#5d6b78', light_accent: '#0b7561', light_warn: '#8a4f00', light_danger: '#c43d4b', light_terminal_bg: '#ffffff', light_terminal_fg: '#17232d'
   };
@@ -36,10 +55,10 @@
   // Long enough to coalesce a drag-resize, short enough that the reflow still
   // feels attached to the drag. Never worth a setting.
   const RESIZE_DEBOUNCE_MS = 100;
-  const savedSidebarOpen = localStorage.getItem('wps7.sidebarOpen');
-  const savedSidebarPinned = localStorage.getItem('wps7.sidebarPinned');
+  const savedSidebarOpen = localStorage.getItem('paneboard.sidebarOpen');
+  const savedSidebarPinned = localStorage.getItem('paneboard.sidebarPinned');
   const state = {
-    token: localStorage.getItem('wps7.token') || sessionStorage.getItem('wps7.token') || '',
+    token: localStorage.getItem('paneboard.token') || sessionStorage.getItem('paneboard.token') || '',
     config: null,
     pluginPanes: [],
     sessions: [],
@@ -48,12 +67,12 @@
     sidebarOpen: savedSidebarOpen === null
       ? !window.matchMedia('(max-width: 760px)').matches
       : savedSidebarOpen === 'true',
-    sidebarWidth: Number(localStorage.getItem('wps7.sidebarWidth')) || 0,
+    sidebarWidth: Number(localStorage.getItem('paneboard.sidebarWidth')) || 0,
     sidebarPinned: savedSidebarPinned === 'true',
     terminals: new Map(),
     browserConnections: new Map(),
     browserZoomTimers: new Map(),
-    browserAudioEnabled: localStorage.getItem('wps7.browserAudioEnabled') === 'true',
+    browserAudioEnabled: localStorage.getItem('paneboard.browserAudioEnabled') === 'true',
     terminalTitleTimers: new Map(),
     paneFontSizeTimers: new Map(),
     notepadAutosaveTimers: new Map(),
@@ -64,17 +83,17 @@
     filePathHistory: loadFilePathHistory(),
     notepadTabData: {},
     imagePaneData: {},
-    displayMode: localStorage.getItem('wps7.displayMode') || 'auto',
+    displayMode: localStorage.getItem('paneboard.displayMode') || 'auto',
     dismissedDesktopBanner: false,
     fileClipboard: null,
-    mobileTerminalDensity: localStorage.getItem('wps7.mobileTerminalDensity') || 'readable',
+    mobileTerminalDensity: localStorage.getItem('paneboard.mobileTerminalDensity') || 'readable',
     swipeStart: null,
     toastTimer: 0,
     shortcutsInstalled: false,
     lastSessionTap: null,
     suppressSessionClickUntil: 0,
     suppressPaneTabClickUntil: 0,
-    theme: ({ dark: 'wps-dark', light: 'wps-light', custom: 'custom-dark' })[localStorage.getItem('wps7.theme')] || localStorage.getItem('wps7.theme') || 'wps-dark',
+    theme: ({ dark: 'paneboard-dark', light: 'paneboard-light', custom: 'custom-dark' })[localStorage.getItem('paneboard.theme')] || localStorage.getItem('paneboard.theme') || 'paneboard-dark',
     customThemeDraft: null,
     focusedPaneId: '',
     paneFocusEscapeAt: 0,
@@ -130,14 +149,15 @@
   }
 
   async function loadAiPanePlugins(definitions) {
-    window.Wps7AiPanePlugins = window.Wps7AiPanePlugins || {};
+    window.PaneboardAiPanePlugins = window.PaneboardAiPanePlugins || window.Wps7AiPanePlugins || {};
+    window.Wps7AiPanePlugins = window.PaneboardAiPanePlugins;
     await Promise.all(definitions.filter((definition) => definition.type === 'ai').map(async (definition) => {
       try {
         await Promise.all([
           loadPluginAsset('style', definition.styleUrl),
           loadPluginAsset('script', definition.clientUrl)
         ]);
-        const plugin = window.Wps7AiPanePlugins[definition.provider];
+        const plugin = window.PaneboardAiPanePlugins[definition.provider];
         if (typeof plugin?.create !== 'function') {
           throw new Error(`AI plugin ${definition.id} did not register its renderer.`);
         }
@@ -149,14 +169,15 @@
   }
 
   async function loadHostPanePlugins(definitions) {
-    window.Wps7HostPanePlugins = window.Wps7HostPanePlugins || {};
+    window.PaneboardHostPanePlugins = window.PaneboardHostPanePlugins || window.Wps7HostPanePlugins || {};
+    window.Wps7HostPanePlugins = window.PaneboardHostPanePlugins;
     await Promise.all(definitions.filter((definition) => definition.type === 'host').map(async (definition) => {
       try {
         await Promise.all([
           loadPluginAsset('style', definition.styleUrl),
           loadPluginAsset('script', definition.clientUrl)
         ]);
-        const plugin = window.Wps7HostPanePlugins[definition.id];
+        const plugin = window.PaneboardHostPanePlugins[definition.id];
         if (typeof plugin?.create !== 'function') {
           throw new Error(`Host plugin ${definition.id} did not register its renderer.`);
         }
@@ -218,20 +239,20 @@
   updateVisualViewport();
 
   function saveToken(token, remember) {
-    localStorage.removeItem('wps7.token');
-    sessionStorage.removeItem('wps7.token');
-    (remember ? localStorage : sessionStorage).setItem('wps7.token', token);
+    localStorage.removeItem('paneboard.token');
+    sessionStorage.removeItem('paneboard.token');
+    (remember ? localStorage : sessionStorage).setItem('paneboard.token', token);
   }
 
   function clearToken() {
-    localStorage.removeItem('wps7.token');
-    sessionStorage.removeItem('wps7.token');
+    localStorage.removeItem('paneboard.token');
+    sessionStorage.removeItem('paneboard.token');
     state.token = '';
   }
 
   function loadFilePathHistory() {
     try {
-      const value = JSON.parse(localStorage.getItem('wps7.filePathHistory') || '[]');
+      const value = JSON.parse(localStorage.getItem('paneboard.filePathHistory') || '[]');
       return Array.isArray(value) ? value.filter((path) => typeof path === 'string' && path) : [];
     } catch (error) {
       return [];
@@ -243,7 +264,7 @@
       return;
     }
     state.filePathHistory = [path, ...state.filePathHistory.filter((item) => item.toLowerCase() !== path.toLowerCase())];
-    localStorage.setItem('wps7.filePathHistory', JSON.stringify(state.filePathHistory));
+    localStorage.setItem('paneboard.filePathHistory', JSON.stringify(state.filePathHistory));
   }
 
   function friendlyFileError(message) {
@@ -289,7 +310,7 @@
     if (state.theme === 'custom-light' || state.theme === 'custom-dark') {
       return customThemePalette(state.theme.endsWith('light') ? 'light' : 'dark');
     }
-    return themePresets[state.theme] || themePresets['wps-dark'];
+    return themePresets[state.theme] || themePresets['paneboard-dark'];
   }
 
   function themeMode() {
@@ -299,7 +320,7 @@
   function selectedThemeForMode(mode) {
     const custom = { ...customThemeDefaults, ...(state.config?.custom_theme || {}), ...(state.customThemeDraft || {}) };
     const selected = custom[`selected_${mode}`];
-    return themePresets[selected]?.mode === mode || selected === `custom-${mode}` ? selected : `wps-${mode}`;
+    return themePresets[selected]?.mode === mode || selected === `custom-${mode}` ? selected : `paneboard-${mode}`;
   }
 
   function pairedThemeId() {
@@ -307,8 +328,8 @@
   }
 
   function applyTheme(theme = state.theme) {
-    state.theme = themePresets[theme] || theme === 'custom-light' || theme === 'custom-dark' ? theme : 'wps-dark';
-    localStorage.setItem('wps7.theme', state.theme);
+    state.theme = themePresets[theme] || theme === 'custom-light' || theme === 'custom-dark' ? theme : 'paneboard-dark';
+    localStorage.setItem('paneboard.theme', state.theme);
     const palette = activeTheme();
     const root = document.documentElement;
     root.classList.add('theme-changing');
@@ -423,10 +444,10 @@
     if (!state.config.terminal?.browser_notifications || !('Notification' in window) || Notification.permission !== 'granted') {
       return;
     }
-    const notification = new Notification(title || 'WPS7 terminal', {
+    const notification = new Notification(title || 'Paneboard terminal', {
       body: detail ? `${label}\n${detail}` : label,
       icon: '/icon.svg',
-      tag: `wps7-terminal-${paneId}`
+      tag: `paneboard-terminal-${paneId}`
     });
     notification.onclick = () => {
       window.focus();
@@ -506,7 +527,7 @@
     applyUiTypography();
     app.innerHTML = `
       <main class="login">
-        <div class="login-brand"><span class="brand-mark">›_</span><span>WPS7</span></div>
+        <div class="login-brand"><span class="brand-mark">${brandIcon()}</span><span>Paneboard</span></div>
         <button class="theme-toggle login-theme-toggle" type="button" data-theme-toggle aria-label="Switch to ${themeMode() === 'dark' ? 'light' : 'dark'} mode" title="Switch theme">${themeMode() === 'dark' ? '☀' : '☾'}</button>
         <form class="login-panel">
           <div class="login-shield">⌾</div>
@@ -555,7 +576,7 @@
         <section class="login-panel connection-error" role="alert">
           <div class="login-shield">!</div>
           <h1>Service unavailable</h1>
-          <p>${escapeHtml(error?.message || 'WPS7 could not connect to the local service.')}</p>
+          <p>${escapeHtml(error?.message || 'Paneboard could not connect to the local service.')}</p>
           <button class="primary" type="button" data-retry>Retry connection</button>
         </section>
       </main>
@@ -887,9 +908,9 @@
 
   function pluginPaneLabel(pluginPane) {
     const key = 'New {name} pane';
-    const locale = window.Wps7I18n?.getLocale();
+    const locale = window.PaneboardI18n?.getLocale();
     const translatedName = pluginPane.translations?.[locale] || pluginPane.name;
-    return window.Wps7I18n?.t(key, { name: translatedName }) ?? key.replace('{name}', translatedName);
+    return window.PaneboardI18n?.t(key, { name: translatedName }) ?? key.replace('{name}', translatedName);
   }
 
   function renderPane(pane) {
@@ -2328,7 +2349,7 @@
         <aside class="sidebar">
           <nav class="menu-rail" aria-label="Workspace navigation">
             <div class="sidebar-brand-row">
-              <button class="rail-button sidebar-brand" data-action="toggle" aria-label="Toggle sidebar" aria-expanded="${state.sidebarOpen}" title="${state.sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}"><span class="rail-brand-mark" aria-hidden="true">W7</span><span class="rail-label">WPS7</span></button>
+              <button class="rail-button sidebar-brand" data-action="toggle" aria-label="Toggle sidebar" aria-expanded="${state.sidebarOpen}" title="${state.sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}"><span class="rail-brand-mark" aria-hidden="true">${brandIcon()}</span><span class="rail-label">Paneboard</span></button>
               <button class="sidebar-pin" type="button" data-sidebar-pin aria-label="${state.sidebarPinned ? 'Unpin' : 'Pin'} sidebar" aria-pressed="${state.sidebarPinned}" title="${state.sidebarPinned ? 'Unpin sidebar' : 'Pin sidebar'}"><span class="rail-icon" aria-hidden="true">${fileActionIcon(state.sidebarPinned ? 'pin-off' : 'pin')}</span></button>
             </div>
             <button class="rail-button" data-action="new-powershell" aria-label="New PowerShell pane" title="New PowerShell pane">
@@ -2381,7 +2402,7 @@
           <header class="tabs">
             <div class="workspace-bar">
               <div class="mobile-actions">
-                <button class="mobile-brand" data-action="toggle" aria-label="Toggle sidebar" aria-expanded="${state.sidebarOpen}" title="${state.sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}"><span class="rail-brand-mark" aria-hidden="true">W7</span></button>
+                <button class="mobile-brand" data-action="toggle" aria-label="Toggle sidebar" aria-expanded="${state.sidebarOpen}" title="${state.sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}"><span class="rail-brand-mark" aria-hidden="true">${brandIcon()}</span></button>
               </div>
               <button type="button" class="workspace-nav" data-workspace-nav="-1" aria-label="Scroll workspaces left" title="Scroll workspaces left" disabled>${fileActionIcon('browser-back')}</button>
               <button type="button" class="workspace-nav" data-workspace-nav="1" aria-label="Scroll workspaces right" title="Scroll workspaces right" disabled>${fileActionIcon('browser-forward')}</button>
@@ -2864,7 +2885,7 @@
   function setDisplayMode(mode, persist = true) {
     state.displayMode = mode;
     if (persist) {
-      localStorage.setItem('wps7.displayMode', mode);
+      localStorage.setItem('paneboard.displayMode', mode);
     }
     state.dismissedDesktopBanner = false;
     const appElement = document.querySelector('.app');
@@ -2878,7 +2899,7 @@
   function setTerminalDensity(density, persist = true) {
     state.mobileTerminalDensity = density;
     if (persist) {
-      localStorage.setItem('wps7.mobileTerminalDensity', density);
+      localStorage.setItem('paneboard.mobileTerminalDensity', density);
     }
     const appElement = document.querySelector('.app');
     appElement?.classList.remove('density-readable', 'density-dense');
@@ -3433,7 +3454,7 @@
     });
     paneElement.querySelector('[data-browser-audio-toggle]')?.addEventListener('click', () => {
       state.browserAudioEnabled = !state.browserAudioEnabled;
-      localStorage.setItem('wps7.browserAudioEnabled', String(state.browserAudioEnabled));
+      localStorage.setItem('paneboard.browserAudioEnabled', String(state.browserAudioEnabled));
       state.browserConnections.get(paneId)?.setAudio(state.browserAudioEnabled);
     });
     wireBrowserTabs(paneElement, paneId);
@@ -7007,7 +7028,7 @@
         const result = await response.json().catch(() => ({ error: 'Download failed.' }));
         throw new Error(result.error || 'Download failed.');
       }
-      await saveResponseAsFile(response, 'wps7-files.zip');
+      await saveResponseAsFile(response, 'paneboard-files.zip');
     } catch (error) {
       if (paneId) {
         filesPaneData(paneId).error = friendlyFileError(error.message);
@@ -7532,7 +7553,7 @@
     const onMove = (moveEvent) => {
       const width = Math.max(180, Math.min(520, startWidth + moveEvent.clientX - startX));
       state.sidebarWidth = width;
-      localStorage.setItem('wps7.sidebarWidth', String(width));
+      localStorage.setItem('paneboard.sidebarWidth', String(width));
       document.querySelector('.app')?.style.setProperty('--sidebar-width', `${width}px`);
     };
     const onUp = () => {
@@ -7685,7 +7706,7 @@
 
   function setSidebarOpen(open) {
     state.sidebarOpen = Boolean(open);
-    localStorage.setItem('wps7.sidebarOpen', String(state.sidebarOpen));
+    localStorage.setItem('paneboard.sidebarOpen', String(state.sidebarOpen));
     app.querySelector('.app')?.classList.toggle('sidebar-closed', !state.sidebarOpen);
     app.querySelectorAll('[data-action="toggle"]').forEach((button) => {
       button.setAttribute('aria-expanded', String(state.sidebarOpen));
@@ -7695,7 +7716,7 @@
 
   function setSidebarPinned(pinned) {
     state.sidebarPinned = Boolean(pinned);
-    localStorage.setItem('wps7.sidebarPinned', String(state.sidebarPinned));
+    localStorage.setItem('paneboard.sidebarPinned', String(state.sidebarPinned));
     const root = app.querySelector('.app');
     root?.classList.toggle('sidebar-pinned', state.sidebarPinned);
     const button = app.querySelector('[data-sidebar-pin]');
@@ -9144,7 +9165,7 @@
           continue;
         }
         const body = `${window.label} at ${used}%. ${usageCountdown(window.resetsAt)}.`;
-        new Notification(`${provider.label} quota`, { body, icon: '/icon.svg', tag: `wps7-usage-${key}` });
+        new Notification(`${provider.label} quota`, { body, icon: '/icon.svg', tag: `paneboard-usage-${key}` });
       }
     }
   }
@@ -9550,7 +9571,7 @@
     overlay.innerHTML = `
       <form class="settings-panel">
         <header class="settings-header">
-          <div class="product-mark"><span class="brand-mark">›_</span><div><div class="settings-title" id="settings-dialog-title">WPS7 Settings</div><small>Workspace preferences</small></div></div>
+          <div class="product-mark"><span class="brand-mark">${brandIcon()}</span><div><div class="settings-title" id="settings-dialog-title">Paneboard Settings</div><small>Workspace preferences</small></div></div>
           <button class="icon-button" type="button" data-settings-close aria-label="Close settings" title="Close">×</button>
         </header>
         <div class="settings-shell">
@@ -9590,7 +9611,7 @@
               <input type="hidden" name="custom_theme.selected_light" value="${escapeAttr(selectedLight)}">
               <input type="hidden" name="custom_theme.selected_dark" value="${escapeAttr(selectedDark)}">
               <div class="theme-mode-setting" data-theme-mode="light">
-                <div class="theme-mode-heading"><span>Light mode</span><small>Used whenever WPS7 is in light mode.</small></div>
+                <div class="theme-mode-heading"><span>Light mode</span><small>Used whenever Paneboard is in light mode.</small></div>
                 <div class="theme-preset-grid" role="group" aria-label="Light theme">
                   ${Object.entries(themePresets).filter(([, theme]) => theme.mode === 'light').map(([id, theme]) => `
                     <button type="button" class="theme-preset ${selectedLight === id ? 'active' : ''}" data-theme-choice="${id}" data-theme-choice-mode="light" aria-pressed="${selectedLight === id}">
@@ -9601,7 +9622,7 @@
                 </div>
               </div>
               <div class="custom-theme-editor ${selectedLight === 'custom-light' ? '' : 'hidden'}" data-custom-theme-editor="light">
-                <div class="custom-theme-heading"><div><h3>Custom Light palette</h3><p>Saved on the WPS7 server and shared across devices.</p></div><button class="secondary custom-theme-reset" type="button" data-custom-theme-reset="light" aria-label="Reset custom light palette" title="Reset to default custom light palette">${fileActionIcon('refresh')}<span>Reset</span></button></div>
+                <div class="custom-theme-heading"><div><h3>Custom Light palette</h3><p>Saved on the Paneboard server and shared across devices.</p></div><button class="secondary custom-theme-reset" type="button" data-custom-theme-reset="light" aria-label="Reset custom light palette" title="Reset to default custom light palette">${fileActionIcon('refresh')}<span>Reset</span></button></div>
                 <div class="custom-theme-grid">
                   <label>App background<input name="custom_theme.light_ink" type="color" value="${escapeAttr(state.customThemeDraft.light_ink)}"></label>
                   <label>Panel<input name="custom_theme.light_panel" type="color" value="${escapeAttr(state.customThemeDraft.light_panel)}"></label>
@@ -9618,7 +9639,7 @@
                 </div>
               </div>
               <div class="theme-mode-setting" data-theme-mode="dark">
-                <div class="theme-mode-heading"><span>Dark mode</span><small>Used whenever WPS7 is in dark mode.</small></div>
+                <div class="theme-mode-heading"><span>Dark mode</span><small>Used whenever Paneboard is in dark mode.</small></div>
                 <div class="theme-preset-grid" role="group" aria-label="Dark theme">
                   ${Object.entries(themePresets).filter(([, theme]) => theme.mode === 'dark').map(([id, theme]) => `
                     <button type="button" class="theme-preset ${selectedDark === id ? 'active' : ''}" data-theme-choice="${id}" data-theme-choice-mode="dark" aria-pressed="${selectedDark === id}">
@@ -9629,7 +9650,7 @@
                 </div>
               </div>
               <div class="custom-theme-editor ${selectedDark === 'custom-dark' ? '' : 'hidden'}" data-custom-theme-editor="dark">
-                <div class="custom-theme-heading"><div><h3>Custom Dark palette</h3><p>Saved on the WPS7 server and shared across devices.</p></div><button class="secondary custom-theme-reset" type="button" data-custom-theme-reset="dark" aria-label="Reset custom dark palette" title="Reset to default custom dark palette">${fileActionIcon('refresh')}<span>Reset</span></button></div>
+                <div class="custom-theme-heading"><div><h3>Custom Dark palette</h3><p>Saved on the Paneboard server and shared across devices.</p></div><button class="secondary custom-theme-reset" type="button" data-custom-theme-reset="dark" aria-label="Reset custom dark palette" title="Reset to default custom dark palette">${fileActionIcon('refresh')}<span>Reset</span></button></div>
                 <div class="custom-theme-grid">
                   <label>App background<input name="custom_theme.ink" type="color" value="${escapeAttr(state.customThemeDraft.ink)}"></label>
                   <label>Panel<input name="custom_theme.panel" type="color" value="${escapeAttr(state.customThemeDraft.panel)}"></label>
@@ -9662,8 +9683,8 @@
               <div class="settings-grid appearance-font-setting">
                 <label>System font size<input name="ui.system_font_size" type="number" min="10" max="24" value="${escapeAttr(settings.ui.system_font_size ?? 13)}"><small class="field-hint">Pixels. Menus, tabs and dialogs. PowerShell and file panes have their own sizes.</small></label>
                 <label>Language<select data-language-select>
-                  <option value="en" ${window.Wps7I18n.getLocale() === 'en' ? 'selected' : ''}>English</option>
-                  <option value="zh-HK" ${window.Wps7I18n.getLocale() === 'zh-HK' ? 'selected' : ''}>繁體中文（香港）</option>
+                  <option value="en" ${window.PaneboardI18n.getLocale() === 'en' ? 'selected' : ''}>English</option>
+                  <option value="zh-HK" ${window.PaneboardI18n.getLocale() === 'zh-HK' ? 'selected' : ''}>繁體中文（香港）</option>
                 </select></label>
               </div>
             </section>
@@ -9706,7 +9727,7 @@
               </div>
               <h3 class="settings-subhead">Saving</h3>
               <div class="settings-grid">
-                <label>Autosave minutes<input name="persistence.autosave_minutes" type="number" min="1" value="${escapeAttr(settings.persistence.autosave_minutes)}"><small class="field-hint">How often the layout is written to disk. It is also saved whenever WPS7 shuts down.</small></label>
+                <label>Autosave minutes<input name="persistence.autosave_minutes" type="number" min="1" value="${escapeAttr(settings.persistence.autosave_minutes)}"><small class="field-hint">How often the layout is written to disk. It is also saved whenever Paneboard shuts down.</small></label>
               </div>
             </section>
             <section class="settings-section" id="settings-shell">
@@ -9797,12 +9818,12 @@
               </details>
             </section>
             <section class="settings-section restart" id="settings-server">
-              <div class="section-heading"><div><h2>Server &amp; security</h2><p>Who can reach this workspace, and the password they need. Switching to LAN saves and restarts WPS7 for you.</p></div><span class="restart-badge">△ Restart required</span></div>
+              <div class="section-heading"><div><h2>Server &amp; security</h2><p>Who can reach this workspace, and the password they need. Switching to LAN saves and restarts Paneboard for you.</p></div><span class="restart-badge">△ Restart required</span></div>
               <div class="settings-grid">
                 <label>Access<select name="server.host"><option value="127.0.0.1" ${settings.server.host === '127.0.0.1' ? 'selected' : ''}>Local</option><option value="0.0.0.0" ${settings.server.host === '0.0.0.0' ? 'selected' : ''}>LAN</option></select><small class="field-hint">Local: this machine only. LAN: any device on your network, which requires a password.</small></label>
                 <label>Port<input name="server.port" type="number" min="1" max="65535" value="${escapeAttr(settings.server.port)}"><small class="field-hint">The address becomes ${settings.server.protocol === 'https' ? 'https' : 'http'}://127.0.0.1:&lt;port&gt;/. Takes effect after a restart.</small></label>
                 <label>Protocol<select name="server.protocol"><option value="http" ${settings.server.protocol !== 'https' ? 'selected' : ''}>HTTP</option><option value="https" ${settings.server.protocol === 'https' ? 'selected' : ''}>HTTPS</option></select><small class="field-hint">HTTPS serves a self-signed certificate generated on first use; browsers warn until you trust it. Takes effect after a restart.</small></label>
-                <label class="settings-check"><input name="server.open_browser" type="checkbox" ${settings.server.open_browser ? 'checked' : ''}> Open browser on start<small class="field-hint">Open the workspace automatically when WPS7 launches.</small></label>
+                <label class="settings-check"><input name="server.open_browser" type="checkbox" ${settings.server.open_browser ? 'checked' : ''}> Open browser on start<small class="field-hint">Open the workspace automatically when Paneboard launches.</small></label>
                 <label class="settings-wide">${settings.auth?.password_set ? 'New password' : 'Password'}<input name="auth.password" type="password" autocomplete="new-password" aria-describedby="settings-password-rule" placeholder="${settings.auth?.password_set ? 'Leave blank to keep the current password' : 'Not set — anyone reaching this port can sign in'}"><small class="field-hint" id="settings-password-rule">At least 12 characters, including an upper case letter, a lower case letter, a number and a symbol. Saving a new one signs every device out.</small></label>
               </div>
               <details class="settings-advanced">
@@ -9906,7 +9927,7 @@
     overlay.querySelector('[data-settings-close]').onclick = closeSettings;
     overlay.querySelector('[data-settings-cancel]').onclick = closeSettings;
     overlay.querySelector('[data-language-select]').onchange = (event) => {
-      window.Wps7I18n.setLocale(event.currentTarget.value);
+      window.PaneboardI18n.setLocale(event.currentTarget.value);
       window.location.reload();
     };
     const syncSegmented = (group, activeButton) => {
@@ -10015,8 +10036,8 @@
         state.customThemeDraft = { ...customThemeDefaults, ...(state.config.custom_theme || {}) };
         applyTheme(savedTheme);
         // Display mode and density live in localStorage, not the server config.
-        localStorage.setItem('wps7.displayMode', state.displayMode);
-        localStorage.setItem('wps7.mobileTerminalDensity', state.mobileTerminalDensity);
+        localStorage.setItem('paneboard.displayMode', state.displayMode);
+        localStorage.setItem('paneboard.mobileTerminalDensity', state.mobileTerminalDensity);
         savedDisplayMode = state.displayMode;
         savedTerminalDensity = state.mobileTerminalDensity;
         applyConfigLive();
@@ -10038,7 +10059,7 @@
           if (payload.auth?.password) {
             clearToken();
           }
-          status.textContent = 'Saved. Restarting WPS7…';
+          status.textContent = 'Saved. Restarting Paneboard…';
           showToast(status.textContent, 'success');
           const nextUrl = `${payload.server.protocol === 'https' ? 'https:' : 'http:'}//${location.hostname}:${payload.server.port}/`;
           window.setTimeout(() => location.assign(nextUrl), 1800);
@@ -10051,7 +10072,7 @@
           showToast('Password changed. Sign in again.', 'success');
           return;
         }
-        status.textContent = state.config.restartRequired ? 'Saved. Restart wps7.exe for host/port changes.' : 'Saved.';
+        status.textContent = state.config.restartRequired ? 'Saved. Restart paneboard.exe for host/port changes.' : 'Saved.';
         showToast(status.textContent, 'success');
         if (!keepSettingsOpen) {
           state.customThemeDraft = null;

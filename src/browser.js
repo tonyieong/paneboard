@@ -35,7 +35,7 @@ function chromeArguments(profilePath) {
     // Required: without it tab capture falls back to JPEG streaming. The capture
     // script no longer renames the page to match, which would have let a site
     // observe the title change; the flag alone still auto-selects the own tab.
-    '--auto-select-tab-capture-source-by-title=WPS7 Capture Target',
+    '--auto-select-tab-capture-source-by-title=Paneboard Capture Target',
     '--autoplay-policy=no-user-gesture-required',
     '--window-size=1280,720'
   ];
@@ -49,7 +49,7 @@ function chromiumProfileCleanupCommand(profilePath) {
 }
 
 function terminateStaleChromium(profilePath, run = execFile) {
-  // A prior WPS7 process that exited without calling shutdown() (crash, forced
+  // A prior Paneboard process that exited without calling shutdown() (crash, forced
   // kill, service restart) can leave its headless Chromium still running.
   // Chromium's own profile lock then refuses every future launch against the
   // same --user-data-dir, so every Browser pane fails forever. Best-effort
@@ -76,7 +76,7 @@ function normalizeViewport(width, height, deviceScaleFactor, emulationMode = 'de
   };
 }
 
-// A device model sites actually see in the wild; an invented one ("WPS7 Mobile")
+// A device model sites actually see in the wild; an invented one ("Paneboard Mobile")
 // reads as a forged identity to the same checks the masked UA is there to satisfy.
 const MOBILE_DEVICE_MODEL = 'Pixel 7';
 
@@ -116,8 +116,8 @@ const JPEG_QUALITY = 90;
 // Suppress the native popup and draw the options as ordinary page content, which
 // both capture paths do see.
 const SELECT_POPUP_SCRIPT = `(() => {
-  if (window.__wps7SelectPopup) return;
-  window.__wps7SelectPopup = true;
+  if (window.__paneboardSelectPopup) return;
+  window.__paneboardSelectPopup = true;
 
   let host = null;
   let owner = null;
@@ -291,8 +291,8 @@ class RemoteBrowserPage {
     this.rtcTimers = new Map();
     this.rtcConnectedPeers = new Set();
     this.rtcTimeoutMs = 3000;
-    this.rtcBinding = `__wps7RtcSignal_${crypto.randomUUID().replaceAll('-', '')}`;
-    this.rtcStateKey = `__wps7RtcState_${crypto.randomUUID().replaceAll('-', '')}`;
+    this.rtcBinding = `__paneboardRtcSignal_${crypto.randomUUID().replaceAll('-', '')}`;
+    this.rtcStateKey = `__paneboardRtcState_${crypto.randomUUID().replaceAll('-', '')}`;
     this.emulationMode = 'desktop';
     this.desktopUserAgent = '';
     this.screencasting = false;
@@ -920,7 +920,7 @@ class RemoteBrowserPage {
   async handlePausedRequest(request) {
     if (this.manager.isWebsiteBlocked(request.request.url)) {
       await this.send('Fetch.failRequest', { requestId: request.requestId, errorReason: 'BlockedByClient' });
-      this.broadcast({ type: 'error', message: 'WPS7 cannot open its own server address in a Browser pane.' });
+      this.broadcast({ type: 'error', message: 'Paneboard cannot open its own server address in a Browser pane.' });
       return;
     }
     await this.send('Fetch.continueRequest', { requestId: request.requestId });
@@ -1167,7 +1167,7 @@ class BrowserManager {
 
   async startChromium() {
     const executable = findChromiumExecutable();
-    if (!executable) return Promise.reject(new Error('Google Chrome or Microsoft Edge is not installed on the WPS7 server.'));
+    if (!executable) return Promise.reject(new Error('Google Chrome or Microsoft Edge is not installed on the Paneboard server.'));
     const profilePath = path.join(this.root, 'data', 'browser-profile');
     fs.mkdirSync(profilePath, { recursive: true });
     await this.terminateStaleChromium(profilePath);
@@ -1231,7 +1231,7 @@ class BrowserManager {
 
   assertWebsiteAllowed(value) {
     if (this.isWebsiteBlocked(value)) {
-      throw new Error('WPS7 cannot open its own server address in a Browser pane.');
+      throw new Error('Paneboard cannot open its own server address in a Browser pane.');
     }
   }
 
@@ -1352,7 +1352,7 @@ class BrowserManager {
   async openWindow(paneId, value, sourceTabId = '') {
     const url = this.normalizeWebsite(value) || '';
     if (url && this.isWebsiteBlocked(url)) {
-      this.broadcastPane(paneId, { type: 'error', message: 'WPS7 cannot open its own server address in a Browser pane.' });
+      this.broadcastPane(paneId, { type: 'error', message: 'Paneboard cannot open its own server address in a Browser pane.' });
       return;
     }
     const source = this.store.findPane(paneId)?.pane.browserTabs.find((tab) => tab.id === sourceTabId);
