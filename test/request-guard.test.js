@@ -68,3 +68,28 @@ test('rate limiter forgets a key once the caller succeeds', () => {
   limiter.reset('1.2.3.4');
   assert.equal(limiter.check('1.2.3.4').allowed, true);
 });
+
+test('Tailscale literal addresses work without weakening the host allowlist', () => {
+  for (const host of ['100.101.102.103:5022', '[fd7a:115c:a1e0::1234]:5022']) {
+    assert.equal(isTrustedHost(host, []), true);
+    assert.equal(isSameOrigin(`http://${host}`, host), true);
+  }
+});
+
+test('MagicDNS names need an explicit allowlist entry, not a tailnet wildcard', () => {
+  const hostname = 'desktop.example-tailnet.ts.net';
+  const host = `${hostname}:5022`;
+  assert.equal(isTrustedHost(host, []), false);
+  assert.equal(isTrustedHost(host, [hostname]), true);
+  assert.equal(isTrustedHost('other.example-tailnet.ts.net:5022', [hostname]), false);
+  assert.equal(isTrustedHost(`${hostname}.attacker.example:5022`, [hostname]), false);
+  assert.equal(isSameOrigin(`http://${host}`, host), true);
+});
+
+test('an Android loopback proxy cannot forward its own origin to a tailnet host', () => {
+  const host = '100.101.102.103:5022';
+  assert.equal(isSameOrigin('http://127.0.0.1:5022', host), false);
+  assert.equal(isSameOrigin('http://localhost:5022', host), false);
+  assert.equal(isSameOrigin('null', host), false);
+  assert.equal(isSameOrigin(`http://${host}`, host), true);
+});
