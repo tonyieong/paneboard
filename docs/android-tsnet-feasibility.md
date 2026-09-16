@@ -83,13 +83,21 @@ Local results:
 Two leftover generated plugin fixtures from an interrupted test were moved out
 of `plugin-panes/` into ignored `output/node_modules/aborted-test-fixtures/`.
 
-Production source and npm dependencies were not changed. No APK has been built
-or installed, and no end-to-end tailnet connection has been tested.
+Production server source and npm dependencies were not changed. A later minimal
+connection probe is implemented in `android/probe/`; see its README for the
+September 15 APK build/install results and remaining device checks. Embedded
+tailnet HTTPS and unauthenticated WebSocket rejection were subsequently verified
+on the phone after Tailscale login, with no system VPN detected. Workspace login
+and terminal I/O subsequently passed on an isolated port-5023 source runtime.
+The development client now offers explicit embedded-Tailscale and direct modes;
+direct HTTPS, login and terminal I/O passed over the existing USB network using
+a temporary TCP relay. See the Android README for current results and limits.
 
 No Android SDK, NDK, Java, Gradle or ADB was available on PATH at inspection time.
 Research checkout and portable tools are isolated under ignored `output/`;
 the toolchain lives under `output/node_modules/` to avoid Node test discovery.
-No third-party APK was installed and no Tailscale account was authorized.
+No third-party APK was installed. The user subsequently authorized the app-owned
+Tailscale identity through the browser.
 
 Before calling the Android client viable, verify on an authorized test device:
 
@@ -101,4 +109,7 @@ Before calling the Android client viable, verify on an authorized test device:
 5. Test Wi-Fi/mobile switching, airplane mode, process death, start/stop races,
    expired authorization and coexistence with another VPN.
 
-Use only the designated test server port, 5022. Do not touch production runtimes.
+Use port 5022 for isolated local tooling. The user subsequently authorized
+read-only Android connection testing against the existing HTTPS server on 5001.
+Do not stop, restart, deploy or reconfigure that runtime; do not operate port 5000.
+Port 5023 was later explicitly authorized for the isolated development runtime.
