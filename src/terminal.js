@@ -277,11 +277,10 @@ class TerminalManager {
         const cols = Number(message.cols);
         const rows = Number(message.rows);
         if (Number.isInteger(cols) && Number.isInteger(rows) && cols > 0 && rows > 0) {
-          // xterm can reflow its local viewport when only the pane height
-          // changes. ConPTY makes full-screen CLIs redraw on that resize, so
-          // leave the PTY alone until the width changes. The first size still
-          // has to reach the PTY even when it matches the default columns.
-          if (runtime.hasPtySize && cols === runtime.cols) {
+          // Cursor positions and scrolling regions depend on rows as well as
+          // columns. Keep ConPTY, replay and the browser aligned when the
+          // keyboard or viewport changes height; skip only identical sizes.
+          if (runtime.hasPtySize && cols === runtime.cols && rows === runtime.rows) {
             return;
           }
           runtime.cols = cols;

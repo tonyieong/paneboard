@@ -137,7 +137,7 @@ test('terminal spawn options use the Windows system ConPTY', () => {
   }
 });
 
-test('terminal height-only resizes stay in the browser after the initial PTY size', () => {
+test('terminal height-only resizes keep the PTY and headless viewport synchronized', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const store = new StateStore(root);
   store.load();
@@ -169,8 +169,11 @@ test('terminal height-only resizes stay in the browser after the initial PTY siz
   ws.emit('message', Buffer.from(JSON.stringify({ type: 'resize', cols: 100, rows: 40 })));
   ws.emit('message', Buffer.from(JSON.stringify({ type: 'resize', cols: 100, rows: 50 })));
   ws.emit('message', Buffer.from(JSON.stringify({ type: 'resize', cols: 120, rows: 60 })));
+  ws.emit('message', Buffer.from(JSON.stringify({ type: 'resize', cols: 120, rows: 60 })));
 
-  assert.deepEqual(resizes, [[100, 40], [120, 60]]);
+  assert.deepEqual(resizes, [[100, 40], [100, 50], [120, 60]]);
+  assert.equal(runtime.headless.cols, 120);
+  assert.equal(runtime.headless.rows, 60);
   ws.emit('close');
   manager.shutdown();
 });
