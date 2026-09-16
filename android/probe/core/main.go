@@ -191,6 +191,12 @@ func runCommands(dial tailnetDial, mode string, login func() error) {
 				closeBridge()
 				closeBridge = nil
 			}
+			// Running describes the node, not reachability of the selected server.
+			// Verify TLS and server authentication before handing a page to WebView.
+			if err := probe(dial, cmd.URL, cmd.Pin, mode); err != nil {
+				emit("error", err.Error())
+				continue
+			}
 			address, capability, stop, err := startBridge(dial, cmd.URL, cmd.Pin, mode)
 			if err != nil {
 				emit("error", err.Error())

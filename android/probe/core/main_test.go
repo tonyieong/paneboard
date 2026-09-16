@@ -11,7 +11,7 @@ import (
 
 func TestTargetRestrictions(t *testing.T) {
 	pin := strings.Repeat("ab", 32)
-	for _, address := range []string{"http://100.93.254.50:5001", "https://100.93.254.50:5000", "https://127.0.0.1:5001", "https://example.com:5001", "https://user:password@100.93.254.50:5001", "https://100.93.254.50:5001/private", "https://100.93.254.50:5001/?query=1"} {
+	for _, address := range []string{"http://100.93.254.50:5001", "https://100.93.254.50:0", "https://127.0.0.1:5001", "https://example.com:5001", "https://user:password@100.93.254.50:5001", "https://100.93.254.50:5001/private", "https://100.93.254.50:5001/?query=1"} {
 		if _, _, err := target(address, pin); err == nil {
 			t.Errorf("Accepted unsafe target: %s", address)
 		}
@@ -22,8 +22,10 @@ func TestTargetRestrictions(t *testing.T) {
 	if _, _, err := target("https://100.93.254.50:5023/", pin); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := target("https://100.93.254.50:5022/", pin); err == nil {
-		t.Fatal("Accepted the ADB control port")
+	for _, address := range []string{"https://100.93.254.50", "https://100.93.254.50:8443/", "https://[fd7a:115c:a1e0::1]:8443"} {
+		if _, _, err := target(address, pin); err != nil {
+			t.Fatalf("Rejected configurable HTTPS endpoint %s: %v", address, err)
+		}
 	}
 	if _, _, err := target("https://100.93.254.50:5001/", "bad-pin"); err == nil {
 		t.Fatal("Accepted invalid pin")
@@ -59,7 +61,7 @@ func TestDirectTargetKeepsHTTPSAndPinRequirements(t *testing.T) {
 			t.Fatalf("direct target %s: %v", address, err)
 		}
 	}
-	for _, address := range []string{"http://192.168.1.20:5023", "https://:5023", "https://user:secret@server.example:5023", "https://server.example:5023/path"} {
+	for _, address := range []string{"http://192.168.1.20:5023", "https://:5023", "https://user:secret@server.example:5023", "https://server.example:5023/path", "https://server.example:65536", "https://server.example:0", "https://server.example:", "https://server.example/?", "https://server.example/#"} {
 		if _, _, err := connectionTarget(address, pin, "direct"); err == nil {
 			t.Errorf("accepted unsafe direct target %s", address)
 		}

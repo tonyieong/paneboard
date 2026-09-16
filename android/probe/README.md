@@ -1,6 +1,7 @@
-# Paneboard Android Workspace development client
+# Paneboard Android 1.0 — private APK
 
-This is an **arm64 development build**, not a production Android release. It offers
+This is a **privately signed arm64 APK for Android 9+**, distributed directly rather
+than through Google Play. It offers
 an app-owned tsnet connection or a direct connection through Android's network.
 Neither mode creates an Android `VpnService`.
 The Go PIE executable is packaged in the APK's extracted native-library directory
@@ -19,11 +20,36 @@ is reachable, through the selected transport and the verified certificate pin.
   Accepts a reachable server IP or hostname; a tailnet-only address still needs
   an existing route, so selecting Direct does not make it publicly reachable.
 
-The mode is remembered. Changing it closes the Workspace and stops the previous
-core before another can start. Review the shared server address and certificate
-when switching. Both modes currently require HTTPS, a verified leaf pin, and the
-authorized test ports 5001 or 5023. Broader endpoint configuration, easier verified
-certificate onboarding, release signing and distribution remain follow-up work.
+The mode and each mode's address/certificate are remembered separately. Changing
+mode closes the Workspace and stops the previous core before another can start.
+Both modes require HTTPS and a verified leaf pin. HTTPS defaults to port 443;
+explicit ports 1–65535 are supported. Runtime testing remains limited to ports
+explicitly authorized by the user (5023 in this workspace).
+
+Use **Connect and open Workspace** for the normal flow. Optionally enable automatic
+connection on app launch. Tailscale sign-in is needed only when its saved identity
+requires authorization; Paneboard still uses its ordinary server login. Closing
+the Workspace clears its temporary WebView login storage. WebSocket recovery is
+handled by Paneboard's existing client; Reload is available for a failed page.
+
+## Import connection settings
+
+Use the native **Import connection settings** button to select a JSON file (up to
+16 KB). Confirm the displayed address and fingerprint only when the file comes
+from a trusted server-side channel; importing a file is not independent proof of
+trust. The file contains public connection information, never a password or token:
+
+```json
+{
+  "mode": "tailscale",
+  "serverUrl": "https://100.64.0.10:8443",
+  "certificateSha256": "REPLACE_WITH_THE_VERIFIED_64_HEX_DIGIT_LEAF_CERTIFICATE_SHA256"
+}
+```
+
+Use `"direct"` for the direct mode. Colon-separated fingerprints are accepted.
+The launcher ignores endpoint/pin extras; another app cannot silently replace
+the stored server identity through a launcher intent.
 
 ## Build
 
@@ -36,18 +62,29 @@ Windows script uses portable Go 1.27.1, JDK 17, Android platform 35 and build-to
 ./android/probe/build.ps1
 ```
 
-The result is `output/node_modules/android-probe-build/paneboard-probe.apk`.
+The deliverable is `output/android-release/Paneboard-1.0.apk`, with a SHA-256
+checksum beside it. The APK is not debuggable and has no WebView debugging.
 The build bundles Go/module license texts inside the APK. It does not build,
-deploy, restart or modify the Windows server. Do not distribute the debug signing
-key or treat this APK as a production release.
+deploy, restart or modify the Windows server.
+
+**Back up `output/android-signing/` securely.** It contains the release keystore,
+its randomly generated password and signing lineage. The directory ACL permits
+only the building Windows account and SYSTEM. Never commit or distribute these
+private files with the APK. Future updates need the same release key and a higher
+manifest versionCode. Losing the key prevents normal in-place updates.
+
+When the local prototype debug key exists, the build creates a signing lineage
+to rotate to the private release key on Android 9+, retaining installed app data.
+Rollback to the old signing key is disabled. The internal package name remains
+`app.paneboard.probe` solely for upgrade compatibility; the launcher says Paneboard.
 
 ## Device checks
 
 1. Install the APK (manual installation is possible if USB installation is blocked).
 2. Select a connection mode. Enter the authorized HTTPS IP/hostname and port, and independently verified
-   SHA-256 leaf certificate fingerprint. This probe only permits ports **5001**
-   and **5023**. Port 5022 is reserved for the isolated USB debugging server.
-3. Start the connection. In Tailscale mode, use the authorization button if needed
+   SHA-256 leaf certificate fingerprint, or import a trusted connection file.
+   Port 5022 remains reserved for the isolated USB debugging server during this task.
+3. Connect and open Workspace. In Tailscale mode, use the authorization button if needed
    and complete sign-in in the phone's browser. Direct mode has no authorization button.
 4. Once Running or Direct Ready appears, run the HTTPS/WebSocket test. Readiness
    alone does not prove that the server is reachable. The test requests only
@@ -66,20 +103,23 @@ key or treat this APK as a production release.
 The native controls do not collect the Paneboard password; the WebView shows the
 server's existing login page. Certificate pinning replaces standard CA/name
 validation only for the specified test endpoint and checks certificate validity.
-External redirects and unapproved ports are blocked. Tailscale mode additionally
+External redirects and invalid ports are blocked. Tailscale mode additionally
 blocks non-tailnet destinations and direct-network fallback. The host server must
-keep its authentication enabled for the WS probe.
+keep its authentication enabled for both Workspace opening and diagnostics; the
+app checks pinned HTTPS and unauthenticated WebSocket rejection before opening
+the WebView. A failed check stays on the connection screen with an error.
 
 ## Limits
 
-File pickers/download handling, embedded browser/plugin frames, VPN service,
+WebView file uploads/download handling, embedded browser/plugin frames, VPN service,
 boot receiver and background keepalive are not implemented. The added CSP blocks
 frames and off-origin connections. WebView has no native JavaScript bridge, file
 access or SSL-error bypass. Cleartext is allowed only for 127.0.0.1; all remote
 server traffic remains pinned TLS over the selected connection. Android may kill the app. State
 is app-private and backup is disabled; uninstalling removes the local identity
 but does not remove its registered device entry from the tailnet administration.
-The exported launcher accepts only public endpoint/pin extras, never credentials.
+Native JSON import is separate from WebView file handling. The app is not a
+general-purpose browser and does not claim complete browser feature parity.
 
 See `docs/android-tsnet-feasibility.md` for the research. The userspace approach
 was informed by 0xKrito/tailscale-socks5-Android; this probe uses tsnet, anet and
@@ -138,6 +178,29 @@ These checks do not establish production readiness or mobile-data handover.
   Tailscale mode stops the old core and requires reviewing the server address.
 - Screenshots verified both mode controls and the direct terminal output.
   This is not a Wi-Fi/mobile handover test or a production release certification.
+
+### Private release verification (2026-09-17)
+
+- Built and verified the non-debuggable 1.0 release APK, signed with the private
+  release key. In-place upgrade on Android 13 preserved the Tailscale identity.
+- The configurable-port regression failed against the old allowlist, then passed
+  with the new validation. All eight Go test groups passed.
+- The parallel npm run encountered startup timing and terminal-process failures.
+  `npm test -- --test-timeout=120000 --test-concurrency=1` passed all 606 tests
+  (119.8 seconds); `npm run lint` passed.
+- Real-device screenshots verified the release controls, trusted JSON import
+  confirmation, separate mode profiles, automatic connection and login page.
+- A deliberately incorrect pin was rejected before opening the WebView. Restoring
+  the verified pin allowed login and terminal use through the direct transport.
+- Stopping and recreating only the temporary USB-network TCP relay exercised
+  WebSocket recovery; visible-keyboard terminal input returned its expected echo.
+  This does not establish Wi-Fi/mobile-data handover or background keepalive.
+- Removed that relay after testing. Switching back restored the saved Tailscale
+  endpoint and pin, and reached the isolated port-5023 login page without another
+  Tailscale authorization. The phone remains configured for that test instance.
+- No Windows packaging, deployment, merge or production service restart was done.
+  The requested ui-audit skill was unavailable; visual verification used actual
+  phone screenshots rather than claiming a web UI-audit run.
 
 The initial device start reproduced `route ip+net: netlinkrib: permission denied`.
 With CGO disabled, anet's automatic Android API detection returns -1 and selects

@@ -1,6 +1,7 @@
 package app.paneboard.probe;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Typeface;
@@ -12,6 +13,7 @@ import android.os.Bundle;
 import android.view.View;
 import android.view.WindowInsets;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
@@ -30,9 +32,11 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.File;
+import java.io.InputStream;
+import java.io.ByteArrayOutputStream;
 import org.json.JSONObject;
 
-/** Prototype Workspace client with an authenticated loopback-to-tsnet adapter. */
+/** Private Workspace client with a pinned, authenticated loopback adapter. */
 public class MainActivity extends Activity {
   private Process core;
   private OutputStreamWriter commands;
@@ -47,6 +51,12 @@ public class MainActivity extends Activity {
   private boolean direct;
   private boolean stopping;
   private TextView connectionHelp;
+  private SharedPreferences saved;
+  private RadioGroup modes;
+  private RadioButton tailscaleMode, directMode;
+  private boolean pendingOpen;
+  private boolean openAuthWhenReady;
+  private boolean openingWorkspace;
 
   private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
 
@@ -89,17 +99,17 @@ public class MainActivity extends Activity {
     TextView title = text("Paneboard", 28);
     title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     body.addView(title);
-    body.addView(text("Android 開發版 · Workspace 客戶端", 14));
-    SharedPreferences saved = getSharedPreferences("probe", MODE_PRIVATE);
+    body.addView(text("私人版 1.0 · Workspace 客戶端", 14));
+    saved = getSharedPreferences("probe", MODE_PRIVATE);
     direct = saved.getBoolean("directConnection", false);
     body.addView(text("連線方式", 14));
-    RadioGroup modes = new RadioGroup(this);
-    RadioButton tailscaleMode = new RadioButton(this);
+    modes = new RadioGroup(this);
+    tailscaleMode = new RadioButton(this);
     tailscaleMode.setId(View.generateViewId());
     tailscaleMode.setText("內置 Tailscale");
     tailscaleMode.setMinHeight(dp(48));
     modes.addView(tailscaleMode);
-    RadioButton directMode = new RadioButton(this);
+    directMode = new RadioButton(this);
     directMode.setId(View.generateViewId());
     directMode.setText("直接連線（唔使用內置 Tailscale）");
     directMode.setMinHeight(dp(48));
@@ -108,43 +118,49 @@ public class MainActivity extends Activity {
     body.addView(modes);
     connectionHelp = text("", 14);
     body.addView(connectionHelp);
-    body.addView(text("測試伺服器（HTTPS · port 5001 / 5023）", 14));
+    body.addView(text("伺服器網址（HTTPS，可自訂端口）", 14));
     endpoint = new EditText(this);
     endpoint.setSingleLine(true);
     endpoint.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
-    endpoint.setText(getIntent().getStringExtra("serverUrl") != null ? getIntent().getStringExtra("serverUrl") : saved.getString("serverUrl", ""));
     endpoint.setHint("https://100.x.x.x:5023/");
-    endpoint.setContentDescription("測試伺服器網址");
+    endpoint.setContentDescription("伺服器網址");
     body.addView(endpoint);
     body.addView(text("已核實嘅憑證 SHA-256", 14));
     fingerprint = new EditText(this);
-    fingerprint.setText(getIntent().getStringExtra("certificateSha256") != null ? getIntent().getStringExtra("certificateSha256") : saved.getString("certificateSha256", ""));
     fingerprint.setTypeface(Typeface.MONOSPACE);
     fingerprint.setTextSize(12);
     fingerprint.setContentDescription("已核實嘅憑證 SHA-256");
     body.addView(fingerprint);
+    loadProfile(true);
+    button("匯入連線設定", body, view -> {
+      Intent document = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+      document.addCategory(Intent.CATEGORY_OPENABLE);
+      document.setType("*/*");
+      try { startActivityForResult(document, 1); }
+      catch (Exception error) { showError("未能開啟檔案選擇器，可直接貼上網址及指紋。"); }
+    });
+    CheckBox automatic = new CheckBox(this);
+    automatic.setText("開 App 時自動連線");
+    automatic.setMinHeight(dp(48));
+    automatic.setChecked(saved.getBoolean("autoConnect", false));
+    automatic.setOnCheckedChangeListener((view, checked) -> saved.edit().putBoolean("autoConnect", checked).apply());
+    body.addView(automatic);
     vpn = text("", 14);
     body.addView(vpn);
     status = text("尚未啟動連線", 17);
     body.addView(status);
-    start = button("啟動連線", body, view -> startCore());
-    authorize = button("授權 Tailscale", body, view -> authorize());
+    start = button("連線並開啟 Workspace", body, view -> connect());
+    authorize = button("登入 Tailscale", body, view -> authorize());
     authorize.setEnabled(false);
     test = button("測試 HTTPS 及 WebSocket", body, view -> {
       try {
-        saved.edit().putString("serverUrl", endpoint.getText().toString().trim()).putString("certificateSha256", fingerprint.getText().toString().trim()).apply();
+        saveProfile();
         results.setText(direct ? "正在測試，使用手機現有網絡……" : "正在測試，只會透過內嵌 Tailscale 連線……");
         send(new JSONObject().put("Op", "probe").put("URL", endpoint.getText().toString().trim()).put("Pin", fingerprint.getText().toString().trim()));
       } catch (Exception error) { showError("未能開始測試"); }
     });
     test.setEnabled(false);
-    workspace = button("開啟 Workspace", body, view -> {
-      try {
-        saved.edit().putString("serverUrl", endpoint.getText().toString().trim()).putString("certificateSha256", fingerprint.getText().toString().trim()).apply();
-        workspace.setEnabled(false);
-        send(new JSONObject().put("Op", "workspace").put("URL", endpoint.getText().toString().trim()).put("Pin", fingerprint.getText().toString().trim()));
-      } catch (Exception error) { workspace.setEnabled(true); showError("未能開啟 Workspace"); }
-    });
+    workspace = button("重新開啟 Workspace", body, view -> requestWorkspace());
     workspace.setEnabled(false);
     button("停止連線", body, view -> stopCore());
     results = text("測試結果會顯示喺呢度。", 14);
@@ -152,13 +168,89 @@ public class MainActivity extends Activity {
     body.addView(results);
     updateMode();
     modes.setOnCheckedChangeListener((group, checked) -> {
+      saveProfile();
       stopCore();
       direct = checked == directMode.getId();
       saved.edit().putBoolean("directConnection", direct).apply();
+      loadProfile(false);
       results.setText("連線方式已更改。請確認網址及憑證，再啟動連線。");
       updateMode();
     });
     setContentView(scroll);
+    if (automatic.isChecked() && !endpoint.getText().toString().trim().isEmpty()) connect();
+  }
+
+  private String profileKey(String field) { return (direct ? "direct." : "tailscale.") + field; }
+
+  private void saveProfile() {
+    saved.edit().putString(profileKey("url"), endpoint.getText().toString().trim())
+      .putString(profileKey("pin"), fingerprint.getText().toString().trim()).apply();
+  }
+
+  private void loadProfile(boolean migrate) {
+    endpoint.setText(saved.getString(profileKey("url"), migrate ? saved.getString("serverUrl", "") : ""));
+    fingerprint.setText(saved.getString(profileKey("pin"), migrate ? saved.getString("certificateSha256", "") : ""));
+  }
+
+  private void connect() {
+    if (stopping) return;
+    if (endpoint.getText().toString().trim().isEmpty() || fingerprint.getText().toString().trim().isEmpty()) {
+      showError("請輸入伺服器網址及已核實嘅憑證指紋，或匯入連線設定。");
+      return;
+    }
+    saveProfile();
+    pendingOpen = true;
+    if (core == null) startCore();
+    else if (workspace.isEnabled()) { pendingOpen = false; requestWorkspace(); }
+  }
+
+  private void requestWorkspace() {
+    if (openingWorkspace) return;
+    try {
+      saveProfile();
+      openingWorkspace = true;
+      start.setEnabled(false);
+      test.setEnabled(false);
+      workspace.setEnabled(false);
+      results.setText("正在核實伺服器憑證及連線，完成後會開啟 Workspace……");
+      send(new JSONObject().put("Op", "workspace").put("URL", endpoint.getText().toString().trim()).put("Pin", fingerprint.getText().toString().trim()));
+    } catch (Exception error) { stopCore(); showError("未能開啟 Workspace，請重新連線。"); }
+  }
+
+  @Override protected void onActivityResult(int request, int result, Intent data) {
+    super.onActivityResult(request, result, data);
+    if (request != 1 || result != RESULT_OK || data == null || data.getData() == null) return;
+    final Uri document = data.getData();
+    new Thread(() -> {
+      try (InputStream input = getContentResolver().openInputStream(document); ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
+        if (input == null) throw new java.io.IOException();
+        byte[] buffer = new byte[1024];
+        int count;
+        while ((count = input.read(buffer)) != -1) {
+          if (bytes.size() + count > 16384) throw new java.io.IOException();
+          bytes.write(buffer, 0, count);
+        }
+        JSONObject profile = new JSONObject(new String(bytes.toByteArray(), java.nio.charset.StandardCharsets.UTF_8));
+        String url = profile.getString("serverUrl").trim();
+        String pin = profile.getString("certificateSha256").replace(":", "").replaceAll("\\s", "");
+        String mode = profile.getString("mode");
+        Uri server = Uri.parse(url);
+        if ((!mode.equals("tailscale") && !mode.equals("direct")) || !"https".equals(server.getScheme()) || server.getHost() == null || server.getUserInfo() != null || !pin.matches("[0-9a-fA-F]{64}")) throw new IllegalArgumentException();
+        runOnUiThread(() -> {
+          if (destroyed) return;
+          new AlertDialog.Builder(this).setTitle("確認連線設定來源")
+            .setMessage(url + "\n\nSHA-256\n" + pin + "\n\n只匯入由你嘅伺服器可信渠道取得嘅設定。檔案本身唔代表憑證已可信。")
+            .setNegativeButton("取消", null).setPositiveButton("確認並匯入", (dialog, which) -> {
+              stopCore();
+              modes.check(mode.equals("direct") ? directMode.getId() : tailscaleMode.getId());
+              endpoint.setText(url);
+              fingerprint.setText(pin);
+              saveProfile();
+              results.setText("設定已匯入。按「連線並開啟 Workspace」繼續。");
+            }).show();
+        });
+      } catch (Exception error) { runOnUiThread(() -> { if (!destroyed) showError("設定檔無效。需要 mode、serverUrl 及 certificateSha256，大小不可超過 16 KB。"); }); }
+    }, "paneboard-import").start();
   }
 
   private void updateMode() {
@@ -177,7 +269,7 @@ public class MainActivity extends Activity {
       NetworkCapabilities capabilities = manager.getNetworkCapabilities(network);
       if (capabilities != null && capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) activeVpn = true;
     }
-    vpn.setText(activeVpn ? "系統 VPN：目前有連線（唔係本測試版建立）" : "系統 VPN：未偵測到連線");
+    vpn.setText(activeVpn ? "系統 VPN：目前有連線（唔係本 App 建立）" : "系統 VPN：未偵測到連線");
   }
 
   private void startCore() {
@@ -210,7 +302,7 @@ public class MainActivity extends Activity {
           }
           final int code = process.waitFor();
           runOnUiThread(() -> {
-            if (!destroyed && core == process) { closeWorkspace(); core = null; commands = null; start.setEnabled(true); authorize.setEnabled(false); test.setEnabled(false); workspace.setEnabled(false); status.setText("連線核心已停止（" + code + "）"); }
+            if (!destroyed && core == process) { closeWorkspace(); core = null; commands = null; pendingOpen = false; openingWorkspace = false; start.setEnabled(true); authorize.setEnabled(false); test.setEnabled(false); workspace.setEnabled(false); status.setText("連線核心已停止（" + code + "）"); }
           });
         } catch (Exception error) { runOnUiThread(() -> { if (!destroyed && core == process) { stopCore(); showError("未能讀取連線核心狀態"); } }); }
       }, "paneboard-core-events").start();
@@ -224,19 +316,30 @@ public class MainActivity extends Activity {
       String host = uri.getHost();
       if ("https".equals(uri.getScheme()) && host != null && (host.equals("tailscale.com") || host.endsWith(".tailscale.com"))) {
         authorizationUrl = value;
-        status.setText("需要授權：請按「授權 Tailscale」");
+        status.setText("需要授權：請按「登入 Tailscale」");
+        if (openAuthWhenReady) { openAuthWhenReady = false; authorize(); }
       } else showError("收到非預期嘅授權網址，已阻止開啟");
     } else if (type.equals("state")) {
       boolean ready = direct ? value.equals("DirectReady") : value.equals("Running");
       status.setText(direct ? "直接連線已準備好（未驗證伺服器）" : "Tailscale：" + value);
-      test.setEnabled(ready);
-      workspace.setEnabled(ready);
+      start.setEnabled(ready && !openingWorkspace);
+      test.setEnabled(ready && !openingWorkspace);
+      workspace.setEnabled(ready && !openingWorkspace);
+      if (ready && pendingOpen) { pendingOpen = false; requestWorkspace(); }
       if (value.equals("Running")) authorizationUrl = "";
     } else if (type.equals("workspace")) {
+      openingWorkspace = false;
+      start.setEnabled(true);
+      test.setEnabled(true);
       try { openWorkspace(new JSONObject(value)); }
       catch (Exception error) { closeWorkspace(); showError("未能建立 Workspace 畫面"); }
     } else if (type.equals("result")) results.append("\n" + value);
-    else if (type.equals("error")) { workspace.setEnabled(test.isEnabled()); showError(value); }
+    else if (type.equals("error")) {
+      pendingOpen = false;
+      if (openingWorkspace) { openingWorkspace = false; start.setEnabled(true); test.setEnabled(true); }
+      workspace.setEnabled(test.isEnabled());
+      showError(value);
+    }
   }
 
   private boolean workspaceUrl(Uri uri) {
@@ -251,7 +354,13 @@ public class MainActivity extends Activity {
     LinearLayout page = new LinearLayout(this);
     page.setOrientation(LinearLayout.VERTICAL);
     page.setPadding(0, dp(8), 0, dp(8));
-    button("返回連線設定", page, view -> closeWorkspace());
+    LinearLayout toolbar = new LinearLayout(this);
+    toolbar.setOrientation(LinearLayout.HORIZONTAL);
+    Button back = button("連線設定", toolbar, view -> closeWorkspace());
+    back.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1));
+    Button reload = button("重新載入", toolbar, view -> { if (webView != null) webView.reload(); });
+    reload.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1));
+    page.addView(toolbar);
     final WebView browser = new WebView(this);
     webView = browser;
     WebView.setWebContentsDebuggingEnabled(false);
@@ -308,7 +417,7 @@ public class MainActivity extends Activity {
     if (!authorizationUrl.isEmpty()) {
       startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(authorizationUrl)));
     } else {
-      try { send(new JSONObject().put("Op", "login")); status.setText("正在取得授權連結，稍後再按此掣開啟……"); }
+      try { openAuthWhenReady = true; send(new JSONObject().put("Op", "login")); status.setText("正在取得 Tailscale 登入連結……"); }
       catch (Exception error) { showError("未能開始授權"); }
     }
   }
@@ -319,9 +428,15 @@ public class MainActivity extends Activity {
     commands.flush();
   }
 
-  private void showError(String message) { results.append("\n錯誤：" + message); }
+  private void showError(String message) {
+    results.append("\n錯誤：" + message);
+    if (webView == null) connectionView.post(() -> connectionView.smoothScrollTo(0, results.getBottom()));
+  }
 
   private void stopCore() {
+    pendingOpen = false;
+    openingWorkspace = false;
+    openAuthWhenReady = false;
     closeWorkspace();
     if (core == null) return;
     final Process process = core;
