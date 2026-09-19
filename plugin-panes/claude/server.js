@@ -1701,16 +1701,23 @@ function cliProcess(commandLine) {
 // the process handle we hold is cmd.exe and the CLI is its child. Calling
 // child.kill() would leave that child alive, holding an API session and a lock
 // on files the packaged build needs to replace, so the whole tree goes.
-function terminateTree(child, spawnImpl) {
+function terminateTree(child, spawnImpl, onError = () => {}) {
   if (!child || child.exitCode !== null || child.signalCode) {
     return;
   }
   if (process.platform === 'win32' && child.pid) {
     try {
-      spawnImpl('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' });
+      const killer = spawnImpl('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' });
+      killer.once('error', onError);
+      killer.once('exit', (code) => {
+        if (code !== 0 && child.exitCode === null && !child.signalCode) {
+          onError(new Error('Failed to terminate CLI process tree.'));
+        }
+      });
       return;
     } catch (error) {
-      // Fall through to the plain kill below.
+      onError(error);
+      return;
     }
   }
   try {
@@ -2206,23 +2213,35 @@ class AiManager {
     runtime.status = 'stopped';
     runtime.lines?.close();
     const child = runtime.child;
-    this.runtimes.delete(runtime.tabId);
+    const forget = () => {
+      if (this.runtimes.get(runtime.tabId) === runtime) this.runtimes.delete(runtime.tabId);
+    };
     this.flush(runtime);
     if (!child || child.exitCode !== null || child.signalCode) {
+      forget();
       return Promise.resolve();
     }
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       let settled = false;
+      let timer;
       const done = () => {
+        forget();
         if (settled) return;
         settled = true;
+        clearTimeout(timer);
         resolve();
       };
+      const failed = (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(new Error(`Failed to terminate CLI process ${child.pid}: ${error.message}`));
+      };
       child.once('exit', done);
-      terminateTree(child, this.spawnImpl);
-      // A process that will not die must not wedge the pane shut.
-      const timer = setTimeout(done, 4000);
+      timer = setTimeout(() => failed(new Error('Timed out waiting for exit.')), 4000);
       timer.unref?.();
+      terminateTree(child, this.spawnImpl, failed);
+      if (child.exitCode !== null || child.signalCode) done();
     });
   }
 
@@ -2244,7 +2263,10 @@ class AiManager {
   }
 
   killTab(tabId) {
-    this.stopRuntime(this.runtimes.get(tabId));
+    const runtime = this.runtimes.get(tabId);
+    this.stopRuntime(runtime)
+      .catch(() => this.stopRuntime(runtime))
+      .catch((error) => console.error(error.message));
   }
 
   // Points a tab at a conversation the CLI already holds. The CLI itself is
@@ -2358,7 +2380,7 @@ class AiManager {
 
   shutdown() {
     for (const runtime of [...this.runtimes.values()]) {
-      this.stopRuntime(runtime);
+      this.killTab(runtime.tabId);
     }
   }
 }

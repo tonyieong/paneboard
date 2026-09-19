@@ -1222,6 +1222,64 @@ test('a CLI that exits cancels its outstanding questions and says why', () => {
 
 // The CLI is a grandchild of the process we hold, so a plain kill would orphan
 // it and leave it holding files the packaged build has to replace.
+for (const provider of ['claude', 'codex']) {
+  test(`${provider} does not replace a CLI when termination times out`, { skip: process.platform !== 'win32' }, async (t) => {
+    const { manager, tabId } = managerFixture({ provider });
+    manager.attach(tabId, fakeSocket());
+    const runtime = manager.runtimes.get(tabId);
+    manager.spawnImpl = () => new EventEmitter();
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const stopped = assert.rejects(manager.restart(runtime), /Timed out/);
+    t.mock.timers.tick(4000);
+    await stopped;
+    assert.equal(manager.runtimes.get(tabId), runtime);
+    runtime.child.exitCode = 0;
+    runtime.child.emit('exit', 0);
+    assert.equal(manager.runtimes.has(tabId), false);
+  });
+
+  test(`${provider} retries a failed pane cleanup without launching another CLI`, { skip: process.platform !== 'win32' }, async () => {
+    const { manager, pane, tabId, spawns } = managerFixture({ provider });
+    manager.attach(tabId, fakeSocket());
+    const originalSpawn = manager.spawnImpl;
+    let attempts = 0;
+    manager.spawnImpl = (...args) => {
+      attempts += 1;
+      if (attempts > 1) return originalSpawn(...args);
+      const killer = new EventEmitter();
+      queueMicrotask(() => killer.emit('error', new Error('spawn failed')));
+      return killer;
+    };
+    manager.killPane(pane);
+    await settle();
+    assert.equal(attempts, 2);
+    assert.equal(manager.runtimes.has(tabId), false);
+    assert.notEqual(cliChild(spawns).exitCode, null);
+    assert.equal(spawns.filter((call) => call.command !== 'taskkill').length, 1);
+  });
+
+  test(`${provider} retains a CLI after failed tree termination and allows retry`, { skip: process.platform !== 'win32' }, async () => {
+    const { manager, tabId, spawns } = managerFixture({ provider });
+    manager.attach(tabId, fakeSocket());
+    const runtime = manager.runtimes.get(tabId);
+    const child = cliChild(spawns);
+    const originalSpawn = manager.spawnImpl;
+    manager.spawnImpl = () => {
+      const killer = new EventEmitter();
+      queueMicrotask(() => killer.emit('exit', 1));
+      return killer;
+    };
+    await assert.rejects(manager.stopRuntime(runtime), /terminate/i);
+    assert.equal(manager.runtimes.get(tabId), runtime);
+    assert.equal(child.exitCode, null);
+    assert.equal(manager.getOrCreate(tabId), runtime);
+    manager.spawnImpl = originalSpawn;
+    await manager.stopRuntime(runtime);
+    assert.equal(manager.runtimes.has(tabId), false);
+    assert.notEqual(child.exitCode, null);
+  });
+}
+
 test('closing a pane kills the whole CLI process tree', { skip: process.platform !== 'win32' }, () => {
   const { manager, pane, tabId, spawns } = managerFixture();
   manager.attach(tabId, fakeSocket());
