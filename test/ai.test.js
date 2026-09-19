@@ -774,7 +774,7 @@ function fakeSocket() {
   return socket;
 }
 
-function managerFixture({ provider = 'claude', config = {}, env, refreshUpdateCheckImpl = () => Promise.resolve() } = {}) {
+function managerFixture({ provider = 'claude', config = {}, env, refreshUpdateCheckImpl = () => Promise.resolve(), readLocalVersionImpl = () => Promise.resolve('') } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-ai-'));
   const store = new StateStore(root);
   store.load();
@@ -789,6 +789,7 @@ function managerFixture({ provider = 'claude', config = {}, env, refreshUpdateCh
     // spawn plus an npm registry HTTPS request; tests that care about the
     // update check override this explicitly.
     refreshUpdateCheckImpl,
+    readLocalVersionImpl,
     ...(env ? { env } : {}),
     spawnImpl: (command, args, options) => {
       const child = fakeChild();
@@ -1114,17 +1115,28 @@ test('a cache checked within the last day skips the network entirely', () => {
   assert.equal(calls, 0);
 });
 
-test('opening a tab shows a text notice in the pane when the cached check found a newer version', () => {
-  const { manager, tabId, root } = managerFixture();
+test('opening a tab shows a text notice in the pane when the cached check found a newer version', async () => {
+  const { manager, tabId, root } = managerFixture({ readLocalVersionImpl: () => Promise.resolve('2.1.238') });
   writeUpdateCache(root, { checkedAt: Date.now(), localVersion: '2.1.238', latestVersion: '2.1.240' });
   const socket = fakeSocket();
   manager.attach(tabId, socket);
-  // The check runs before any client has attached, so it lands in the
-  // transcript the first "hello" already carries, not a later broadcast.
-  const hello = socket.sent[0];
-  const notice = hello.events.find((event) => event.kind === 'notice'
-    && event.text.includes('2.1.238') && event.text.includes('2.1.240'));
+  await new Promise((resolve) => setImmediate(resolve));
+  const notice = socket.sent.find((message) => message.type === 'event' && message.event.kind === 'notice'
+    && message.event.text.includes('2.1.238') && message.event.text.includes('2.1.240'));
   assert.ok(notice, 'expected an update notice in the pane');
+});
+
+// The cache is up to a day old, so a CLI updated since it was written must not
+// keep being told to update.
+test('opening a tab stays quiet when the CLI was updated after the cached check', async () => {
+  const { manager, tabId, root } = managerFixture({ readLocalVersionImpl: () => Promise.resolve('2.1.278') });
+  writeUpdateCache(root, { checkedAt: Date.now(), localVersion: '2.1.270', latestVersion: '2.1.278' });
+  const socket = fakeSocket();
+  manager.attach(tabId, socket);
+  await new Promise((resolve) => setImmediate(resolve));
+  const events = [...socket.sent[0].events, ...socket.sent.filter((message) => message.type === 'event').map((message) => message.event)];
+  assert.equal(events.find((event) => event.kind === 'notice' && event.text.includes('has an update available')), undefined);
+  assert.equal(readUpdateCache(root).localVersion, '2.1.278');
 });
 
 test('opening a tab stays quiet when the cached check found no newer version', () => {
