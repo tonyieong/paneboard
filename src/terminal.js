@@ -287,7 +287,16 @@ class TerminalManager {
           runtime.cols = cols;
           runtime.rows = rows;
           runtime.hasPtySize = true;
-          runtime.proc.resize(cols, rows);
+          try {
+            runtime.proc.resize(cols, rows);
+          } catch (error) {
+            // ConPTY can exit after the client sends its resize but before it
+            // reaches node-pty. The runtime's onExit handler will remove it.
+            if (/pty that has already exited/i.test(error.message)) {
+              return;
+            }
+            throw error;
+          }
           runtime.headless.resize(cols, rows);
           clearTimeout(fallbackSnapshotTimer);
           const age = Date.now() - runtime.createdAt;

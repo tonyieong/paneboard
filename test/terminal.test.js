@@ -175,6 +175,43 @@ test('terminal height-only resizes stay in the browser after the initial PTY siz
   manager.shutdown();
 });
 
+test('a resize sent after its PTY exits does not crash the server', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
+  const store = new StateStore(root);
+  store.load();
+  const tabId = store.state.sessions[0].tabs[0].panes[0].activeTerminalTabId;
+  const manager = new TerminalManager({
+    config: {},
+    root,
+    store,
+    shell: { command: 'powershell.exe', args: [] }
+  });
+  const runtime = createHeadlessRuntime();
+  runtime.cols = 100;
+  runtime.rows = 30;
+  runtime.createdAt = 0;
+  runtime.hasOutput = true;
+  runtime.hasPtySize = false;
+  runtime.status = 'running';
+  runtime.proc.resize = () => {
+    throw new Error('Cannot resize a pty that has already exited');
+  };
+  runtime.proc.onData = () => ({ dispose() {} });
+  manager.processes.set(tabId, runtime);
+
+  const ws = new EventEmitter();
+  ws.OPEN = 1;
+  ws.readyState = 1;
+  ws.send = () => {};
+  manager.attach(tabId, ws);
+
+  assert.doesNotThrow(() => {
+    ws.emit('message', Buffer.from(JSON.stringify({ type: 'resize', cols: 120, rows: 40 })));
+  });
+  ws.emit('close');
+  manager.shutdown();
+});
+
 test('output sender coalesces terminal chunks', async () => {
   const sent = [];
   const ws = {
