@@ -91,7 +91,7 @@ Rollback to the old signing key is disabled. The internal package name remains
    `/api/config` and an unauthenticated WebSocket handshake. Expected close code
    1008 proves authentication rejection; it does **not** test terminal I/O.
 5. Open Workspace and use the normal Paneboard login page. The adapter preserves
-   bearer authentication, validates the local Host/Origin before mapping to the
+   authentication credentials, validates the local Host/Origin before mapping to the
    upstream authority, strips its own capability and blocks external redirects.
    Return to connection settings to close the adapter and clear that WebView
    origin's stored login data. Reopening can require another Paneboard login.
