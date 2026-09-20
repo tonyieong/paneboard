@@ -43,6 +43,28 @@ test('terminal manager rejects files panes', () => {
   assert.throws(() => manager.getOrCreate(filesPane.id), /Unknown terminal/);
 });
 
+test('a terminal startup failure closes only its WebSocket', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
+  const store = new StateStore(root);
+  store.load();
+  const tabId = store.state.sessions[0].tabs[0].panes[0].activeTerminalTabId;
+  const manager = new TerminalManager({
+    config: {},
+    root,
+    store,
+    shell: { command: 'powershell.exe', args: [] }
+  });
+  manager.createRuntime = () => {
+    throw new Error('File not found');
+  };
+  const ws = new EventEmitter();
+  const closed = [];
+  ws.close = (...args) => closed.push(args);
+
+  assert.doesNotThrow(() => manager.attach(tabId, ws));
+  assert.deepEqual(closed, [[1011, 'Terminal could not be started.']]);
+});
+
 test('terminal manager resolves runtimes by terminal tab id', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const store = new StateStore(root);

@@ -232,7 +232,15 @@ class TerminalManager {
       return;
     }
 
-    const runtime = this.getOrCreate(terminalId);
+    let runtime;
+    try {
+      runtime = this.getOrCreate(terminalId);
+    } catch {
+      // A packaged native PTY can fail to load or a configured shell can be
+      // unavailable. A WebSocket callback must not take down the whole server.
+      ws.close(1011, 'Terminal could not be started.');
+      return;
+    }
     const sender = createOutputSender(ws);
     let snapshotSent = false;
     const sendSnapshot = async () => {

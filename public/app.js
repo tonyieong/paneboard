@@ -8511,7 +8511,7 @@
         if (disposed || socket !== ws) {
           return;
         }
-        if (event.code === 1008) {
+        if (event.code === 1008 || event.code === 1011) {
           showToast(event.reason || 'Terminal connection rejected.');
           if (event.reason === 'Login required') {
             clearToken();
