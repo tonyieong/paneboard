@@ -12,7 +12,8 @@ const {
 } = require('../plugin-panes/claude/server');
 const {
   AiManager: CodexAiManager, CodexAdapter, decisionLabel,
-  isNewerVersion: codexIsNewerVersion, sanitizeImages: codexSanitizeImages
+  isNewerVersion: codexIsNewerVersion, sanitizeImages: codexSanitizeImages,
+  readUpdateCache: readCodexUpdateCache, writeUpdateCache: writeCodexUpdateCache
 } = require('../plugin-panes/codex/server');
 
 const defaultConfig = { ai: { claude_args: '--dangerously-skip-permissions' } };
@@ -1137,6 +1138,17 @@ test('opening a tab stays quiet when the CLI was updated after the cached check'
   const events = [...socket.sent[0].events, ...socket.sent.filter((message) => message.type === 'event').map((message) => message.event)];
   assert.equal(events.find((event) => event.kind === 'notice' && event.text.includes('has an update available')), undefined);
   assert.equal(readUpdateCache(root).localVersion, '2.1.278');
+});
+
+test('the Codex pane also rechecks the installed version before announcing an update', async () => {
+  const { manager, tabId, root } = managerFixture({ provider: 'codex', readLocalVersionImpl: () => Promise.resolve('0.104.0') });
+  writeCodexUpdateCache(root, { checkedAt: Date.now(), localVersion: '0.103.0', latestVersion: '0.104.0' });
+  const socket = fakeSocket();
+  manager.attach(tabId, socket);
+  await new Promise((resolve) => setImmediate(resolve));
+  const events = [...socket.sent[0].events, ...socket.sent.filter((message) => message.type === 'event').map((message) => message.event)];
+  assert.equal(events.find((event) => event.kind === 'notice' && event.text.includes('has an update available')), undefined);
+  assert.equal(readCodexUpdateCache(root).localVersion, '0.104.0');
 });
 
 test('opening a tab stays quiet when the cached check found no newer version', () => {

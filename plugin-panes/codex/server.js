@@ -1753,13 +1753,14 @@ function terminateTree(child, spawnImpl, onError = () => {}) {
 }
 
 class AiManager {
-  constructor({ config, root, store, spawnImpl = spawn, env = process.env, refreshUpdateCheckImpl = refreshUpdateCheck }) {
+  constructor({ config, root, store, spawnImpl = spawn, env = process.env, refreshUpdateCheckImpl = refreshUpdateCheck, readLocalVersionImpl = readLocalCliVersion }) {
     this.config = config;
     this.root = root;
     this.store = store;
     this.spawnImpl = spawnImpl;
     this.env = env;
     this.refreshUpdateCheckImpl = refreshUpdateCheckImpl;
+    this.readLocalVersionImpl = readLocalVersionImpl;
     this.updateCheckInFlight = false;
     // One CLI process per tab, exactly as a terminal pane runs one shell per
     // tab. Keyed by tab id because that is what the socket carries.
@@ -1905,16 +1906,26 @@ class AiManager {
 
   // Reads whatever the last completed check found; a check still in flight
   // simply has nothing to say yet and is picked up next time a tab spawns.
+  // That check can be a day old and the CLI updated since, so the installed
+  // version is read again before the pane is told to update.
   announceUpdateIfAvailable(runtime) {
     const cache = readUpdateCache(this.root);
     if (!cache || !isNewerVersion(cache.latestVersion, cache.localVersion)) {
       return;
     }
-    this.recordEvent(runtime, {
-      role: 'system',
-      kind: 'notice',
-      text: `${UPDATE_CLI_LABEL} has an update available: ${cache.localVersion} → ${cache.latestVersion}. Run npm install -g ${UPDATE_NPM_PACKAGE}@latest to update.`
-    });
+    Promise.resolve(this.readLocalVersionImpl(UPDATE_VERSION_COMMAND, this.env)).then((localVersion) => {
+      if (localVersion && localVersion !== cache.localVersion) {
+        writeUpdateCache(this.root, { ...cache, localVersion });
+      }
+      if (!isNewerVersion(cache.latestVersion, localVersion)) {
+        return;
+      }
+      this.recordEvent(runtime, {
+        role: 'system',
+        kind: 'notice',
+        text: `${UPDATE_CLI_LABEL} has an update available: ${localVersion} → ${cache.latestVersion}. Run npm install -g ${UPDATE_NPM_PACKAGE}@latest to update.`
+      });
+    }).catch(() => {});
   }
 
   // Written to disk rather than kept in the transcript: the CLI still gets the
