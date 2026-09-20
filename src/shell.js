@@ -2,17 +2,17 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-function commandExists(command) {
-  const result = spawnSync('where.exe', [command], { windowsHide: true, encoding: 'utf8' });
-  return result.status === 0;
-}
-
 function resolveCommand(command) {
   if (path.isAbsolute(command) && fs.existsSync(command)) {
     return command;
   }
-  if (commandExists(command)) {
-    return command;
+  const result = spawnSync('where.exe', [command], { windowsHide: true, encoding: 'utf8' });
+  if (result.status === 0) {
+    // Pass the resolved path to ConPTY: its native PATH search can fail even
+    // when where.exe succeeds (for example, for the final PATH entry).
+    const resolved = result.stdout.split(/\r?\n/).map((line) => line.trim())
+      .find((candidate) => path.isAbsolute(candidate) && fs.existsSync(candidate));
+    if (resolved) return resolved;
   }
 
   const knownPaths = [
