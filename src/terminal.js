@@ -1,5 +1,5 @@
 const path = require('path');
-const { fork } = require('child_process');
+const { fork, spawn } = require('child_process');
 const pty = require('@homebridge/node-pty-prebuilt-multiarch');
 const { Terminal: HeadlessTerminal } = require('@xterm/headless');
 const { SerializeAddon } = require('@xterm/addon-serialize');
@@ -362,6 +362,16 @@ class TerminalManager {
     }
 
     runtime.proc.kill();
+    // node-pty can leave the ConPTY child alive after its IPC channel closes.
+    // Finish the whole tree so an exited terminal never keeps this runtime (or
+    // a test worker) alive.
+    if (process.platform === 'win32' && runtime.proc.pid) {
+      const killer = spawn('taskkill.exe', ['/pid', String(runtime.proc.pid), '/t', '/f'], {
+        stdio: 'ignore',
+        windowsHide: true
+      });
+      killer.unref();
+    }
     runtime.headless.dispose();
     this.processes.delete(terminalId);
   }
