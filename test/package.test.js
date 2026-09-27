@@ -101,7 +101,7 @@ test('the tray Exit item stops the server', () => {
   assert.match(traySource, /\$exitItem = \$menu\.Items\.Add\('Exit'\)/);
   assert.match(traySource, /\$exitItem\.add_Click\(\{ \[Console\]::Out\.WriteLine\('exit'\)/);
   assert.match(traySource, /line === 'exit'\)\s*\{\s*\n\s*shutdown\(\);/);
-  assert.match(mainSource, /shutdown: \(\) => stopRuntime\(\)/);
+  assert.match(mainSource, /shutdown: \(\) => stopRuntime\(\{ reason: 'tray-exit' \}\)/);
 });
 
 // A Windows service runs in session 0, where it has no interactive desktop and

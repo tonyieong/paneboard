@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { Readable } = require('node:stream');
 const files = require('../src/files');
 
@@ -15,9 +16,29 @@ function textPayload(result) {
 
 test('normalizes local drive paths and rejects unsafe roots', () => {
   const root = path.parse(os.tmpdir()).root;
-  assert.equal(files.normalizeLocalPath(path.join(root, 'Users')), path.win32.resolve(path.join(root, 'Users')));
+  assert.equal(files.normalizeLocalPath(path.join(root, 'Users')), path.resolve(path.join(root, 'Users')));
   assert.equal(files.normalizeLocalPath('relative\\path'), null);
   assert.equal(files.normalizeLocalPath('\\\\server\\share'), null);
+});
+
+test('on Linux, paths are absolute POSIX paths and the root list is / and home', { skip: process.platform !== 'linux' }, () => {
+  assert.equal(files.normalizeLocalPath('/tmp/../etc/'), '/etc');
+  assert.equal(files.normalizeLocalPath('C:\\Users'), null);
+  assert.equal(files.normalizeLocalPath('~/notes'), null);
+  assert.deepEqual(files.listDrives(), [{ name: '/', path: '/' }, { name: os.homedir(), path: os.homedir() }]);
+});
+
+test('on Linux, a folder download zips the folder under its own name', { skip: process.platform !== 'linux' }, async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
+  fs.mkdirSync(path.join(root, 'report'));
+  fs.writeFileSync(path.join(root, 'report', 'a.txt'), 'a');
+  fs.writeFileSync(path.join(root, 'b.txt'), 'b');
+
+  const folder = await files.prepareDownload(path.join(root, 'report'));
+  assert.equal(folder.name, 'report.zip');
+  const bulk = await files.prepareBulkDownload([path.join(root, 'report'), path.join(root, 'b.txt')]);
+  const listing = spawnSync('unzip', ['-Z1', bulk.path], { encoding: 'utf8' }).stdout.split('\n').filter(Boolean).sort();
+  assert.deepEqual(listing, ['b.txt', 'report/', 'report/a.txt']);
 });
 
 test('manages folders and files inside a local path', async () => {
@@ -119,7 +140,7 @@ test('bulk download rejects empty selections and delegates single items', async 
   assert.throws(() => files.prepareBulkDownload([]), /No files selected/);
   const single = await files.prepareBulkDownload([only]);
   assert.equal(single.type, 'file');
-  assert.equal(single.path, path.win32.resolve(only));
+  assert.equal(single.path, path.resolve(only));
 });
 
 test('bulk download archives multiple items into one zip', async () => {
@@ -196,15 +217,15 @@ test('image siblings list the pictures beside a file in name order', () => {
   }
 
   const siblings = files.listImageSiblings(path.join(root, 'b.png'));
-  assert.equal(siblings.directory, path.win32.resolve(root));
-  assert.deepEqual(siblings.entries.map((entry) => path.win32.basename(entry)), ['a.jpg', 'b.png', 'c.webp']);
+  assert.equal(siblings.directory, path.resolve(root));
+  assert.deepEqual(siblings.entries.map((entry) => path.basename(entry)), ['a.jpg', 'b.png', 'c.webp']);
 });
 
 test('image siblings still include a picture whose folder cannot be listed', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   const missing = path.join(root, 'gone', 'photo.png');
 
-  assert.deepEqual(files.listImageSiblings(missing).entries, [path.win32.resolve(missing)]);
+  assert.deepEqual(files.listImageSiblings(missing).entries, [path.resolve(missing)]);
 });
 
 test('moves a file into a destination folder', () => {
@@ -214,7 +235,7 @@ test('moves a file into a destination folder', () => {
   const folder = files.createFolder(root, 'dest-folder');
 
   const movedIntoFolder = files.moveItem(source, folder.path);
-  assert.equal(movedIntoFolder.path, path.win32.join(folder.path, 'source.txt'));
+  assert.equal(movedIntoFolder.path, path.join(folder.path, 'source.txt'));
   assert.equal(fs.existsSync(source), false);
   assert.equal(fs.readFileSync(movedIntoFolder.path, 'utf8'), 'moved');
 });
@@ -227,7 +248,7 @@ test('moving onto an existing file path overwrites it, and a missing destination
   fs.writeFileSync(existing, 'old content');
 
   const moved = files.moveItem(source, existing);
-  assert.equal(moved.path, path.win32.resolve(existing));
+  assert.equal(moved.path, path.resolve(existing));
   assert.equal(fs.readFileSync(existing, 'utf8'), 'new content');
   assert.equal(fs.existsSync(source), false);
 

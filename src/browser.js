@@ -13,8 +13,18 @@ const CHROME_CANDIDATES = [
   'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe'
 ];
 
-function findChromiumExecutable(fileSystem = fs) {
-  return CHROME_CANDIDATES.find((candidate) => fileSystem.existsSync(candidate)) || '';
+const LINUX_CHROME_CANDIDATES = [
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/chromium',
+  '/snap/bin/chromium',
+  '/usr/bin/microsoft-edge'
+];
+
+function findChromiumExecutable(fileSystem = fs, platform = process.platform) {
+  const candidates = platform === 'win32' ? CHROME_CANDIDATES : LINUX_CHROME_CANDIDATES;
+  return candidates.find((candidate) => fileSystem.existsSync(candidate)) || '';
 }
 
 function chromeArguments(profilePath) {
@@ -48,7 +58,30 @@ function chromiumProfileCleanupCommand(profilePath) {
     `ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
 }
 
+function terminateStaleLinuxChromium(profilePath) {
+  const marker = `--user-data-dir=${profilePath}`;
+  let pids;
+  try {
+    pids = fs.readdirSync('/proc').filter((name) => /^\d+$/.test(name));
+  } catch {
+    return;
+  }
+  for (const pid of pids) {
+    try {
+      if (fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').includes(marker)) {
+        process.kill(Number(pid), 'SIGKILL');
+      }
+    } catch {
+      // The process exited, or belongs to another user.
+    }
+  }
+}
+
 function terminateStaleChromium(profilePath, run = execFile) {
+  if (process.platform !== 'win32') {
+    terminateStaleLinuxChromium(profilePath);
+    return Promise.resolve();
+  }
   // A prior Paneboard process that exited without calling shutdown() (crash, forced
   // kill, service restart) can leave its headless Chromium still running.
   // Chromium's own profile lock then refuses every future launch against the
@@ -92,7 +125,7 @@ function desktopUserAgent(userAgent) {
   return String(userAgent || '').replace('HeadlessChrome', 'Chrome');
 }
 
-function userAgentMetadata(emulationMode) {
+function userAgentMetadata(emulationMode, platform = process.platform) {
   // Overriding only the User-Agent string makes Chromium drop its Client Hints:
   // Sec-CH-UA, -Mobile and -Platform stop being sent entirely and
   // navigator.userAgentData goes blank. A Chrome user agent that sends no Client
@@ -102,6 +135,10 @@ function userAgentMetadata(emulationMode) {
   // GREASE brand, which no hand-written list can match version for version.
   if (normalizeEmulationMode(emulationMode) === 'mobile') {
     return { platform: 'Android', platformVersion: '15.0.0', architecture: '', model: MOBILE_DEVICE_MODEL, mobile: true };
+  }
+  if (platform !== 'win32') {
+    // Chromium on Linux reports the kernel version.
+    return { platform: 'Linux', platformVersion: os.release().split('-')[0], architecture: 'x86', model: '', mobile: false };
   }
   return { platform: 'Windows', platformVersion: '19.0.0', architecture: 'x86', model: '', mobile: false };
 }
@@ -1167,7 +1204,9 @@ class BrowserManager {
 
   async startChromium() {
     const executable = findChromiumExecutable();
-    if (!executable) return Promise.reject(new Error('Google Chrome or Microsoft Edge is not installed on the Paneboard server.'));
+    if (!executable) return Promise.reject(new Error(process.platform === 'win32'
+      ? 'Google Chrome or Microsoft Edge is not installed on the Paneboard server.'
+      : 'Google Chrome or Chromium is not installed on the Paneboard server.'));
     const profilePath = path.join(this.root, 'data', 'browser-profile');
     fs.mkdirSync(profilePath, { recursive: true });
     await this.terminateStaleChromium(profilePath);

@@ -8,8 +8,8 @@ saved theme selections, and existing plugin registration names remain compatible
 Run `npm run startup:repair` from the new installation to update its logon shortcut.
 The GitHub repository URL retains its existing name.
 
-Portable Windows web terminal workspace inspired by `tmux-continuum`. It serves
-PowerShell sessions, a file manager, a notepad, a browser pane, an image viewer,
+Portable Windows and Linux web terminal workspace inspired by `tmux-continuum`. It serves
+PowerShell (or, on Linux, bash) sessions, a file manager, a notepad, a browser pane, an image viewer,
 and a whiteboard to any browser on your machine, and rebuilds the layout after a
 reboot.
 
@@ -136,6 +136,26 @@ The packaged executable is written to `dist/paneboard.exe`. pkg builds on a
 console-subsystem Node binary, which would give the server a console window for
 as long as it runs, so packaging rewrites the PE subsystem to `windows`. Double
 clicking `dist/paneboard.exe` starts it with no console.
+
+## Linux server
+
+Paneboard also runs on a Linux server (tested on Fedora 44, x86-64) with Node.js 22:
+
+```sh
+npm install
+npm start
+```
+
+Terminal panes start `bash -l`; change `shell.preferred`, `shell.fallback` and `shell.args` to use another shell. There are no CMD panes, file panes browse from `/` and your home folder, and downloading a folder needs the `zip` command. Browser panes need Google Chrome or Chromium (for example `sudo dnf install chromium`). There is no tray icon: Paneboard runs as a background service.
+
+To build a single executable and run it as a systemd user service, from the project folder on the Linux machine:
+
+```sh
+npm run package:linux
+sh dist-linux/scripts/install-paneboard-service.sh
+```
+
+The installer writes `~/.config/systemd/user/paneboard.service`, starts it, and enables lingering so it keeps running after you log out. It records the current `PATH`, so run it from a shell where `claude` and `codex` are found. Run it again after moving the folder. Restarting from the web UI hands the restart to systemd; `systemctl --user stop paneboard` saves the workspace first. `sh dist-linux/scripts/uninstall-paneboard-service.sh` removes the service and leaves `data/` alone.
 
 ## Plugin panes
 

@@ -41,7 +41,20 @@ function clientKey(req) {
   return req.socket.remoteAddress || 'unknown';
 }
 
+const SYSTEMD_RESTART_EXIT_CODE = 75;
+
 function openBrowser(url) {
+  if (process.platform !== 'win32') {
+    // A server without a desktop session has nowhere to open it, and a
+    // service would open it on every restart.
+    if ((!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) || process.env.PANEBOARD_SERVICE) {
+      return;
+    }
+    const child = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' });
+    child.on('error', () => {});
+    child.unref();
+    return;
+  }
   spawn('cmd', ['/c', 'start', '', url], {
     detached: true,
     stdio: 'ignore',
@@ -201,6 +214,7 @@ function publicConfig(config, shell, restartRequired, reloadError) {
   return {
     server: config.server,
     authRequired: Boolean(config.auth.password_hash),
+    platform: process.platform,
     shell,
     persistence: config.persistence,
     terminal: {
@@ -771,6 +785,11 @@ function main() {
 
   process.on('uncaughtException', handleFatalError('uncaughtException'));
   process.on('unhandledRejection', handleFatalError('unhandledRejection'));
+  if (process.platform !== 'win32') {
+    // systemctl stop and Ctrl+C save the workspace, as the tray's Exit does.
+    process.on('SIGTERM', () => stopRuntime({ reason: 'signal-sigterm' }));
+    process.on('SIGINT', () => stopRuntime({ reason: 'signal-sigint' }));
+  }
 
   const app = express();
   const server = config.server.protocol === 'https'
@@ -848,12 +867,12 @@ function main() {
     }
   }
 
-  function stopRuntime({ restart = false } = {}) {
+  function stopRuntime({ restart = false, reason = 'internal' } = {}) {
     if (stopping) {
       return;
     }
     stopping = true;
-    appendRuntimeLog(root, `stopping pid=${process.pid} restart=${restart}`);
+    appendRuntimeLog(root, `stopping pid=${process.pid} restart=${restart} reason=${reason}`);
     // The AI CLIs are grandchildren of this process, so they are stopped before
     // the server goes: an orphan keeps an API session open and holds files the
     // packaged build has to replace on the next upgrade.
@@ -867,18 +886,18 @@ function main() {
     }
     clearInterval(autosaveTimer);
     wss.close(() => {});
-    server.close(() => {
-      if (restart) {
+    // systemd stops everything left in the service once its main process exits,
+    // a replacement included, so there a restart exits with a failure code the
+    // unit's Restart=on-failure answers instead.
+    const systemdRestart = restart && process.env.PANEBOARD_SERVICE === 'systemd';
+    const finish = () => {
+      if (restart && !systemdRestart) {
         spawnReplacementProcess(root);
       }
-      process.exit(0);
-    });
-    setTimeout(() => {
-      if (restart) {
-        spawnReplacementProcess(root);
-      }
-      process.exit(0);
-    }, 1500).unref();
+      process.exit(systemdRestart ? SYSTEMD_RESTART_EXIT_CODE : 0);
+    };
+    server.close(finish);
+    setTimeout(finish, 1500).unref();
   }
 
   const loginLimiter = createRateLimiter({ limit: LOGIN_ATTEMPT_LIMIT, windowMs: LOGIN_ATTEMPT_WINDOW_MS });
@@ -1062,7 +1081,7 @@ function main() {
       const response = applyLoadedConfig(loaded.config);
       res.json({ ...response, restarting: shouldRestart });
       if (shouldRestart) {
-        setTimeout(() => stopRuntime({ restart: true }), 250).unref();
+        setTimeout(() => stopRuntime({ restart: true, reason: 'settings-restart' }), 250).unref();
       }
     } catch (error) {
       configReloadError = error.message;
@@ -1831,12 +1850,12 @@ function main() {
 
   app.post('/api/runtime/restart', requireRuntimeControl(controlToken), (req, res) => {
     res.json({ ok: true });
-    setTimeout(() => stopRuntime({ restart: true }), 100).unref();
+    setTimeout(() => stopRuntime({ restart: true, reason: `api-restart requester=${clientKey(req)}` }), 100).unref();
   });
 
   app.post('/api/runtime/shutdown', requireRuntimeControl(controlToken), (req, res) => {
     res.json({ ok: true });
-    setTimeout(() => stopRuntime(), 100).unref();
+    setTimeout(() => stopRuntime({ reason: `api-shutdown requester=${clientKey(req)}` }), 100).unref();
   });
 
   app.get('/api/files/drives', requireAuth(config), (req, res) => {
@@ -2280,8 +2299,8 @@ function main() {
         port,
         save: () => store.save(),
         openBrowser,
-        restart: () => stopRuntime({ restart: true }),
-        shutdown: () => stopRuntime(),
+        restart: () => stopRuntime({ restart: true, reason: 'tray-restart' }),
+        shutdown: () => stopRuntime({ reason: 'tray-exit' }),
         // The packaged exe is on the windows subsystem and has no console, so
         // anything the tray writes to stderr would otherwise be lost.
         log: (message) => appendRuntimeLog(root, `tray ${message}`)

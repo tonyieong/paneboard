@@ -820,6 +820,11 @@
     return pane.terminalTabs || [];
   }
 
+  // A Linux server runs one configured shell and has no cmd.exe.
+  function serverOnWindows() {
+    return (state.config?.platform ?? 'win32') === 'win32';
+  }
+
   // Which shell a terminal pane runs, taken from the tab on screen: every tab in
   // a pane is opened with the pane's own shell.
   function paneShell(pane) {
@@ -851,7 +856,7 @@
       return tab.title || plugin?.name || tab.provider || 'AI';
     }
     if (pane.type !== 'files') {
-      return tab.title || (tab.shell === 'cmd' ? 'CMD' : 'PowerShell');
+      return tab.title || (!serverOnWindows() ? 'Terminal' : tab.shell === 'cmd' ? 'CMD' : 'PowerShell');
     }
     const trimmed = String(tab.path || '').replace(/[\\/]+$/, '');
     return trimmed ? trimmed.split(/[\\/]/).pop() || trimmed : 'This PC';
@@ -1163,7 +1168,7 @@
           <div class="file-location-row">
             <button class="file-command-button" type="button" data-file-up aria-label="Up one level" title="Up one level" ${pane.path ? '' : 'disabled'}>${fileActionIcon('up')}</button>
             <div class="file-path-control" data-file-path-control>
-              <input class="file-path-input" name="path" value="${escapeAttr(pane.path)}" placeholder="This PC or C:\\path" autocomplete="off" aria-label="Folder path" aria-controls="file-path-menu-${pane.id}" aria-expanded="false">
+              <input class="file-path-input" name="path" value="${escapeAttr(pane.path)}" placeholder="${serverOnWindows() ? 'This PC or C:\\path' : 'This PC or /path'}" autocomplete="off" aria-label="Folder path" aria-controls="file-path-menu-${pane.id}" aria-expanded="false">
               <button class="file-path-toggle" type="button" data-file-path-toggle aria-label="Show path history and bookmarks" aria-expanded="false" aria-controls="file-path-menu-${pane.id}">${fileActionIcon('chevron-down')}</button>
               <div class="file-path-menu" id="file-path-menu-${pane.id}" data-file-path-menu role="listbox" aria-label="Current, recent and bookmarked paths" hidden>
                 ${renderFilePathOptions(pane)}
@@ -2352,12 +2357,14 @@
               <button class="rail-button sidebar-brand" data-action="toggle" aria-label="Toggle sidebar" aria-expanded="${state.sidebarOpen}" title="${state.sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}"><span class="rail-brand-mark" aria-hidden="true">${brandIcon()}</span><span class="rail-label">Paneboard</span></button>
               <button class="sidebar-pin" type="button" data-sidebar-pin aria-label="${state.sidebarPinned ? 'Unpin' : 'Pin'} sidebar" aria-pressed="${state.sidebarPinned}" title="${state.sidebarPinned ? 'Unpin sidebar' : 'Pin sidebar'}"><span class="rail-icon" aria-hidden="true">${fileActionIcon(state.sidebarPinned ? 'pin-off' : 'pin')}</span></button>
             </div>
-            <button class="rail-button" data-action="new-powershell" aria-label="New PowerShell pane" title="New PowerShell pane">
+            ${serverOnWindows() ? `<button class="rail-button" data-action="new-powershell" aria-label="New PowerShell pane" title="New PowerShell pane">
               <span class="rail-icon" aria-hidden="true">${fileActionIcon('terminal')}</span><span class="rail-label">New PowerShell pane</span>
             </button>
             <button class="rail-button" data-action="new-cmd" aria-label="New CMD pane" title="New CMD pane">
               <span class="rail-icon" aria-hidden="true">${fileActionIcon('cmd')}</span><span class="rail-label">New CMD pane</span>
-            </button>
+            </button>` : `<button class="rail-button" data-action="new-powershell" aria-label="New terminal pane" title="New terminal pane">
+              <span class="rail-icon" aria-hidden="true">${fileActionIcon('terminal')}</span><span class="rail-label">New terminal pane</span>
+            </button>`}
             <button class="rail-button" data-action="files" aria-label="New file pane" title="New file pane">
               <span class="rail-icon" aria-hidden="true">${fileActionIcon('file')}</span><span class="rail-label">New file pane</span>
             </button>
@@ -2418,7 +2425,7 @@
               </div>
               <button class="tab tab-add" data-action="new-session" title="New workspace" aria-label="New workspace">${fileActionIcon('add')}</button>
             </div>
-            <div class="tabs-gap">${state.config.shell.usingFallback ? '<span class="shell-warning">PowerShell 7 not found</span>' : ''}</div>
+            <div class="tabs-gap">${state.config.shell.usingFallback ? `<span class="shell-warning">${serverOnWindows() ? 'PowerShell 7 not found' : 'Preferred shell not found'}</span>` : ''}</div>
             <div class="board-hscroll" data-board-hscroll>
               <button type="button" class="board-hscroll-arrow" data-board-scroll-dir="-1" aria-label="Scroll board left" title="Scroll board left">${fileActionIcon('browser-back')}</button>
               <div class="board-hscroll-track" data-board-hscroll-track>
@@ -4735,11 +4742,12 @@
     const separator = Math.max(value.lastIndexOf('\\'), value.lastIndexOf('/'));
     if (separator < 0) return '';
     if (separator === 2 && /^[A-Za-z]:/.test(value)) return value.slice(0, 3);
+    if (separator === 0) return '/';
     return value.slice(0, separator);
   }
 
   function joinLocalPath(directory, name) {
-    return `${String(directory || '').replace(/[\\/]+$/, '')}\\${name}`;
+    return `${String(directory || '').replace(/[\\/]+$/, '')}${serverOnWindows() ? '\\' : '/'}${name}`;
   }
 
   function openNotepadSaveDialog(paneId, tabId) {
@@ -5876,7 +5884,11 @@
   }
 
   function samePath(left, right) {
-    const normalize = (value) => String(value || '').replace(/[\\/]+/g, '\\').replace(/\\+$/, '').toLowerCase();
+    // Only Windows paths are case-insensitive.
+    const normalize = (value) => {
+      const joined = String(value || '').replace(/[\\/]+/g, '\\').replace(/\\+$/, '');
+      return serverOnWindows() ? joined.toLowerCase() : joined;
+    };
     return Boolean(normalize(left)) && normalize(left) === normalize(right);
   }
 
@@ -9681,7 +9693,7 @@
                 </div>
               </div>
               <div class="settings-grid appearance-font-setting">
-                <label>System font size<input name="ui.system_font_size" type="number" min="10" max="24" value="${escapeAttr(settings.ui.system_font_size ?? 13)}"><small class="field-hint">Pixels. Menus, tabs and dialogs. PowerShell and file panes have their own sizes.</small></label>
+                <label>System font size<input name="ui.system_font_size" type="number" min="10" max="24" value="${escapeAttr(settings.ui.system_font_size ?? 13)}"><small class="field-hint">${serverOnWindows() ? 'Pixels. Menus, tabs and dialogs. PowerShell and file panes have their own sizes.' : 'Pixels. Menus, tabs and dialogs. Terminal and file panes have their own sizes.'}</small></label>
                 <label>Language<select data-language-select>
                   <option value="en" ${window.PaneboardI18n.getLocale() === 'en' ? 'selected' : ''}>English</option>
                   <option value="zh-HK" ${window.PaneboardI18n.getLocale() === 'zh-HK' ? 'selected' : ''}>繁體中文（香港）</option>
@@ -9689,14 +9701,14 @@
               </div>
             </section>
             <section class="settings-section" id="settings-terminal">
-              <div class="section-heading"><div><h2>Terminal</h2><p>Type, cursor and alerts for every PowerShell pane.</p></div></div>
+              <div class="section-heading"><div><h2>Terminal</h2><p>${serverOnWindows() ? 'Type, cursor and alerts for every PowerShell pane.' : 'Type, cursor and alerts for every terminal pane.'}</p></div></div>
               <h3 class="settings-subhead">Type</h3>
               <div class="settings-grid">
                 <label>Terminal font<select name="ui.terminal_font_family">
                   ${fontOptions.map((font) => `<option value="${escapeAttr(font.value)}" ${font.value === settings.ui.terminal_font_family ? 'selected' : ''}>${escapeHtml(font.label)}</option>`).join('')}
                 </select><small class="field-hint">Falls back to Consolas when the font is not installed.</small></label>
-                <label>PowerShell font size<input name="ui.terminal_font_size" type="number" min="8" max="32" value="${escapeAttr(settings.ui.terminal_font_size)}"><small class="field-hint">Pixels, used on desktop.</small></label>
-                <label>PowerShell mobile font size<input name="ui.mobile_terminal_font_size" type="number" min="8" max="24" value="${escapeAttr(settings.ui.mobile_terminal_font_size ?? 12)}"><small class="field-hint">Pixels, used in mobile layout.</small></label>
+                <label>${serverOnWindows() ? 'PowerShell font size' : 'Terminal font size'}<input name="ui.terminal_font_size" type="number" min="8" max="32" value="${escapeAttr(settings.ui.terminal_font_size)}"><small class="field-hint">Pixels, used on desktop.</small></label>
+                <label>${serverOnWindows() ? 'PowerShell mobile font size' : 'Terminal mobile font size'}<input name="ui.mobile_terminal_font_size" type="number" min="8" max="24" value="${escapeAttr(settings.ui.mobile_terminal_font_size ?? 12)}"><small class="field-hint">Pixels, used in mobile layout.</small></label>
               </div>
               <h3 class="settings-subhead">Behavior</h3>
               <div class="settings-grid">
@@ -9708,7 +9720,7 @@
                 </div>
               </div>
               <div class="mobile-keybar-setting">
-                <div class="mobile-keybar-setting-heading"><div><h3>PowerShell shortcut buttons</h3><p>The key row shown under every PowerShell pane, on desktop and mobile. Untick a button to hide it, drag to reorder, or add your own.</p></div><div class="mobile-keybar-setting-actions"><button class="secondary" type="button" data-mobile-keybar-reset>Reset to defaults</button><button class="secondary" type="button" data-mobile-keybar-add>${fileActionIcon('add')}<span>Add button</span></button></div></div>
+                <div class="mobile-keybar-setting-heading"><div><h3>${serverOnWindows() ? 'PowerShell shortcut buttons' : 'Terminal shortcut buttons'}</h3><p>${serverOnWindows() ? 'The key row shown under every PowerShell pane, on desktop and mobile. Untick a button to hide it, drag to reorder, or add your own.' : 'The key row shown under every terminal pane, on desktop and mobile. Untick a button to hide it, drag to reorder, or add your own.'}</p></div><div class="mobile-keybar-setting-actions"><button class="secondary" type="button" data-mobile-keybar-reset>Reset to defaults</button><button class="secondary" type="button" data-mobile-keybar-add>${fileActionIcon('add')}<span>Add button</span></button></div></div>
                 <ul class="field-hint mobile-keybar-rules"><li>A modifier stays armed for the next key. Double-click it on the toolbar to lock it on.</li><li>Typed text can chain keys with braces, so <code>claude{Enter}</code> types the word and runs it.</li><li>Only a key name counts, so braces in a command such as <code>\${env:PATH}</code> are typed as written. Write <code>{{</code> for text that has to read like a key name.</li></ul>
                 ${renderMobileKeybarEditor(settings.terminal?.mobile_keybar_buttons)}
               </div>
@@ -9731,10 +9743,11 @@
               </div>
             </section>
             <section class="settings-section" id="settings-shell">
-              <div class="section-heading"><div><h2>Shell</h2><p>Which PowerShell a new pane starts, and how. Panes already open keep what they started with.</p></div></div>
+              <div class="section-heading"><div><h2>Shell</h2><p>${serverOnWindows() ? 'Which PowerShell a new pane starts, and how. Panes already open keep what they started with.' : 'Which shell a new pane starts, and how. Panes already open keep what they started with.'}</p></div></div>
               <div class="settings-grid">
-                <label>PowerShell preferred<input name="shell.preferred" value="${escapeAttr(settings.shell.preferred)}"><small class="field-hint">Tried first. <code>pwsh.exe</code> is PowerShell 7.</small></label>
-                <label>PowerShell fallback<input name="shell.fallback" value="${escapeAttr(settings.shell.fallback)}"><small class="field-hint">Used when the preferred one is not installed. <code>powershell.exe</code> ships with Windows.</small></label>
+                ${serverOnWindows() ? `<label>PowerShell preferred<input name="shell.preferred" value="${escapeAttr(settings.shell.preferred)}"><small class="field-hint">Tried first. <code>pwsh.exe</code> is PowerShell 7.</small></label>
+                <label>PowerShell fallback<input name="shell.fallback" value="${escapeAttr(settings.shell.fallback)}"><small class="field-hint">Used when the preferred one is not installed. <code>powershell.exe</code> ships with Windows.</small></label>` : `<label>Preferred shell<input name="shell.preferred" value="${escapeAttr(settings.shell.preferred)}"><small class="field-hint">Tried first. A name on PATH, such as <code>bash</code>, or a full path.</small></label>
+                <label>Fallback shell<input name="shell.fallback" value="${escapeAttr(settings.shell.fallback)}"><small class="field-hint">Used when the preferred one is not installed.</small></label>`}
                 <label class="settings-wide">Startup arguments<textarea name="shell.args" rows="3">${escapeHtml((settings.shell.args || []).join('\n'))}</textarea><small class="field-hint">One argument per line, passed on the command line. Clearing this restores the defaults.</small></label>
               </div>
             </section>

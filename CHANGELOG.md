@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Linux server support: bash terminal panes, POSIX file panes with zip
+  downloads, Chrome/Chromium browser panes, `npm run package:linux`, and a
+  systemd user service installer. CI also runs on Ubuntu.
+
 ## [0.1.6] - 2026-08-31
 
 ### Fixed

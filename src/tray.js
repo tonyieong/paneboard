@@ -15,6 +15,11 @@ function startTray({ root, url, port, save, openBrowser, restart, shutdown, log 
   if (process.platform === 'win32') {
     return startWindowsNotifyIconTray({ root, url, port, save, openBrowser, restart, shutdown, log });
   }
+  // Linux runs Paneboard as a server: most desktops show no tray icon without an
+  // extension, and a tray that fails to start takes the server down with it.
+  if (process.platform === 'linux') {
+    return null;
+  }
   return startPortableTray({ root, url, port, save, openBrowser, restart, shutdown, log });
 }
 

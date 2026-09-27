@@ -4,11 +4,12 @@
   "private": true,
   "license": "MIT",
   "author": "tonyieong",
-  "description": "Portable Windows web tmux-continuum style terminal workspace.",
+  "description": "Portable Windows and Linux web tmux-continuum style terminal workspace.",
   "keywords": [
     "terminal",
     "powershell",
     "windows",
+    "linux",
     "conpty",
     "xterm",
     "web-terminal",
@@ -27,7 +28,8 @@
     "node": ">=22"
   },
   "os": [
-    "win32"
+    "win32",
+    "linux"
   ],
   "scripts": {
     "start": "node src/main.js",
@@ -37,6 +39,9 @@
     "licenses:sync": "node scripts\\sync-third-party-license-sources.js",
     "licenses:generate": "node scripts\\generate-third-party-notices.js",
     "package:win": "pkg . --targets node22-win-x64 --output dist/paneboard.exe && node scripts\\set-windows-subsystem.js dist\\paneboard.exe && powershell -NoProfile -ExecutionPolicy Bypass -Command \"Remove-Item 'dist\\scripts\\scripts','dist\\assets\\assets','dist\\plugin-panes\\plugin-panes' -Recurse -Force -ErrorAction SilentlyContinue; New-Item -ItemType Directory dist\\scripts,dist\\assets,dist\\plugin-panes -Force | Out-Null; Copy-Item scripts\\* dist\\scripts -Recurse -Force; Copy-Item assets\\* dist\\assets -Recurse -Force; Copy-Item plugin-panes\\* dist\\plugin-panes -Recurse -Force\"",
+    "package:linux": "pkg . --targets node22-linux-x64 --output dist-linux/paneboard && node scripts/copy-package-resources.js dist-linux",
+    "service:install": "sh scripts/install-paneboard-service.sh",
+    "service:uninstall": "sh scripts/uninstall-paneboard-service.sh",
     "startup:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\install-paneboard-startup.ps1",
     "startup:repair": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\repair-paneboard-paths.ps1",
     "startup:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\uninstall-paneboard-startup.ps1"
@@ -48,6 +53,7 @@
       "public/**/*",
       "node_modules/@homebridge/node-pty-prebuilt-multiarch/build/Release/*.node",
       "node_modules/@homebridge/node-pty-prebuilt-multiarch/build/Release/conpty/**/*",
+      "node_modules/@homebridge/node-pty-prebuilt-multiarch/prebuilds/linux-x64/node.abi127.node",
       "node_modules/systray2/traybin/**/*"
     ]
   },

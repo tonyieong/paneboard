@@ -757,6 +757,14 @@ function fakeChild() {
   child.signalCode = null;
   child.written = [];
   child.stdin.on('data', (chunk) => child.written.push(chunk.toString()));
+  // Off Windows the manager signals the CLI directly instead of via taskkill.
+  child.kill = () => {
+    child.killed = true;
+    if (child.exitCode === null) {
+      child.exitCode = 1;
+      queueMicrotask(() => child.emit('exit', 1));
+    }
+  };
   return child;
 }
 
@@ -830,7 +838,7 @@ test('attaching starts one CLI per tab and replays the transcript', () => {
   manager.attach(tabId, socket);
 
   assert.equal(spawns.length, 1);
-  assert.match(spawns[0].args.join(' '), /claude --print/);
+  assert.match([spawns[0].command, ...spawns[0].args].join(' '), /claude --print/);
   const hello = socket.sent[0];
   assert.equal(hello.type, 'hello');
   assert.equal(hello.provider, 'claude');
@@ -1471,7 +1479,7 @@ test('a replacement CLI waits for the old process to exit', async () => {
 
   manager.restartTab(tabId);
   // The kill has been issued but the old process has not reported back yet.
-  assert.equal(spawns.some((call) => call.command === 'taskkill'), true);
+  assert.equal(spawns.some((call) => call.command === 'taskkill') || cliChild(spawns).killed === true, true);
   assert.equal(launches(), 1, 'must not start a second CLI while the first is alive');
 
   await settle();

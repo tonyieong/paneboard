@@ -31,6 +31,7 @@ const dataDir = path.join(root, 'data');
 const statePath = path.join(dataDir, 'state.json');
 const stateBakPath = path.join(dataDir, 'state.json.bak');
 const controlTokenPath = path.join(dataDir, 'control-token');
+const runtimeLogPath = path.join(dataDir, 'runtime.log');
 const pluginPaneFixtureId = `http-route-fixture-${process.pid}`;
 const aiPluginFixtureId = `http-route-ai-${process.pid}`;
 const pluginPaneFixtureRoot = path.join(root, 'plugin-panes');
@@ -252,12 +253,13 @@ before(async () => {
 });
 
 after(async () => {
-  try {
-    const controlToken = fs.readFileSync(controlTokenPath, 'utf8').trim();
-    await request('/api/runtime/shutdown', { method: 'POST', headers: { 'X-Paneboard-Control-Token': controlToken } });
-  } catch {
-    // Nothing to shut down cleanly with; the kill below covers it.
-  }
+  const controlToken = fs.readFileSync(controlTokenPath, 'utf8').trim();
+  const logSize = fs.existsSync(runtimeLogPath) ? fs.statSync(runtimeLogPath).size : 0;
+  const response = await request('/api/runtime/shutdown', { method: 'POST', headers: { 'X-Paneboard-Control-Token': controlToken } });
+  assert.equal(response.status, 200);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const shutdownLog = fs.readFileSync(runtimeLogPath, 'utf8').slice(logSize);
+  assert.match(shutdownLog, /stopping pid=\d+ restart=false reason=api-shutdown requester=/);
   await new Promise((resolve) => {
     if (child.exitCode !== null) {
       resolve();

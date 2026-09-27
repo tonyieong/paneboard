@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { spawn } = require('node:child_process');
 const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -26,7 +27,7 @@ const {
 test('remote browser launches an isolated headless Chromium profile', () => {
   const executable = findChromiumExecutable({
     existsSync: (candidate) => candidate.includes('Google\\Chrome')
-  });
+  }, 'win32');
   assert.match(executable, /Google\\Chrome\\Application\\chrome\.exe$/);
 
   const args = chromeArguments('C:\\paneboard\\data\\browser-profile');
@@ -41,11 +42,16 @@ test('remote browser launches an isolated headless Chromium profile', () => {
 test('Chromium executable search falls back to Edge and then reports nothing found', () => {
   const edgeOnly = findChromiumExecutable({
     existsSync: (candidate) => candidate.includes('Microsoft\\Edge')
-  });
+  }, 'win32');
   assert.match(edgeOnly, /Microsoft\\Edge\\Application\\msedge\.exe$/);
 
-  const nothingInstalled = findChromiumExecutable({ existsSync: () => false });
+  const nothingInstalled = findChromiumExecutable({ existsSync: () => false }, 'win32');
   assert.equal(nothingInstalled, '');
+});
+
+test('a Linux server finds Chrome or Chromium where its packages install them', () => {
+  assert.equal(findChromiumExecutable({ existsSync: (candidate) => candidate === '/usr/bin/chromium-browser' }, 'linux'), '/usr/bin/chromium-browser');
+  assert.equal(findChromiumExecutable({ existsSync: (candidate) => candidate.includes('Google') }, 'linux'), '');
 });
 
 test('headless Chromium does not announce itself as automation controlled', () => {
@@ -60,9 +66,11 @@ test('a masked user agent ships the matching Client Hints metadata', () => {
   // metadata is supplied too: Sec-CH-UA/-Mobile/-Platform stop being sent and
   // navigator.userAgentData goes blank. A Chrome user agent with no Client
   // Hints at all is a louder automation signal than the Headless marker was.
-  const desktop = userAgentMetadata('desktop');
+  const desktop = userAgentMetadata('desktop', 'win32');
   assert.equal(desktop.mobile, false);
   assert.equal(desktop.platform, 'Windows');
+  // Headless Chromium on Linux announces X11; Linux, so the hints must agree.
+  assert.equal(userAgentMetadata('desktop', 'linux').platform, 'Linux');
   assert.ok(desktop.platformVersion);
   assert.equal(desktop.model, '');
 
@@ -87,7 +95,7 @@ test('mobile emulation borrows a real device model rather than an invented one',
   assert.equal(userAgentMetadata('mobile').model, 'Pixel 7');
 });
 
-test('starting Chromium first clears out any stale process still holding the profile lock', async () => {
+test('starting Chromium first clears out any stale process still holding the profile lock', { skip: process.platform !== 'win32' }, async () => {
   const command = chromiumProfileCleanupCommand('C:\\paneboard\\data\\browser-profile');
   assert.match(command, /Name='chrome\.exe' OR Name='msedge\.exe'/);
   assert.match(command, /CommandLine\.Contains\('C:\\paneboard\\data\\browser-profile'\)/);
@@ -107,6 +115,22 @@ test('starting Chromium first clears out any stale process still holding the pro
   // even if the check itself fails (e.g. powershell.exe missing from PATH).
   const failingRun = (file, args, options, callback) => callback(new Error('spawn failed'));
   await assert.doesNotReject(terminateStaleChromium('C:\\paneboard\\data\\browser-profile', failingRun));
+});
+
+test('on Linux, a stale process holding the profile lock is killed', { skip: process.platform !== 'linux' }, async () => {
+  const profile = path.join(os.tmpdir(), `paneboard-profile-${process.pid}`);
+  const stale = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)', '--', `--user-data-dir=${profile}`]);
+  const other = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)', '--', `--user-data-dir=${profile}-other`]);
+  try {
+    await new Promise((resolve) => stale.once('spawn', resolve));
+    const exited = new Promise((resolve) => stale.once('exit', (code, signal) => resolve(signal)));
+    await terminateStaleChromium(profile);
+    assert.equal(await exited, 'SIGKILL');
+    assert.equal(other.exitCode, null);
+  } finally {
+    stale.kill();
+    other.kill();
+  }
 });
 
 test('the stale-Chromium cleanup command escapes a single quote in the profile path', () => {

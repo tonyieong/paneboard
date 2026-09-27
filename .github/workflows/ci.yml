@@ -10,8 +10,13 @@ permissions:
 
 jobs:
   test:
-    # paneboard drives ConPTY through node-pty, so the suite only runs on Windows.
-    runs-on: windows-latest
+    # node-pty drives ConPTY on Windows and a Unix pty on Linux; each platform
+    # skips the tests that only apply to the other.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
 
@@ -27,6 +32,7 @@ jobs:
       - run: npm test
 
       - name: Third-party notices are current
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           npm run licenses:generate

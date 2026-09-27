@@ -5,6 +5,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { StateStore } = require('../src/state');
 
+const TERMINAL_TITLE = process.platform === 'win32' ? 'PowerShell' : 'Terminal';
+
 // Terminal output is never collected here any more: the headless terminal the
 // server keeps per runtime is what a reconnecting client replays from.
 test('the store holds no terminal output at all', () => {
@@ -30,7 +32,7 @@ test('saved state keeps layout only', () => {
 
   const saved = JSON.parse(fs.readFileSync(path.join(root, 'data', 'state.json'), 'utf8'));
   const savedPane = saved.sessions[0].tabs[0].panes[0];
-  assert.equal(savedPane.title, 'PowerShell 1');
+  assert.equal(savedPane.title, `${TERMINAL_TITLE} 1`);
   assert.equal(savedPane.scrollback, undefined);
   assert.equal(savedPane.lastProgram, undefined);
   assert.deepEqual(savedPane.layout, { x: 0, y: 0, w: 6, h: 12 });
@@ -102,8 +104,8 @@ test('new sessions and panes use unique default names', () => {
   const paneId = thirdSession.tabs[0].panes[0].id;
   const secondPane = store.splitPane(paneId, 'horizontal');
   const thirdPane = store.splitPane(secondPane.id, 'vertical');
-  assert.equal(secondPane.title, 'PowerShell 2');
-  assert.equal(thirdPane.title, 'PowerShell 3');
+  assert.equal(secondPane.title, `${TERMINAL_TITLE} 2`);
+  assert.equal(thirdPane.title, `${TERMINAL_TITLE} 3`);
   assert.deepEqual(secondPane.layout, { x: 6, y: 0, w: 6, h: 12 });
   assert.deepEqual(thirdPane.layout, { x: 12, y: 0, w: 6, h: 12 });
 });
@@ -624,7 +626,7 @@ test('terminal panes persist multiple tabs and their active tab', () => {
   const secondTab = store.createTerminalTab(pane.id);
   assert.equal(pane.terminalTabs.length, 2);
   assert.equal(pane.activeTerminalTabId, secondTab.id);
-  assert.equal(secondTab.title, 'PowerShell 2');
+  assert.equal(secondTab.title, `${TERMINAL_TITLE} 2`);
   assert.equal(secondTab.cwd, pane.cwd);
   assert.equal(secondTab.titlePinned, false);
   assert.equal(store.renameTerminalTab(pane.id, secondTab.id, 'Build'), true);
@@ -1027,7 +1029,7 @@ test('image panes persist only their current picture path', () => {
   assert.equal(restored.path, 'C:\\pictures\\b.png');
 });
 
-test('a cmd pane names and stores its own shell, and its tabs inherit it', () => {
+test('a cmd pane names and stores its own shell, and its tabs inherit it', { skip: process.platform !== 'win32' }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
   const store = new StateStore(root);
   store.load();

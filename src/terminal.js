@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 const { fork, spawn } = require('child_process');
 const pty = require('@homebridge/node-pty-prebuilt-multiarch');
@@ -15,13 +16,30 @@ const SCROLLBACK_LINES = 100000;
 const CONSOLE_LIST_AGENT = path.join(__dirname, 'console-process-list.js');
 const CONSOLE_LIST_TIMEOUT_MS = 3000;
 
+// On Linux the terminal's foreground process group says the same thing: it is
+// the shell's own group while the prompt is waiting, and a command's otherwise.
+function linuxForegroundProcessIds(shellPid) {
+  try {
+    const stat = fs.readFileSync(`/proc/${shellPid}/stat`, 'utf8');
+    // Field 8, tpgid, counted after the parenthesised command name.
+    const tpgid = Number.parseInt(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[5], 10);
+    return tpgid > 0 && tpgid !== shellPid ? [tpgid] : [];
+  } catch {
+    return [];
+  }
+}
+
 // A shell sitting at its prompt owns its console alone. Anything else attached
 // to that console is the command the user is still waiting on. The helper
 // attaches to the console itself, so it shows up in its own answer.
 function foregroundProcessIds(shellPid) {
   return new Promise((resolve) => {
-    if (process.platform !== 'win32' || !shellPid) {
+    if (!shellPid) {
       resolve([]);
+      return;
+    }
+    if (process.platform !== 'win32') {
+      resolve(linuxForegroundProcessIds(shellPid));
       return;
     }
     let agent = null;
@@ -122,7 +140,7 @@ class TerminalManager {
   }
 
   shellFor(kind) {
-    return shellKind(kind) === 'cmd' ? this.cmdShell : this.shell;
+    return shellKind(kind) === 'cmd' && this.cmdShell ? this.cmdShell : this.shell;
   }
 
   findTarget(id) {

@@ -329,6 +329,32 @@ test('a shell tells an idle prompt from a running command', windowsOnly, async (
   manager.shutdown();
 });
 
+test('on Linux, a shell tells an idle prompt from a running command', { skip: process.platform !== 'linux' }, async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
+  const store = new StateStore(root);
+  store.load();
+  const pane = store.state.sessions[0].tabs[0].panes[0];
+  const manager = new TerminalManager({
+    config: {},
+    root,
+    store,
+    shell: { command: '/bin/bash', args: ['--norc', '-i'] }
+  });
+
+  const runtime = manager.getOrCreate(pane.activeTerminalTabId);
+  runtime.proc.onData(() => {});
+  await wait(1000);
+  assert.deepEqual(await manager.busyTerminalTabs(pane.id), []);
+
+  runtime.proc.write('sleep 8\r');
+  await wait(1000);
+  const busy = await manager.busyTerminalTabs(pane.id);
+  assert.equal(busy.length, 1);
+  assert.equal(busy[0].id, pane.activeTerminalTabId);
+
+  manager.shutdown();
+});
+
 test('terminal status does not expose a separate history API', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const store = new StateStore(root);
@@ -345,7 +371,7 @@ test('terminal status does not expose a separate history API', () => {
   assert.equal(manager.getPaneStatus(paneId).status, 'idle');
 });
 
-test('a cmd tab spawns cmd.exe instead of the configured PowerShell', () => {
+test('a cmd tab spawns cmd.exe instead of the configured PowerShell', { skip: process.platform !== 'win32' }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   const store = new StateStore(root);
   store.load();
@@ -367,4 +393,17 @@ test('a cmd tab spawns cmd.exe instead of the configured PowerShell', () => {
   const powerShellTarget = manager.findTarget(store.findPane(paneId).pane.terminalTabs[0].id);
   assert.equal(manager.shellFor(powerShellTarget.shell).command, 'powershell.exe');
   assert.deepEqual(manager.shellFor(powerShellTarget.shell).args, ['-NoLogo']);
+});
+
+// A workspace saved on Windows can carry cmd tabs; Linux has no cmd to run.
+test('on Linux, a cmd tab runs the configured shell', { skip: process.platform === 'win32' }, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
+  const store = new StateStore(root);
+  store.load();
+  const paneId = store.state.sessions[0].tabs[0].panes[0].id;
+  const cmdPane = store.splitPane(paneId, 'horizontal', 'cmd');
+  const shell = { command: '/bin/bash', args: ['-l'] };
+  const manager = new TerminalManager({ config: {}, root, store, shell });
+
+  assert.equal(manager.shellFor(manager.findTarget(cmdPane.terminalTabs[0].id).shell), shell);
 });

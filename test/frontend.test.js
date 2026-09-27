@@ -281,6 +281,16 @@ test('sidebar actions use shared icons for new PowerShell and new file', () => {
   assert.match(appSource, /\[data-action="new-powershell"\][^\n]+createPane/);
 });
 
+test('a Linux server gets one terminal button and / paths instead of PowerShell, CMD and backslashes', () => {
+  assert.match(mainSource, /platform: process\.platform,/);
+  assert.match(appSource, /function serverOnWindows\(\) \{\s*return \(state\.config\?\.platform \?\? 'win32'\) === 'win32';/);
+  const sidebar = appSource.slice(appSource.indexOf('${serverOnWindows() ? `<button class="rail-button" data-action="new-powershell"'), appSource.indexOf('data-action="files"'));
+  assert.match(sidebar, /` : `<button class="rail-button" data-action="new-powershell" aria-label="New terminal pane"/);
+  assert.equal(sidebar.split('data-action="new-cmd"').length, 2, 'CMD is only in the Windows branch');
+  const join = appSource.slice(appSource.indexOf('function joinLocalPath'), appSource.indexOf('function openNotepadSaveDialog'));
+  assert.match(join, /serverOnWindows\(\) \? '\\\\' : '\/'/);
+});
+
 test('pane titles reuse the same pane-type icons as the sidebar', () => {
   assert.match(appSource, /class="pane-kind-icon"[^>]*>\$\{fileActionIcon\(paneKindIcon\(pane\)\)\}<\/span>/);
   assert.match(appSource, /class="pane-kind-icon"[^>]*>\$\{pane\.type === 'ai' \? providerIcon\(activeAiTab\?\.provider\) : fileActionIcon\(pane\.type === 'files' \? 'file' : paneShell\(pane\) === 'cmd' \? 'cmd' : 'terminal'\)\}<\/span>/);
@@ -312,7 +322,7 @@ test('each pane supports independent Ctrl zoom controls', () => {
 
 test('settings separate PowerShell, file pane, and system font sizes', () => {
   assert.match(appSource, /System font size<input name="ui\.system_font_size"/);
-  assert.match(appSource, /PowerShell font size<input name="ui\.terminal_font_size"/);
+  assert.match(appSource, /\$\{serverOnWindows\(\) \? 'PowerShell font size' : 'Terminal font size'\}<input name="ui\.terminal_font_size"/);
   assert.match(appSource, /File pane font size<input name="ui\.file_pane_font_size"/);
   assert.match(appSource, /system_font_size:\s*numberOrUndefined\(form\.get\('ui\.system_font_size'\)\)/);
   assert.match(appSource, /file_pane_font_size:\s*numberOrUndefined\(form\.get\('ui\.file_pane_font_size'\)\)/);
@@ -348,7 +358,7 @@ test('server access uses Local and LAN choices with password-gated automatic res
   assert.match(appSource, /Set a password before enabling LAN access/);
   assert.match(appSource, /payload\.restart_after_save = switchingToLan/);
   assert.match(mainSource, /restart_after_save === true/);
-  assert.match(mainSource, /stopRuntime\(\{ restart: true \}\)/);
+  assert.match(mainSource, /stopRuntime\(\{ restart: true, reason: 'settings-restart' \}\)/);
 });
 
 test('pane grid settings resize existing panes immediately without rebuilding terminals', () => {

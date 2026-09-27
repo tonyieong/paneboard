@@ -2,9 +2,32 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
+const isWindows = process.platform === 'win32';
+
+function findOnPath(command, env = process.env) {
+  for (const dir of String(env.PATH || '').split(path.delimiter)) {
+    if (!dir) {
+      continue;
+    }
+    const candidate = path.join(dir, command);
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      if (fs.statSync(candidate).isFile()) {
+        return candidate;
+      }
+    } catch {
+      // Not in this folder, or not executable.
+    }
+  }
+  return '';
+}
+
 function resolveCommand(command) {
   if (path.isAbsolute(command) && fs.existsSync(command)) {
     return command;
+  }
+  if (!isWindows) {
+    return command.includes('/') ? '' : findOnPath(command);
   }
   const result = spawnSync('where.exe', [command], { windowsHide: true, encoding: 'utf8' });
   if (result.status === 0) {
@@ -28,13 +51,20 @@ function shellKind(value) {
   return SHELL_KINDS.has(value) ? value : 'powershell';
 }
 
-function shellTitle(kind) {
+function shellTitle(kind, platform = process.platform) {
+  if (platform !== 'win32') {
+    return 'Terminal';
+  }
   return shellKind(kind) === 'cmd' ? 'CMD' : 'PowerShell';
 }
 
 // A cmd pane runs the shell Windows ships. shell.preferred, shell.fallback and
 // shell.args all describe PowerShell, and cmd.exe would reject those switches.
+// Other platforms have no cmd, so their cmd panes run the configured shell.
 function resolveCmdShell() {
+  if (!isWindows) {
+    return null;
+  }
   return {
     command: resolveCommand('cmd.exe') || path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe'),
     args: []
@@ -56,7 +86,9 @@ function resolveShell(config) {
     command: fallback,
     args: config.shell.args || [],
     usingFallback: true,
-    message: 'PowerShell 7 was not found. Install it from https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-windows'
+    message: isWindows
+      ? 'PowerShell 7 was not found. Install it from https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-windows'
+      : `${config.shell.preferred} was not found, so new panes run ${config.shell.fallback}.`
   };
 }
 
@@ -89,6 +121,7 @@ function normalizeCwd(cwd, root) {
 }
 
 module.exports = {
+  findOnPath,
   normalizeCwd,
   resolveCmdShell,
   resolveShell,

@@ -325,7 +325,7 @@ function aiTabsForPane(pane, fallback) {
   return { tabs, activeAiTabId };
 }
 
-function defaultSession(name = 'Workspace 1', paneTitle = 'PowerShell 1', verticalSlots = DEFAULT_VERTICAL_SLOTS, paneWidth = DEFAULT_PANE_CELLS, paneHeight = verticalSlots) {
+function defaultSession(name = 'Workspace 1', paneTitle = `${shellTitle('powershell')} 1`, verticalSlots = DEFAULT_VERTICAL_SLOTS, paneWidth = DEFAULT_PANE_CELLS, paneHeight = verticalSlots) {
   const paneId = crypto.randomUUID();
   const firstTerminalTab = terminalTab({ title: paneTitle, cwd: process.cwd() });
   return {
@@ -365,7 +365,7 @@ class StateStore {
     this.defaultPaneWidth = clampPaneWidth(options.defaultPaneWidth);
     this.defaultPaneHeight = clampPaneHeight(options.defaultPaneHeight, this.verticalSlots);
     this.pluginPaneMigrations = options.pluginPaneMigrations || {};
-    const session = defaultSession('Workspace 1', 'PowerShell 1', this.verticalSlots, this.defaultPaneWidth, this.defaultPaneHeight);
+    const session = defaultSession('Workspace 1', `${shellTitle('powershell')} 1`, this.verticalSlots, this.defaultPaneWidth, this.defaultPaneHeight);
     this.state = {
       activeSessionId: session.id,
       sessions: [session],
@@ -442,7 +442,7 @@ class StateStore {
       const nextPane = {
         id: pane.id,
         type,
-        title: pane.title || 'PowerShell 1',
+        title: pane.title || `${shellTitle('powershell')} 1`,
         cwd: normalizeCwd(pane.cwd, this.root),
         path: pane.path || '',
         url: pane.url || '',
@@ -655,7 +655,7 @@ class StateStore {
   createSession(name) {
     const sessionName = String(name || '').trim() ||
       nextNumberedName('Workspace', this.state.sessions.map((session) => session.name));
-    const paneTitle = nextNumberedName('PowerShell', []);
+    const paneTitle = nextNumberedName(shellTitle('powershell'), []);
     const session = defaultSession(sessionName, paneTitle, this.verticalSlots, this.defaultPaneWidth, this.defaultPaneHeight);
     this.state.sessions.push(session);
     this.state.activeSessionId = session.id;

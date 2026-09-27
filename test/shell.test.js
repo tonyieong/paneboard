@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { resolveCmdShell, shellEnv, shellKind, shellTitle } = require('../src/shell');
+const { resolveCmdShell, resolveShell, shellEnv, shellKind, shellTitle } = require('../src/shell');
 
 for (const kind of ['cmd', 'powershell', 'fallback']) {
   test(`${kind} starts when its folder is the last PATH entry`, { skip: process.platform !== 'win32' }, () => {
@@ -48,7 +48,7 @@ test('extra_path folders are appended to PATH for the shell', () => {
   assert.equal(env.TERM, 'xterm-256color');
 });
 
-test('shell env leaves PATH alone when there is nothing to add', () => {
+test('shell env leaves PATH alone when there is nothing to add', { skip: process.platform !== 'win32' }, () => {
   const base = { PATH: 'C:\\Windows\\system32' };
 
   assert.equal(shellEnv({}, base).PATH, base.PATH);
@@ -75,15 +75,31 @@ test('shell kind only accepts the two shells a pane can run', () => {
   assert.equal(shellKind('powershell'), 'powershell');
   assert.equal(shellKind('bash'), 'powershell');
   assert.equal(shellKind(undefined), 'powershell');
-  assert.equal(shellTitle('cmd'), 'CMD');
-  assert.equal(shellTitle('powershell'), 'PowerShell');
+  assert.equal(shellTitle('cmd', 'win32'), 'CMD');
+  assert.equal(shellTitle('powershell', 'win32'), 'PowerShell');
+  // Linux panes all run the one configured shell.
+  assert.equal(shellTitle('cmd', 'linux'), 'Terminal');
+  assert.equal(shellTitle('powershell', 'linux'), 'Terminal');
 });
 
 // shell.preferred, shell.fallback and shell.args all describe PowerShell
 // switches, so a cmd pane must ignore them rather than hand them to cmd.exe.
-test('cmd panes run cmd.exe with no arguments of their own', () => {
+test('cmd panes run cmd.exe with no arguments of their own', { skip: process.platform !== 'win32' }, () => {
   const cmd = resolveCmdShell();
 
   assert.match(cmd.command, /cmd\.exe$/i);
   assert.deepEqual(cmd.args, []);
+});
+
+test('on Linux, the configured shell is found on PATH and there is no cmd', { skip: process.platform === 'win32' }, () => {
+  assert.equal(resolveCmdShell(), null);
+  const shell = resolveShell({ shell: { preferred: 'sh', fallback: 'bash', args: ['-l'] } });
+  assert.equal(path.isAbsolute(shell.command), true);
+  assert.equal(path.basename(shell.command), 'sh');
+  assert.equal(shell.usingFallback, false);
+
+  const fallback = resolveShell({ shell: { preferred: 'paneboard-missing-shell', fallback: 'sh', args: [] } });
+  assert.equal(path.basename(fallback.command), 'sh');
+  assert.equal(fallback.usingFallback, true);
+  assert.match(fallback.message, /paneboard-missing-shell was not found/);
 });

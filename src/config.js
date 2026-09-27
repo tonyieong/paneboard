@@ -23,7 +23,16 @@ const defaultMobileKeybarButtons = [
 // PSReadLine's inline prediction is what greys the rest of a remembered command
 // after the prompt; History is its own default, set explicitly so a profile that
 // turned it off still gets it back in a paneboard pane.
-const defaultShellArgsLine = 'args = ["-NoLogo", "-NoExit", "-Command", "try { Set-PSReadLineOption -PredictionSource History } catch {}"]';
+// Elsewhere a login shell, so a server started by systemd, with its bare
+// environment, still gets the PATH the user's profile sets up.
+const defaultShell = process.platform === 'win32'
+  ? {
+    preferred: 'pwsh.exe',
+    fallback: 'powershell.exe',
+    args: ['-NoLogo', '-NoExit', '-Command', 'try { Set-PSReadLineOption -PredictionSource History } catch {}']
+  }
+  : { preferred: 'bash', fallback: 'sh', args: ['-l'] };
+const defaultShellArgsLine = `args = ${formatTomlValue(defaultShell.args)}`;
 
 const defaultConfig = {
   server: {
@@ -37,14 +46,9 @@ const defaultConfig = {
     password_hash: ''
   },
   shell: {
-    preferred: 'pwsh.exe',
-    fallback: 'powershell.exe',
-    args: [
-      '-NoLogo',
-      '-NoExit',
-      '-Command',
-      'try { Set-PSReadLineOption -PredictionSource History } catch {}'
-    ],
+    preferred: defaultShell.preferred,
+    fallback: defaultShell.fallback,
+    args: defaultShell.args,
     extra_path: []
   },
   persistence: {
@@ -167,8 +171,8 @@ password_hash = ""
 
 [shell]
 # Hot reload for new panes only. Existing PowerShell processes keep their current executable and args.
-preferred = "pwsh.exe"
-fallback = "powershell.exe"
+preferred = "${defaultShell.preferred}"
+fallback = "${defaultShell.fallback}"
 ${defaultShellArgsLine}
 # Folders appended to PATH for new panes. paneboard inherits the PATH it had at
 # logon, so a tool installed after that goes missing until paneboard restarts: npm's

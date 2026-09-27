@@ -5,16 +5,22 @@ const crypto = require('crypto');
 const { spawn, spawnSync } = require('child_process');
 const { pipeline } = require('stream/promises');
 
+const isWindows = process.platform === 'win32';
+const localPath = isWindows ? path.win32 : path.posix;
+
 function normalizeLocalPath(value) {
   const input = String(value || '').trim();
+  if (!isWindows) {
+    return input.startsWith('/') ? localPath.resolve(input) : null;
+  }
   if (!input || input.startsWith('\\\\')) {
     return null;
   }
-  const parsed = path.win32.parse(input);
+  const parsed = localPath.parse(input);
   if (!/^[A-Za-z]:\\?$/.test(parsed.root)) {
     return null;
   }
-  const resolved = path.win32.resolve(input);
+  const resolved = localPath.resolve(input);
   if (!resolved.toLowerCase().startsWith(parsed.root.toLowerCase())) {
     return null;
   }
@@ -32,6 +38,10 @@ function assertLocalPath(value) {
 }
 
 function listDrives() {
+  if (!isWindows) {
+    const home = os.homedir();
+    return [{ name: '/', path: '/' }, ...(home && home !== '/' ? [{ name: home, path: home }] : [])];
+  }
   const drives = [];
   for (let code = 65; code <= 90; code += 1) {
     const root = `${String.fromCharCode(code)}:\\`;
@@ -47,7 +57,7 @@ function listDrives() {
 
 function fileInfo(filePath, name, hidden = false) {
   const stat = fs.statSync(filePath);
-  const displayName = name || path.win32.basename(filePath);
+  const displayName = name || localPath.basename(filePath);
   return {
     name: displayName,
     path: filePath,
@@ -60,14 +70,17 @@ function fileInfo(filePath, name, hidden = false) {
 
 function hiddenLocalPaths(dir) {
   const hidden = new Set();
+  if (!isWindows) {
+    return hidden;
+  }
   try {
-    const result = spawnSync('attrib.exe', [path.win32.join(dir, '*'), '/D'], {
+    const result = spawnSync('attrib.exe', [localPath.join(dir, '*'), '/D'], {
       encoding: 'utf8',
       windowsHide: true
     });
     for (const line of String(result.stdout || '').split(/\r?\n/)) {
       if (line.length >= 22 && line.slice(0, 21).includes('H')) {
-        hidden.add(path.win32.resolve(line.slice(21).trim()).toLowerCase());
+        hidden.add(localPath.resolve(line.slice(21).trim()).toLowerCase());
       }
     }
   } catch (error) {
@@ -87,8 +100,8 @@ function listDirectory(targetPath) {
   const hidden = hiddenLocalPaths(dir);
   const entries = fs.readdirSync(dir).map((name) => {
     try {
-      const entryPath = path.win32.join(dir, name);
-      return fileInfo(entryPath, name, hidden.has(path.win32.resolve(entryPath).toLowerCase()));
+      const entryPath = localPath.join(dir, name);
+      return fileInfo(entryPath, name, hidden.has(localPath.resolve(entryPath).toLowerCase()));
     } catch (error) {
       return null;
     }
@@ -103,22 +116,22 @@ function listDirectory(targetPath) {
 }
 
 function parentPath(targetPath) {
-  const parsed = path.win32.parse(targetPath);
+  const parsed = localPath.parse(targetPath);
   if (targetPath.toLowerCase() === parsed.root.toLowerCase()) {
     return '';
   }
-  return path.win32.dirname(targetPath);
+  return localPath.dirname(targetPath);
 }
 
 function safeChildPath(parent, name) {
   const dir = assertLocalPath(parent);
-  const cleanName = path.win32.basename(String(name || '').trim());
+  const cleanName = localPath.basename(String(name || '').trim());
   if (!cleanName || cleanName === '.' || cleanName === '..') {
     const error = new Error('Invalid file name.');
     error.statusCode = 400;
     throw error;
   }
-  return path.win32.join(dir, cleanName);
+  return localPath.join(dir, cleanName);
 }
 
 function createFolder(parent, name) {
@@ -200,7 +213,7 @@ function writeTextFile(targetPath, content, encoding = 'utf8') {
     error.statusCode = 400;
     throw error;
   }
-  if (!fs.existsSync(path.win32.dirname(target))) {
+  if (!fs.existsSync(localPath.dirname(target))) {
     const error = new Error('Parent directory does not exist.');
     error.statusCode = 400;
     throw error;
@@ -231,7 +244,7 @@ function writeTextFile(targetPath, content, encoding = 'utf8') {
 
 function renameItem(targetPath, name) {
   const from = assertLocalPath(targetPath);
-  const to = safeChildPath(path.win32.dirname(from), name);
+  const to = safeChildPath(localPath.dirname(from), name);
   fs.renameSync(from, to);
   return fileInfo(to);
 }
@@ -240,7 +253,7 @@ function moveItem(targetPath, destinationPath) {
   const from = assertLocalPath(targetPath);
   const destination = assertLocalPath(destinationPath);
   const stat = fs.statSync(destination);
-  const to = stat.isDirectory() ? path.win32.join(destination, path.win32.basename(from)) : destination;
+  const to = stat.isDirectory() ? localPath.join(destination, localPath.basename(from)) : destination;
   fs.renameSync(from, to);
   return fileInfo(to);
 }
@@ -249,8 +262,8 @@ function copyItem(targetPath, destinationPath) {
   const from = assertLocalPath(targetPath);
   const destination = assertLocalPath(destinationPath);
   const stat = fs.statSync(destination);
-  const targetDir = stat.isDirectory() ? destination : path.win32.dirname(destination);
-  const to = uniqueChildPath(targetDir, path.win32.basename(from));
+  const targetDir = stat.isDirectory() ? destination : localPath.dirname(destination);
+  const to = uniqueChildPath(targetDir, localPath.basename(from));
   fs.cpSync(from, to, { recursive: true });
   return fileInfo(to);
 }
@@ -281,8 +294,8 @@ function deleteItems(paths) {
 }
 
 function uniqueChildPath(parent, name) {
-  const ext = path.win32.extname(name);
-  const base = path.win32.basename(name, ext);
+  const ext = localPath.extname(name);
+  const base = localPath.basename(name, ext);
   let candidate = safeChildPath(parent, name);
   let index = 1;
   while (fs.existsSync(candidate)) {
@@ -308,14 +321,14 @@ async function saveUploadedFile(parent, name, stream) {
   const dir = assertLocalPath(parent);
   const repaired = repairMojibakeFilename(name || 'upload.bin').replace(/\//g, '\\');
   const parts = repaired.split('\\').filter(Boolean);
-  if (!parts.length || parts.some((part) => part === '.' || part === '..' || path.win32.basename(part) !== part)) {
+  if (!parts.length || parts.some((part) => part === '.' || part === '..' || localPath.basename(part) !== part)) {
     const error = new Error('Invalid file name.');
     error.statusCode = 400;
     throw error;
   }
-  const uploadParent = parts.length > 1 ? path.win32.join(dir, ...parts.slice(0, -1)) : dir;
-  const normalizedParent = path.win32.resolve(uploadParent);
-  const rootPrefix = dir.endsWith('\\') ? dir.toLowerCase() : `${dir.toLowerCase()}\\`;
+  const uploadParent = parts.length > 1 ? localPath.join(dir, ...parts.slice(0, -1)) : dir;
+  const normalizedParent = localPath.resolve(uploadParent);
+  const rootPrefix = dir.endsWith(localPath.sep) ? dir.toLowerCase() : `${dir.toLowerCase()}${localPath.sep}`;
   if (normalizedParent.toLowerCase() !== dir.toLowerCase() && !normalizedParent.toLowerCase().startsWith(rootPrefix)) {
     const error = new Error('Invalid file name.');
     error.statusCode = 400;
@@ -340,7 +353,7 @@ const IMAGE_CONTENT_TYPES = new Map([
 ]);
 
 function imageContentType(value) {
-  return IMAGE_CONTENT_TYPES.get(path.win32.extname(String(value || '')).toLowerCase()) || '';
+  return IMAGE_CONTENT_TYPES.get(localPath.extname(String(value || '')).toLowerCase()) || '';
 }
 
 function imageInfo(targetPath) {
@@ -359,7 +372,7 @@ function imageInfo(targetPath) {
   }
   return {
     path: target,
-    name: path.win32.basename(target),
+    name: localPath.basename(target),
     size: stat.size,
     modifiedAt: stat.mtime.toISOString(),
     contentType
@@ -368,7 +381,7 @@ function imageInfo(targetPath) {
 
 function listImageSiblings(targetPath) {
   const target = assertLocalPath(targetPath);
-  const directory = path.win32.dirname(target);
+  const directory = localPath.dirname(target);
   let names;
   try {
     names = fs.readdirSync(directory).filter((name) => imageContentType(name));
@@ -377,7 +390,7 @@ function listImageSiblings(targetPath) {
     names = [];
   }
   names.sort((a, b) => a.localeCompare(b));
-  const entries = names.map((name) => path.win32.join(directory, name));
+  const entries = names.map((name) => localPath.join(directory, name));
   if (!entries.some((entry) => entry.toLowerCase() === target.toLowerCase())) {
     entries.unshift(target);
   }
@@ -394,47 +407,81 @@ function downloadInfo(targetPath) {
   }
   return {
     path: target,
-    name: path.win32.basename(target),
+    name: localPath.basename(target),
     size: stat.isFile() ? stat.size : 0,
     type: stat.isDirectory() ? 'directory' : 'file'
   };
 }
 
-function prepareDownload(targetPath) {
-  const download = downloadInfo(targetPath);
-  if (download.type === 'file') {
-    return Promise.resolve(download);
-  }
-  const archivePath = path.join(os.tmpdir(), `paneboard-${crypto.randomUUID()}.zip`);
-  const script = 'Compress-Archive -LiteralPath $env:PANEBOARD_ARCHIVE_SOURCE -DestinationPath $env:PANEBOARD_ARCHIVE_TARGET -Force';
+function runArchiver(command, args, options) {
   return new Promise((resolve, reject) => {
-    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
-      windowsHide: true,
-      env: {
-        ...process.env,
-        PANEBOARD_ARCHIVE_SOURCE: download.path,
-        PANEBOARD_ARCHIVE_TARGET: archivePath
-      }
-    });
+    const child = spawn(command, args, { windowsHide: true, ...options });
     let stderr = '';
     child.stderr.on('data', (chunk) => {
       stderr += chunk.toString();
     });
-    child.on('error', reject);
+    child.on('error', (error) => {
+      reject(error.code === 'ENOENT' && command === 'zip'
+        ? new Error('Downloading folders needs the zip command. Install zip on this server.')
+        : error);
+    });
     child.on('close', (code) => {
-      if (code !== 0 || !fs.existsSync(archivePath)) {
-        reject(new Error(stderr.trim() || 'Could not create folder archive.'));
+      if (code !== 0) {
+        reject(new Error(stderr.trim()));
         return;
       }
-      resolve({
-        path: archivePath,
-        name: `${download.name}.zip`,
-        size: fs.statSync(archivePath).size,
-        type: 'archive',
-        temporary: true
-      });
+      resolve();
     });
   });
+}
+
+// Each source lands at the top of the archive under its own name.
+async function createArchive(sources, archivePath, failureMessage) {
+  try {
+    if (isWindows) {
+      const script = '$sources = $env:PANEBOARD_ARCHIVE_SOURCE -split "`n" | Where-Object { $_ }; Compress-Archive -LiteralPath $sources -DestinationPath $env:PANEBOARD_ARCHIVE_TARGET -Force';
+      await runArchiver('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+        env: {
+          ...process.env,
+          PANEBOARD_ARCHIVE_SOURCE: sources.join('\n'),
+          PANEBOARD_ARCHIVE_TARGET: archivePath
+        }
+      });
+    } else {
+      // zip stores paths as given, so it runs from each source's own folder;
+      // later runs add to the archive the first one created.
+      const byFolder = new Map();
+      for (const source of sources) {
+        const folder = localPath.dirname(source);
+        byFolder.set(folder, [...(byFolder.get(folder) || []), localPath.basename(source)]);
+      }
+      for (const [folder, names] of byFolder) {
+        await runArchiver('zip', ['-r', '-q', archivePath, '--', ...names], { cwd: folder });
+      }
+    }
+  } catch (error) {
+    throw new Error(error.message || failureMessage);
+  }
+  if (!fs.existsSync(archivePath)) {
+    throw new Error(failureMessage);
+  }
+  return fs.statSync(archivePath).size;
+}
+
+async function prepareDownload(targetPath) {
+  const download = downloadInfo(targetPath);
+  if (download.type === 'file') {
+    return download;
+  }
+  const archivePath = path.join(os.tmpdir(), `paneboard-${crypto.randomUUID()}.zip`);
+  const size = await createArchive([download.path], archivePath, 'Could not create folder archive.');
+  return {
+    path: archivePath,
+    name: `${download.name}.zip`,
+    size,
+    type: 'archive',
+    temporary: true
+  };
 }
 
 function prepareBulkDownload(paths) {
@@ -451,35 +498,13 @@ function prepareBulkDownload(paths) {
     fs.statSync(item);
   }
   const archivePath = path.join(os.tmpdir(), `paneboard-${crypto.randomUUID()}.zip`);
-  const script = '$sources = $env:PANEBOARD_ARCHIVE_SOURCE -split "`n" | Where-Object { $_ }; Compress-Archive -LiteralPath $sources -DestinationPath $env:PANEBOARD_ARCHIVE_TARGET -Force';
-  return new Promise((resolve, reject) => {
-    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
-      windowsHide: true,
-      env: {
-        ...process.env,
-        PANEBOARD_ARCHIVE_SOURCE: list.join('\n'),
-        PANEBOARD_ARCHIVE_TARGET: archivePath
-      }
-    });
-    let stderr = '';
-    child.stderr.on('data', (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code !== 0 || !fs.existsSync(archivePath)) {
-        reject(new Error(stderr.trim() || 'Could not create archive.'));
-        return;
-      }
-      resolve({
-        path: archivePath,
-        name: 'paneboard-files.zip',
-        size: fs.statSync(archivePath).size,
-        type: 'archive',
-        temporary: true
-      });
-    });
-  });
+  return createArchive(list, archivePath, 'Could not create archive.').then((size) => ({
+    path: archivePath,
+    name: 'paneboard-files.zip',
+    size,
+    type: 'archive',
+    temporary: true
+  }));
 }
 
 module.exports = {

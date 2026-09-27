@@ -182,7 +182,7 @@ test('shell args load profile without clearing restored scrollback', () => {
   assert.deepEqual(config.restore.allowlist, []);
 });
 
-test('shell args turn PSReadLine command predictions back on', () => {
+test('shell args turn PSReadLine command predictions back on', { skip: process.platform !== 'win32' }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-'));
   fs.writeFileSync(path.join(root, 'config.toml'), [
     '[shell]',
@@ -199,6 +199,15 @@ test('shell args turn PSReadLine command predictions back on', () => {
     '-Command',
     'try { Set-PSReadLineOption -PredictionSource History } catch {}'
   ]);
+});
+
+// A service's environment is bare, so the login shell is what brings in the
+// PATH from the user's profile.
+test('on Linux, new panes default to a bash login shell', { skip: process.platform === 'win32' }, () => {
+  const { config } = loadConfig(fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-')));
+  assert.equal(config.shell.preferred, 'bash');
+  assert.equal(config.shell.fallback, 'sh');
+  assert.deepEqual(config.shell.args, ['-l']);
 });
 
 test('shell extra_path is added to older configs and stays out of the web UI', () => {

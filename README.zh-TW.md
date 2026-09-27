@@ -7,8 +7,8 @@
 
 繁體中文 | [English](README.md)
 
-可攜式的 Windows 網頁終端工作區，設計概念來自 `tmux-continuum`。它把 PowerShell
-工作階段、檔案管理員、記事本、瀏覽器窗格、圖片檢視器與白板提供給本機上的任何瀏覽器
+可攜式的 Windows 與 Linux 網頁終端工作區，設計概念來自 `tmux-continuum`。它把 PowerShell
+（Linux 上為 bash）工作階段、檔案管理員、記事本、瀏覽器窗格、圖片檢視器與白板提供給本機上的任何瀏覽器
 使用，並在重新開機後重建原本的版面配置。
 
 > [!WARNING]
@@ -130,6 +130,26 @@ npm run package:win
 打包後的執行檔會輸出到 `dist/paneboard.exe`。pkg 是以主控台子系統（console subsystem）的
 Node 執行檔為基底建置的，那會讓伺服器在整個執行期間都掛著一個主控台視窗，因此打包時會
 把 PE 子系統改寫成 `windows`。連按兩下 `dist/paneboard.exe` 就會在沒有主控台視窗的情況下啟動。
+
+## Linux 伺服器
+
+Paneboard 亦可以在裝有 Node.js 22 的 Linux 伺服器上執行（已在 Fedora 44 x86-64 測試）：
+
+```sh
+npm install
+npm start
+```
+
+終端窗格會啟動 `bash -l`；如要改用其他 shell，請修改 `shell.preferred`、`shell.fallback` 與 `shell.args`。Linux 上沒有 CMD 窗格，檔案窗格由 `/` 及家目錄開始瀏覽，下載資料夾需要 `zip` 指令。瀏覽器窗格需要 Google Chrome 或 Chromium（例如 `sudo dnf install chromium`）。Linux 上沒有系統匣圖示，Paneboard 以背景服務形式執行。
+
+如要打包成單一執行檔並以 systemd 使用者服務執行，請在 Linux 機器的專案資料夾內執行：
+
+```sh
+npm run package:linux
+sh dist-linux/scripts/install-paneboard-service.sh
+```
+
+安裝程式會寫入 `~/.config/systemd/user/paneboard.service` 並啟動服務，同時啟用 lingering，讓登出後仍繼續執行。它會記錄當下的 `PATH`，所以請在找得到 `claude` 與 `codex` 的 shell 中執行。移動資料夾後請再執行一次。從網頁介面重新啟動時會交由 systemd 處理；`systemctl --user stop paneboard` 會先儲存工作區。`sh dist-linux/scripts/uninstall-paneboard-service.sh` 會移除服務，但保留 `data/`。
 
 ## 插件窗格
 
