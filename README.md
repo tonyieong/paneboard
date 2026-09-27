@@ -6,7 +6,8 @@ Previously named WPS7. New packages use `paneboard.exe`; keep `config.toml`,
 `data/`, and private `plugin-panes/` beside it when upgrading. Browser preferences,
 saved theme selections, and existing plugin registration names remain compatible.
 Run `npm run startup:repair` from the new installation to update its logon shortcut.
-The GitHub repository URL retains its existing name.
+The GitHub repository moved from `tonyieong/wps7` to `tonyieong/paneboard`; the old
+URL redirects.
 
 Portable Windows and Linux web terminal workspace inspired by `tmux-continuum`. It serves
 PowerShell (or, on Linux, bash) sessions, a file manager, a notepad, a browser pane, an image viewer,

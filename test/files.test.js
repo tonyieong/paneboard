@@ -171,7 +171,7 @@ test('reads and writes text files while preserving UTF-8 and UTF-16 encodings', 
 });
 
 test('text files report a modification stamp that follows an external rewrite', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-files-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-files-'));
   const notePath = path.join(root, 'note.txt');
   fs.writeFileSync(notePath, 'first');
 

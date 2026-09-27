@@ -16,11 +16,11 @@
     "workspace",
     "tmux-continuum"
   ],
-  "homepage": "https://github.com/tonyieong/wps7#readme",
-  "bugs": "https://github.com/tonyieong/wps7/issues",
+  "homepage": "https://github.com/tonyieong/paneboard#readme",
+  "bugs": "https://github.com/tonyieong/paneboard/issues",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tonyieong/wps7.git"
+    "url": "git+https://github.com/tonyieong/paneboard.git"
   },
   "main": "src/main.js",
   "bin": "src/main.js",

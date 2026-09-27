@@ -7,7 +7,7 @@ body:
       value: |
         **Do not report a security vulnerability here.** Paneboard hands out a shell,
         so a public report is a working exploit against every running instance.
-        Use the process in [SECURITY.md](https://github.com/tonyieong/wps7/blob/main/SECURITY.md) instead.
+        Use the process in [SECURITY.md](https://github.com/tonyieong/paneboard/blob/main/SECURITY.md) instead.
 
   - type: textarea
     id: what-happened

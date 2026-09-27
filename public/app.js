@@ -5572,7 +5572,7 @@
     set('mode', data.readOnly ? 'Read only' : 'INS');
     // This cell is rewritten after i18n has already translated the rendered
     // pane, so the translation has to be applied here too.
-    set('external', data.externalChange ? (window.Wps7I18n?.t('Changed on disk') ?? 'Changed on disk') : '');
+    set('external', data.externalChange ? (window.PaneboardI18n?.t('Changed on disk') ?? 'Changed on disk') : '');
   }
 
   function updateNotepadSearchCount(context) {

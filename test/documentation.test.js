@@ -35,5 +35,5 @@ test('local Markdown images exist', () => {
 
 test('the bug form links directly to the private security instructions', () => {
   const form = fs.readFileSync(path.join(root, '.github', 'ISSUE_TEMPLATE', 'bug_report.yml'), 'utf8');
-  assert.match(form, /https:\/\/github\.com\/tonyieong\/wps7\/blob\/main\/SECURITY\.md/);
+  assert.match(form, /https:\/\/github\.com\/tonyieong\/paneboard\/blob\/main\/SECURITY\.md/);
 });

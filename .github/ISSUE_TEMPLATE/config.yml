@@ -1,10 +1,10 @@
 blank_issues_enabled: false
 contact_links:
   - name: Report a security vulnerability
-    url: https://github.com/tonyieong/wps7/security/advisories/new
+    url: https://github.com/tonyieong/paneboard/security/advisories/new
     about: >-
       Never open a public issue for a vulnerability. Paneboard serves a shell, so a
       public report is a working exploit against every running instance.
   - name: Development setup and conventions
-    url: https://github.com/tonyieong/wps7/blob/main/CONTRIBUTING.md
+    url: https://github.com/tonyieong/paneboard/blob/main/CONTRIBUTING.md
     about: How to build, test and lint Paneboard before opening a pull request.

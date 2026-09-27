@@ -528,7 +528,7 @@ test('an open notepad tab follows the file when another program rewrites it', ()
   assert.match(appSource, /data-notepad-status-external/);
   assert.match(styles, /\.notepad-status-external:empty\s*\{\s*display:\s*none/);
   assert.match(i18nSource, /'Changed on disk': '磁碟上的檔案已變更'/);
-  assert.match(appSource, /set\('external', data\.externalChange \? \(window\.Wps7I18n\?\.t\('Changed on disk'\)/);
+  assert.match(appSource, /set\('external', data\.externalChange \? \(window\.PaneboardI18n\?\.t\('Changed on disk'\)/);
 });
 
 test('files and PowerShell panes share a multi-tab strip like the browser pane', () => {

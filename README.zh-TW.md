@@ -3,7 +3,8 @@
 前身為 WPS7。新版執行檔為 `paneboard.exe`；升級時將原有 `config.toml`、
 `data/` 及私人 `plugin-panes/` 保留在執行檔旁。瀏覽器偏好、已儲存的主題及
 舊有插件註冊名稱均保留相容性。在新安裝目錄執行 `npm run startup:repair`
-可更新登入時啟動的捷徑。GitHub repository 網址沿用現有名稱。
+可更新登入時啟動的捷徑。GitHub repository 已由 `tonyieong/wps7` 改名為
+`tonyieong/paneboard`，舊網址會自動轉向。
 
 繁體中文 | [English](README.md)
 

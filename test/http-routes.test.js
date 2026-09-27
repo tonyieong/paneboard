@@ -556,7 +556,7 @@ test('a full create/list/delete round trip through the file manager routes', asy
 
 test('/api/files/stat reports the modification stamp a notepad tab polls for', async () => {
   const auth = { Authorization: `Bearer ${sessionToken}` };
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'wps7-http-route-test-'));
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-http-route-test-'));
   const notePath = path.join(parent, 'watched.txt');
 
   const saved = await request('/api/files/text', { method: 'PUT', headers: auth, body: { path: notePath, content: 'first' } });
@@ -566,7 +566,7 @@ test('/api/files/stat reports the modification stamp a notepad tab polls for', a
   assert.equal(opened.status, 200);
   assert.deepEqual(opened.json, { path: notePath, mtimeMs: saved.json.mtimeMs, size: saved.json.size });
 
-  fs.writeFileSync(notePath, 'changed outside WPS7');
+  fs.writeFileSync(notePath, 'changed outside Paneboard');
   const changed = await request(`/api/files/stat?path=${encodeURIComponent(notePath)}`, { headers: auth });
   assert.notDeepEqual([changed.json.mtimeMs, changed.json.size], [opened.json.mtimeMs, opened.json.size]);
 
