@@ -157,6 +157,27 @@ test('workspaces read left to right and the strip stays where it was put', () =>
   assert.match(overflow, /classList\.toggle\('overflow-right', remaining > 1\)/);
 });
 
+test('the workspace bar knows whether its strip overflows, wherever it is scrolled', () => {
+  const start = appSource.indexOf('function updateWorkspaceStripOverflow');
+  const source = appSource.slice(start, appSource.indexOf('function scrollWorkspaceStrip'));
+  const classes = (list = new Set()) => ({ list, toggle: (name, on) => (on ? list.add(name) : list.delete(name)) });
+  function measure(scrollWidth, clientWidth, scrollLeft) {
+    const wrap = { classList: classes() };
+    const bar = { classList: classes() };
+    const nav = { '-1': {}, 1: {} };
+    const strip = { scrollWidth, clientWidth, scrollLeft, parentElement: wrap, closest: () => bar };
+    const app = { querySelector: (selector) => selector === '[data-workspace-strip]' ? strip : nav[selector.match(/"(-?1)"/)[1]] };
+    const context = vm.createContext({ app, state: {} });
+    vm.runInContext(`${source}\nupdateWorkspaceStripOverflow();`, context);
+    return { wrap: [...wrap.classList.list], bar: [...bar.classList.list], left: nav['-1'].disabled, right: nav[1].disabled };
+  }
+  assert.deepEqual(measure(204, 204, 0), { wrap: [], bar: [], left: true, right: true });
+  assert.deepEqual(measure(480, 204, 0), { wrap: ['overflow-right'], bar: ['workspace-strip-overflowing'], left: true, right: false });
+  // Scrolled fully right, nothing is left to reveal that way, but the strip
+  // still overflows, so the arrows must stay on screen to scroll back.
+  assert.deepEqual(measure(480, 204, 276), { wrap: ['overflow-left'], bar: ['workspace-strip-overflowing'], left: false, right: true });
+});
+
 test('the workspace arrows scroll the strip one title at a time', () => {
   // They pan the view now; they no longer switch workspace.
   assert.doesNotMatch(appSource, /switchWorkspaceByOffset/);
@@ -2538,7 +2559,7 @@ test('pane title rows follow one design per kind, and share a common base', () =
   // construction. What has to hold is that both kinds sit on the same base:
   // a second .pane-title block supplies these, overriding an earlier one that
   // had no height and a hardcoded border colour.
-  const tabless = styles.slice(styles.lastIndexOf('.pane-title {'));
+  const tabless = styles.slice([...styles.matchAll(/^\.pane-title \{/gm)].at(-1).index);
   const tablessBody = tabless.slice(0, tabless.indexOf('}'));
   assert.match(tablessBody, /height:\s*var\(--pane-toolbar-height\)/);
   assert.match(tablessBody, /border-color:\s*var\(--line\)/);

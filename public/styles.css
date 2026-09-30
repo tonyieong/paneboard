@@ -6073,3 +6073,89 @@ a:focus-visible {
   z-index: var(--z-focus-pane);
   box-shadow: 0 24px 64px var(--shadow);
 }
+
+/* Mobile touch targets. Desktop keeps its compact 22px pane controls, but on a
+   phone they are pressed with a thumb, and the pane close button sits right
+   beside the new-tab one, so a near miss closed the pane. Every pane kind's
+   title row grows together, keeping the one-design-per-kind rule. */
+.app.mode-mobile .pane-tab-strip,
+.app.mobile-device .pane-tab-strip,
+.app.mode-mobile .browser-tab-strip,
+.app.mobile-device .browser-tab-strip,
+.app.mode-mobile .notepad-tab-strip,
+.app.mobile-device .notepad-tab-strip,
+.app.mode-mobile .pane-title,
+.app.mobile-device .pane-title {
+  --pane-toolbar-height: 36px;
+  padding-right: 40px;
+}
+
+.app.mode-mobile .pane[data-pane-type="usage"] .pane-title,
+.app.mobile-device .pane[data-pane-type="usage"] .pane-title {
+  padding-right: 74px;
+}
+
+.app.mode-mobile .pane-close,
+.app.mobile-device .pane-close,
+.app.mode-mobile .pane-usage-refresh,
+.app.mobile-device .pane-usage-refresh {
+  top: 2px;
+  right: 4px;
+  width: 32px;
+  height: 32px;
+}
+
+.app.mode-mobile .pane-usage-refresh,
+.app.mobile-device .pane-usage-refresh {
+  right: 38px;
+}
+
+.app.mode-mobile .pane-new-tab,
+.app.mobile-device .pane-new-tab,
+.app.mode-mobile .browser-new-tab,
+.app.mobile-device .browser-new-tab,
+.app.mode-mobile .notepad-new-tab,
+.app.mobile-device .notepad-new-tab {
+  flex-basis: 32px;
+  width: 32px;
+  height: 32px;
+  margin-bottom: 0;
+}
+
+.app.mode-mobile .pane-tab-close,
+.app.mobile-device .pane-tab-close,
+.app.mode-mobile .browser-tab-close,
+.app.mobile-device .browser-tab-close,
+.app.mode-mobile .notepad-tab-close,
+.app.mobile-device .notepad-tab-close {
+  width: 28px;
+  height: 28px;
+}
+
+/* The keybar is pressed more than anything else on a phone. */
+.app.mode-mobile .mobile-keybar,
+.app.mobile-device .mobile-keybar {
+  height: calc(42px + max(2px, env(safe-area-inset-bottom)));
+  padding-top: 2px;
+  padding-bottom: max(2px, env(safe-area-inset-bottom));
+}
+
+.app.mode-mobile .mobile-keybar [data-toolbar-item],
+.app.mobile-device .mobile-keybar [data-toolbar-item],
+.app.mode-mobile .mobile-keybar .paged-toolbar-button,
+.app.mobile-device .mobile-keybar .paged-toolbar-button {
+  height: 38px;
+}
+
+/* A thumb swipes the strip, so the arrows only earn their width on a phone
+   while there is something off screen to scroll to. */
+.app.mode-mobile .workspace-bar:not(.workspace-strip-overflowing) .workspace-nav,
+.app.mobile-device .workspace-bar:not(.workspace-strip-overflowing) .workspace-nav {
+  display: none;
+}
+
+.app.mode-mobile .workspace-nav,
+.app.mobile-device .workspace-nav {
+  width: 32px;
+  height: 32px;
+}

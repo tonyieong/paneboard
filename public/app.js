@@ -2471,6 +2471,7 @@
     const remaining = strip.scrollWidth - strip.clientWidth - strip.scrollLeft;
     strip.parentElement.classList.toggle('overflow-left', strip.scrollLeft > 1);
     strip.parentElement.classList.toggle('overflow-right', remaining > 1);
+    strip.closest('.workspace-bar').classList.toggle('workspace-strip-overflowing', strip.scrollWidth - strip.clientWidth > 1);
     app.querySelector('[data-workspace-nav="-1"]').disabled = strip.scrollLeft <= 1;
     app.querySelector('[data-workspace-nav="1"]').disabled = remaining <= 1;
   }
@@ -2920,7 +2921,15 @@
     app.querySelectorAll('[data-workspace-nav]').forEach((button) => {
       button.onclick = () => scrollWorkspaceStrip(Number(button.dataset.workspaceNav));
     });
-    app.querySelector('[data-workspace-strip]')?.addEventListener('scroll', updateWorkspaceStripOverflow);
+    const workspaceStrip = app.querySelector('[data-workspace-strip]');
+    workspaceStrip?.addEventListener('scroll', updateWorkspaceStripOverflow);
+    // Rendering is not the only thing that resizes the strip or its titles: a
+    // viewport settling after load or a late font swap left a stale ellipsis
+    // and an arrow that scrolled nowhere.
+    if (workspaceStrip) {
+      const observer = new ResizeObserver(updateWorkspaceStripOverflow);
+      [workspaceStrip, ...workspaceStrip.children].forEach((element) => observer.observe(element));
+    }
     app.querySelectorAll('[data-workspace-drag]').forEach((tab) => {
       tab.onpointerdown = startWorkspaceTabDrag;
     });
