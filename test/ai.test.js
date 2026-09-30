@@ -460,6 +460,77 @@ test('a recorded codex session completes the handshake and reports its thread id
   assert.ok(sessionId);
 });
 
+for (const sessionId of ['', 'saved-thread', 'gone-thread']) {
+  test(`codex keeps Settings model and effort through the handshake (${sessionId || 'new thread'})`, async () => {
+    const { manager, store, pane, tabId, spawns } = managerFixture({
+      provider: 'codex', config: { codex_model: 'gpt-6.1-sol', codex_effort: 'medium' }
+    });
+    if (sessionId) store.setAiSession(pane.id, tabId, sessionId);
+    const socket = fakeSocket();
+    manager.attach(tabId, socket);
+    assert.equal(socket.sent[0].model, 'gpt-6.1-sol');
+    assert.equal(socket.sent[0].effort, 'medium');
+
+    const child = cliChild(spawns);
+    const lines = () => child.written.join('').trim().split('\n').map((line) => JSON.parse(line));
+    const reply = async (request, result, error) => {
+      child.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result, error })}\n`);
+      await settle();
+    };
+    await reply(lines()[0], {});
+    let request = lines().at(-1);
+    assert.equal(request.method, sessionId ? 'thread/resume' : 'thread/start');
+    assert.equal(request.params.threadId, sessionId || undefined);
+    assert.equal(request.params.model, 'gpt-6.1-sol');
+    assert.deepEqual(request.params.config, { model_reasoning_effort: 'medium' });
+    if (sessionId === 'gone-thread') {
+      await reply(request, undefined, { code: -1, message: 'no such thread' });
+      request = lines().at(-1);
+      assert.equal(request.method, 'thread/start');
+      assert.equal(request.params.model, 'gpt-6.1-sol');
+      assert.deepEqual(request.params.config, { model_reasoning_effort: 'medium' });
+    }
+    // The app-server resolves these overrides against its own defaults.
+    await reply(request, {
+      thread: { id: 'ready-thread' },
+      model: request.params.model || 'gpt-6-astra',
+      reasoningEffort: request.params.config?.model_reasoning_effort || 'low'
+    });
+    const status = socket.sent.filter((message) => message.type === 'status').at(-1);
+    assert.equal(status.model, 'gpt-6.1-sol');
+    assert.equal(status.effort, 'medium');
+
+    socket.fire('message', JSON.stringify({ type: 'prompt', text: 'continue' }));
+    const turn = lines().at(-1);
+    assert.equal(turn.method, 'turn/start');
+    assert.equal(turn.params.model, 'gpt-6.1-sol');
+    assert.equal(turn.params.effort, 'medium');
+    assert.equal(turn.params.config, undefined, 'thread config must not leak into turn/start');
+  });
+}
+
+test('codex leaves unset thread settings to the CLI defaults', () => {
+  for (const ai of [{}, { codex_model: 'gpt-6.1-sol' }, { codex_effort: 'medium' }]) {
+    const written = [];
+    const adapter = new CodexAdapter({
+      config: { ai }, write: (message) => written.push(message),
+      onEvent: () => {}, onSession: () => {}, onStatus: () => {}
+    });
+    adapter.start({});
+    answerCodexRequest(adapter, written, 'initialize', {});
+    const request = written.at(-1);
+    assert.equal(request.params.model, ai.codex_model);
+    assert.deepEqual(request.params.config, ai.codex_effort
+      ? { model_reasoning_effort: ai.codex_effort } : undefined);
+    answerCodexRequest(adapter, written, 'thread/start', {
+      thread: { id: 'ready-thread' }, model: ai.codex_model || 'gpt-6-astra',
+      reasoningEffort: ai.codex_effort || 'low'
+    });
+    assert.equal(adapter.currentModel, ai.codex_model || 'gpt-6-astra');
+    assert.equal(adapter.currentEffort, ai.codex_effort || 'low');
+  }
+});
+
 test('codex builds a thinking event from streamed reasoning summaries', () => {
   const events = [];
   const adapter = new CodexAdapter({
@@ -709,6 +780,9 @@ test('a model chosen with /model survives a thread restart after a failed resume
     jsonrpc: '2.0', id: written.at(-1).id, error: { code: -1, message: 'no such thread' }
   }));
   assert.equal(written.at(-1).method, 'thread/start');
+  assert.deepEqual(written.at(-1).params, {
+    model: 'gpt-5.6-codex', config: { model_reasoning_effort: 'high' }
+  });
   adapter.handleLine(JSON.stringify({
     jsonrpc: '2.0', id: written.at(-1).id, result: { thread: { id: 'thread-new' }, model: 'gpt-5.6-sol', reasoningEffort: 'medium' }
   }));

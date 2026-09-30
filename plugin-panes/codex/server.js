@@ -1179,7 +1179,19 @@ class CodexAdapter {
   }
 
   threadParams() {
-    return {};
+    const settings = this.config.ai || {};
+    const model = this.modelOverride || settings.codex_model;
+    const effort = this.effortOverride || settings.codex_effort;
+    const params = {};
+    if (model) {
+      params.model = model;
+    }
+    // Thread creation/resume takes reasoning effort as a config override;
+    // only turn/start accepts the top-level `effort` field.
+    if (effort) {
+      params.config = { model_reasoning_effort: effort };
+    }
+    return params;
   }
 
   handleNotification(method, params) {
@@ -1662,7 +1674,6 @@ class CodexAdapter {
     }
     const settings = this.config.ai || {};
     const params = {
-      ...this.threadParams(),
       threadId: this.threadId,
       input
     };
