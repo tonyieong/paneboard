@@ -15,6 +15,7 @@
      own stacking context and are left as plain numbers. A context menu has to
      clear a focused pane, so it sits above --z-focus-pane. */
   --z-sidebar: 55;
+  --z-tooltip: 60;
   --z-settings: 80;
   --z-modal: 90;
   --z-focus-backdrop: 95;
@@ -6158,4 +6159,56 @@ a:focus-visible {
 .app.mobile-device .workspace-nav {
   width: 32px;
   height: 32px;
+}
+
+/* Mobile sidebar: the new-pane buttons become a compact icon grid that fits as
+   many per row as the sidebar's width allows. A long press shows the name
+   (wireRailLongPressLabels), so the text label is dropped. */
+.app.mobile-device:not(.sidebar-closed) .menu-rail {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+  gap: 4px;
+  padding: 8px 10px 10px;
+}
+
+.app.mobile-device .menu-rail .sidebar-brand-row {
+  grid-column: 1 / -1;
+}
+
+.app.mobile-device .menu-rail > .rail-button {
+  min-height: 48px;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.app.mobile-device .menu-rail > .rail-button .rail-label {
+  display: none;
+}
+
+.app.mobile-device .menu-rail > .rail-button .file-action-icon,
+.app.mobile-device .menu-rail > .rail-button .provider-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.rail-tooltip {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  max-width: calc(100vw - 16px);
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px var(--shadow);
+  pointer-events: none;
+}
+
+.rail-tooltip[hidden] {
+  display: none;
 }

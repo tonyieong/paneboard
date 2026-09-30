@@ -2956,6 +2956,7 @@
     });
     app.querySelector('[data-theme-toggle]').onclick = () => setThemeLive(pairedThemeId(), true);
     app.querySelector('.sidebar').addEventListener('click', closeMobileSidebarAfterAction);
+    wireRailLongPressLabels(app.querySelector('.menu-rail'));
     wireMobileKeybarButtons(app);
     wirePaneGrid(app);
     wireBoardScroll(app);
@@ -7907,6 +7908,93 @@
       return;
     }
     setSidebarOpen(false);
+  }
+
+  // Mobile shows the new-pane buttons as bare icons, so a long press is how
+  // their names are read. The press that showed a name must not also open the
+  // pane: its click is swallowed before any button handler sees it.
+  const RAIL_LABEL_HOLD_MS = 450;
+  const RAIL_LABEL_LINGER_MS = 1200;
+
+  function wireRailLongPressLabels(rail) {
+    if (!rail) {
+      return;
+    }
+    let holdTimer = 0;
+    let start = null;
+    let suppressClick = false;
+    const cancelHold = () => {
+      window.clearTimeout(holdTimer);
+      holdTimer = 0;
+    };
+    rail.addEventListener('pointerdown', (event) => {
+      const button = event.target.closest('.rail-button');
+      cancelHold();
+      suppressClick = false;
+      if (!isMobileLayout() || !button || button.classList.contains('sidebar-brand')) {
+        return;
+      }
+      start = { x: event.clientX, y: event.clientY };
+      holdTimer = window.setTimeout(() => {
+        holdTimer = 0;
+        suppressClick = true;
+        showRailLabel(button);
+        navigator.vibrate?.(12);
+      }, RAIL_LABEL_HOLD_MS);
+    });
+    rail.addEventListener('pointermove', (event) => {
+      if (holdTimer && start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10) {
+        cancelHold();
+      }
+    });
+    for (const type of ['pointerup', 'pointercancel', 'pointerleave']) {
+      rail.addEventListener(type, () => {
+        cancelHold();
+        hideRailLabel(RAIL_LABEL_LINGER_MS);
+      });
+    }
+    rail.addEventListener('click', (event) => {
+      if (suppressClick) {
+        suppressClick = false;
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }, true);
+    rail.addEventListener('contextmenu', (event) => {
+      if (isMobileLayout()) {
+        event.preventDefault();
+      }
+    });
+  }
+
+  function showRailLabel(button) {
+    let label = document.querySelector('.rail-tooltip');
+    if (!label) {
+      label = document.createElement('div');
+      label.className = 'rail-tooltip';
+      label.setAttribute('role', 'tooltip');
+      document.body.append(label);
+    }
+    window.clearTimeout(label._hideTimer);
+    label.textContent = button.getAttribute('aria-label') || button.textContent.trim();
+    label.hidden = false;
+    const rect = button.getBoundingClientRect();
+    const width = label.offsetWidth;
+    const left = Math.min(Math.max(8, rect.left + rect.width / 2 - width / 2), window.innerWidth - width - 8);
+    const above = rect.top - label.offsetHeight - 6;
+    label.style.left = `${left}px`;
+    label.style.top = `${above >= 8 ? above : rect.bottom + 6}px`;
+  }
+
+  function hideRailLabel(delay = 0) {
+    const label = document.querySelector('.rail-tooltip');
+    if (!label || label.hidden) {
+      return;
+    }
+    window.clearTimeout(label._hideTimer);
+    label._hideTimer = window.setTimeout(() => {
+      label.hidden = true;
+    }, delay);
   }
 
   function closeMobileSidebarAfterAction(event) {

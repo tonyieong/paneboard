@@ -178,6 +178,69 @@ test('the workspace bar knows whether its strip overflows, wherever it is scroll
   assert.deepEqual(measure(480, 204, 276), { wrap: ['overflow-left'], bar: ['workspace-strip-overflowing'], left: false, right: true });
 });
 
+test('on mobile a long press on a new-pane icon names it instead of opening the pane', () => {
+  const source = appSource.slice(appSource.indexOf('const RAIL_LABEL_HOLD_MS'), appSource.indexOf('function closeMobileSidebarAfterAction'));
+  let now = 0;
+  let timers = [];
+  const setTimeout = (fn, ms) => { timers.push({ fn, at: now + ms }); return timers.length; };
+  const clearTimeout = (id) => { if (timers[id - 1]) timers[id - 1].fn = null; };
+  const advance = (ms) => {
+    now += ms;
+    for (const timer of timers) {
+      if (timer.fn && timer.at <= now) { const fn = timer.fn; timer.fn = null; fn(); }
+    }
+  };
+  let tooltip = null;
+  const document = {
+    querySelector: () => tooltip,
+    createElement: () => ({ setAttribute() {}, style: {}, offsetWidth: 90, offsetHeight: 30 }),
+    body: { append: (element) => { tooltip = element; } }
+  };
+  const button = {
+    classList: { contains: () => false },
+    getAttribute: () => 'New file pane',
+    getBoundingClientRect: () => ({ left: 60, top: 80, width: 50, height: 48, bottom: 128 })
+  };
+  const listeners = {};
+  const rail = { addEventListener: (type, fn) => { (listeners[type] ||= []).push(fn); } };
+  const fire = (type, event = {}) => {
+    const full = { target: { closest: () => button }, clientX: 85, clientY: 104, preventDefault() { this.prevented = true; }, stopPropagation() { this.stopped = true; }, ...event };
+    (listeners[type] || []).forEach((fn) => fn(full));
+    return full;
+  };
+  const context = vm.createContext({
+    document, navigator: {}, isMobileLayout: () => true,
+    window: { setTimeout, clearTimeout, innerWidth: 360 }
+  });
+  vm.runInContext(`${source}\nthis.wire = wireRailLongPressLabels;`, context);
+  context.wire(rail);
+
+  // Held past the delay: the name shows and the click that follows is eaten.
+  fire('pointerdown');
+  advance(500);
+  assert.equal(tooltip?.textContent, 'New file pane');
+  assert.equal(tooltip.hidden, false);
+  fire('pointerup');
+  const heldClick = fire('click');
+  assert.ok(heldClick.stopped && heldClick.prevented, 'the long press must not also open the pane');
+  advance(1300);
+  assert.equal(tooltip.hidden, true);
+
+  // A quick tap still opens the pane.
+  fire('pointerdown');
+  advance(100);
+  fire('pointerup');
+  assert.ok(!fire('click').stopped);
+
+  // A finger that moves is scrolling, not asking for a name.
+  tooltip.textContent = '';
+  fire('pointerdown');
+  fire('pointermove', { clientX: 85, clientY: 130 });
+  advance(600);
+  assert.equal(tooltip.textContent, '');
+  assert.ok(!fire('click').stopped);
+});
+
 test('the workspace arrows scroll the strip one title at a time', () => {
   // They pan the view now; they no longer switch workspace.
   assert.doesNotMatch(appSource, /switchWorkspaceByOffset/);
