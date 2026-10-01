@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.ConnectivityManager;
 import android.net.Network;
@@ -12,6 +13,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
@@ -79,8 +81,40 @@ public class MainActivity extends Activity {
     return view;
   }
 
+  // Android 15 forces targetSdk 35 apps edge-to-edge, so the app opts in on
+  // every API 30+ device and handles the system bars and keyboard itself. That
+  // keeps one tested layout path instead of one per Android release.
+  private void useEdgeToEdge() {
+    if (android.os.Build.VERSION.SDK_INT < 30) return;
+    getWindow().setDecorFitsSystemWindows(false);
+    getWindow().setStatusBarColor(Color.TRANSPARENT);
+    getWindow().setNavigationBarColor(Color.TRANSPARENT);
+  }
+
+  private void useLightSystemBars(boolean light) {
+    if (android.os.Build.VERSION.SDK_INT < 30) return;
+    int flags = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+    getWindow().getInsetsController().setSystemBarsAppearance(light ? flags : 0, flags);
+  }
+
+  // Keeps content clear of the system bars, the display cutout and the open
+  // keyboard. Below API 30 the window still fits the bars and adjustResize
+  // shrinks it for the keyboard, so only the base padding applies there.
+  private void padForSystemInsets(View view, int left, int top, int right, int bottom) {
+    view.setPadding(left, top, right, bottom);
+    view.setOnApplyWindowInsetsListener((target, insets) -> {
+      if (android.os.Build.VERSION.SDK_INT < 30) return insets;
+      android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+      android.graphics.Insets ime = insets.getInsets(WindowInsets.Type.ime());
+      target.setPadding(left + bars.left, top + bars.top, right + bars.right, bottom + Math.max(bars.bottom, ime.bottom));
+      // Consumed here so the WebView does not shrink a second time for them.
+      return WindowInsets.CONSUMED;
+    });
+  }
+
   @Override public void onCreate(Bundle state) {
     super.onCreate(state);
+    useEdgeToEdge();
     ScrollView scroll = new ScrollView(this);
     connectionView = scroll;
     scroll.setFillViewport(true);
@@ -89,13 +123,7 @@ public class MainActivity extends Activity {
     body.setOrientation(LinearLayout.VERTICAL);
     body.setPadding(dp(24), dp(24), dp(24), dp(24));
     scroll.addView(body);
-    scroll.setOnApplyWindowInsetsListener((view, insets) -> {
-      if (android.os.Build.VERSION.SDK_INT >= 30) {
-        android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
-        body.setPadding(dp(24) + bars.left, dp(16) + bars.top, dp(24) + bars.right, dp(24) + bars.bottom);
-      }
-      return insets;
-    });
+    padForSystemInsets(scroll, 0, 0, 0, 0);
     TextView title = text("Paneboard", 28);
     title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
     body.addView(title);
@@ -177,6 +205,8 @@ public class MainActivity extends Activity {
       updateMode();
     });
     setContentView(scroll);
+    // The insets controller needs the decor view setContentView creates.
+    useLightSystemBars(true);
     if (automatic.isChecked() && !endpoint.getText().toString().trim().isEmpty()) connect();
   }
 
@@ -353,7 +383,10 @@ public class MainActivity extends Activity {
     workspaceOrigin = origin;
     LinearLayout page = new LinearLayout(this);
     page.setOrientation(LinearLayout.VERTICAL);
-    page.setPadding(0, dp(8), 0, dp(8));
+    // Matches the Workspace's dark ink, so the bars and the gap above the
+    // keyboard do not flash the light connection-screen background.
+    page.setBackgroundColor(0xff08131f);
+    padForSystemInsets(page, 0, dp(8), 0, dp(8));
     LinearLayout toolbar = new LinearLayout(this);
     toolbar.setOrientation(LinearLayout.HORIZONTAL);
     Button back = button("連線設定", toolbar, view -> closeWorkspace());
@@ -387,6 +420,7 @@ public class MainActivity extends Activity {
     cookies.setAcceptThirdPartyCookies(browser, false);
     page.addView(browser, new LinearLayout.LayoutParams(-1, 0, 1));
     setContentView(page);
+    useLightSystemBars(false);
     cookies.setCookie(origin, "paneboard_bridge=" + capability + "; Path=/; HttpOnly; SameSite=Strict", accepted -> {
       if (webView != browser) return;
       if (accepted) browser.loadUrl(origin + "/");
@@ -402,15 +436,28 @@ public class MainActivity extends Activity {
       WebStorage.getInstance().deleteOrigin(workspaceOrigin);
       CookieManager.getInstance().setCookie(workspaceOrigin, "paneboard_bridge=; Path=/; Max-Age=0", null);
       workspaceOrigin = "";
-      if (!destroyed) setContentView(connectionView);
+      if (!destroyed) {
+        setContentView(connectionView);
+        useLightSystemBars(true);
+      }
     }
     try { send(new JSONObject().put("Op", "close-workspace")); } catch (Exception ignored) {}
     if (workspace != null) workspace.setEnabled(test.isEnabled());
   }
 
+  // Closing the Workspace clears its login, and a back gesture is easy to make
+  // by accident, so leaving it is confirmed first.
   @Override public void onBackPressed() {
-    if (webView != null) closeWorkspace();
-    else super.onBackPressed();
+    if (webView == null) {
+      super.onBackPressed();
+      return;
+    }
+    new AlertDialog.Builder(this)
+      .setTitle("離開 Workspace？")
+      .setMessage("會關閉 Workspace 並清除登入資料，返嚟時要重新登入。")
+      .setNegativeButton("留低", null)
+      .setPositiveButton("離開", (dialog, which) -> closeWorkspace())
+      .show();
   }
 
   private void authorize() {

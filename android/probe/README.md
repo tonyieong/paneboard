@@ -222,3 +222,16 @@ the legacy netlink implementation. The Activity now passes `SDK_INT` privately
 to the child process; before starting tsnet the core selects anet's Android 11+
 implementation for API 30+. The rebuilt, signature-verified APK was installed
 successfully. Subsequent device startup, authorization and connection checks passed.
+
+### Linux build and window fixes (2026-10-01)
+
+- `setup-linux-toolchain.sh` and `build.sh` built and signature-verified the APK
+  on Fedora with a new Linux release key, so the old Windows-signed app was
+  uninstalled first. The Go core tests passed on Linux.
+- The app now draws edge-to-edge on API 30+ and pads for the system bars,
+  display cutout and keyboard itself; Android 15 enforces that for targetSdk 35.
+- On the Android 13 phone, through a direct pinned-HTTPS connection to an
+  isolated port-5022 instance: the Workspace sat below the status bar and above
+  the navigation bar, the terminal keybar stayed directly above the open
+  keyboard, and Back asked before closing the Workspace ("留低" kept it open,
+  "離開" returned to the connection screen). Android 15 itself was not tested.
