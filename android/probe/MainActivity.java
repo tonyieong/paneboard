@@ -458,14 +458,9 @@ public class MainActivity extends Activity {
     // Matches the Workspace's dark ink, so the bars and the gap above the
     // keyboard do not flash the light connection-screen background.
     page.setBackgroundColor(0xff08131f);
-    padForSystemInsets(page, 0, dp(8), 0, dp(8));
-    LinearLayout toolbar = new LinearLayout(this);
-    toolbar.setOrientation(LinearLayout.HORIZONTAL);
-    Button back = button("連線設定", toolbar, view -> closeWorkspace());
-    back.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1));
-    Button reload = button("重新載入", toolbar, view -> { if (webView != null) webView.reload(); });
-    reload.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1));
-    page.addView(toolbar);
+    // No native toolbar: the Workspace gets the whole screen, and Back offers
+    // reloading or returning to the connection settings instead.
+    padForSystemInsets(page, 0, 0, 0, 0);
     final WebView browser = new WebView(this);
     webView = browser;
     WebView.setWebContentsDebuggingEnabled(false);
@@ -518,7 +513,8 @@ public class MainActivity extends Activity {
   }
 
   // Closing the Workspace clears its login, and a back gesture is easy to make
-  // by accident, so leaving it is confirmed first.
+  // by accident, so leaving it is confirmed first. Back is also the only way
+  // to reload, since the Workspace has no toolbar.
   @Override public void onBackPressed() {
     if (webView == null) {
       super.onBackPressed();
@@ -526,8 +522,9 @@ public class MainActivity extends Activity {
     }
     new AlertDialog.Builder(this)
       .setTitle("離開 Workspace？")
-      .setMessage("會關閉 Workspace 並清除登入資料，返嚟時要重新登入。")
+      .setMessage("離開會返去連線設定，並清除登入資料，返嚟時要重新登入。")
       .setNegativeButton("留低", null)
+      .setNeutralButton("重新載入", (dialog, which) -> { if (webView != null) webView.reload(); })
       .setPositiveButton("離開", (dialog, which) -> closeWorkspace())
       .show();
   }

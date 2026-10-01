@@ -30,7 +30,8 @@ Use **Connect and open Workspace** for the normal flow. Optionally enable automa
 connection on app launch. Tailscale sign-in is needed only when its saved identity
 requires authorization; Paneboard still uses its ordinary server login. Closing
 the Workspace clears its temporary WebView login storage. WebSocket recovery is
-handled by Paneboard's existing client; Reload is available for a failed page.
+handled by Paneboard's existing client. The Workspace has no native toolbar:
+Back asks whether to stay, reload the page or leave for the connection settings.
 
 ## Import connection settings
 
