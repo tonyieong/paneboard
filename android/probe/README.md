@@ -33,6 +33,13 @@ the Workspace clears its temporary WebView login storage. WebSocket recovery is
 handled by Paneboard's existing client. The Workspace has no native toolbar:
 Back asks whether to stay, reload the page or leave for the connection settings.
 
+In Tailscale mode, **Tailscale 裝置名稱** sets how the phone appears in the
+tailnet. It defaults to the phone's own device name (Settings → About), or its
+model when none is set, and is cleaned into a valid hostname
+(`Lenovo L71091` → `lenovo-l71091`). It is read when Tailscale starts, so stop
+and reconnect after changing it. A name renamed by hand in the Tailscale admin
+console takes precedence there.
+
 ## Import connection settings
 
 Use the native **Import connection settings** button to select a JSON file (up to

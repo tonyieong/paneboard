@@ -105,3 +105,29 @@ func serverFingerprint(dial tailnetDial, raw string, now time.Time) (string, err
 	sum := sha256.Sum256(leaf.Raw)
 	return hex.EncodeToString(sum[:]), nil
 }
+
+// deviceHostname turns the name chosen in the app into a Tailscale hostname:
+// lowercase letters, digits and single hyphens, at most one DNS label long.
+// Anything unusable falls back to a generic name rather than failing to start.
+func deviceHostname(name string) string {
+	var b strings.Builder
+	hyphen := false
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			hyphen = false
+		case !hyphen && b.Len() > 0:
+			b.WriteByte('-')
+			hyphen = true
+		}
+	}
+	host := strings.Trim(b.String(), "-")
+	if len(host) > 63 {
+		host = strings.TrimRight(host[:63], "-")
+	}
+	if host == "" {
+		return "paneboard-android"
+	}
+	return host
+}

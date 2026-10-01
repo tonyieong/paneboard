@@ -111,3 +111,19 @@ func TestServerFingerprintReadsTheTailnetServersLeaf(t *testing.T) {
 		}
 	}
 }
+
+func TestDeviceHostname(t *testing.T) {
+	for name, want := range map[string]string{
+		"paneboard-lenovo-l71091":      "paneboard-lenovo-l71091",
+		"Tony's Phone":                 "tony-s-phone",
+		"  --Pixel 9 Pro--  ":          "pixel-9-pro",
+		"手機":                           "paneboard-android",
+		"":                             "paneboard-android",
+		strings.Repeat("a", 70):        strings.Repeat("a", 63),
+		strings.Repeat("a", 62) + " b": strings.Repeat("a", 62),
+	} {
+		if got := deviceHostname(name); got != want {
+			t.Errorf("deviceHostname(%q) = %q, want %q", name, got, want)
+		}
+	}
+}

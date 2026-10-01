@@ -43,7 +43,8 @@ public class MainActivity extends Activity {
   private Process core;
   private OutputStreamWriter commands;
   private TextView status, results, vpn;
-  private EditText endpoint, fingerprint;
+  private EditText endpoint, fingerprint, deviceName;
+  private TextView deviceNameLabel;
   private Button start, authorize, test, workspace;
   private ScrollView connectionView;
   private WebView webView;
@@ -112,6 +113,13 @@ public class MainActivity extends Activity {
     });
   }
 
+  // The name the user gave this phone in Settings, so the tailnet shows the
+  // same name as Bluetooth and the phone itself; the model when there is none.
+  private String phoneName() {
+    String name = android.provider.Settings.Global.getString(getContentResolver(), android.provider.Settings.Global.DEVICE_NAME);
+    return name == null || name.trim().isEmpty() ? android.os.Build.MODEL : name.trim();
+  }
+
   @Override public void onCreate(Bundle state) {
     super.onCreate(state);
     useEdgeToEdge();
@@ -160,6 +168,16 @@ public class MainActivity extends Activity {
     fingerprint.setTextSize(12);
     fingerprint.setContentDescription("已核實嘅憑證 SHA-256");
     body.addView(fingerprint);
+    // How this phone appears in the tailnet. The core turns it into a valid
+    // hostname; it is read when Tailscale starts, so a change applies after
+    // the connection is stopped and started again.
+    deviceNameLabel = text("Tailscale 裝置名稱（停止再連線後生效）", 14);
+    body.addView(deviceNameLabel);
+    deviceName = new EditText(this);
+    deviceName.setSingleLine(true);
+    deviceName.setContentDescription("Tailscale 裝置名稱");
+    deviceName.setText(saved.getString("tailscale.deviceName", phoneName()));
+    body.addView(deviceName);
     loadProfile(true);
     button("匯入連線設定", body, view -> {
       Intent document = new Intent(Intent.ACTION_OPEN_DOCUMENT);
@@ -353,6 +371,8 @@ public class MainActivity extends Activity {
       ? "使用 Wi-Fi／流動網絡（包括系統已啟用嘅 VPN）。請填可直接到達嘅伺服器網址。"
       : "透過內置 Tailscale 連去你嘅私有網絡，唔需要系統 VPN。連線失敗唔會轉直連。");
     authorize.setVisibility(direct ? View.GONE : View.VISIBLE);
+    deviceNameLabel.setVisibility(direct ? View.GONE : View.VISIBLE);
+    deviceName.setVisibility(direct ? View.GONE : View.VISIBLE);
     fingerprintLabel.setText(direct ? "已核實嘅憑證 SHA-256" : "憑證 SHA-256（可留空，第一次連線時確認）");
     if (core == null) status.setText("尚未啟動連線");
   }
@@ -377,6 +397,9 @@ public class MainActivity extends Activity {
       builder.environment().put("TMPDIR", getCacheDir().getAbsolutePath());
       builder.environment().put("PANEBOARD_ANDROID_SDK", Integer.toString(android.os.Build.VERSION.SDK_INT));
       builder.environment().put("PANEBOARD_CONNECTION_MODE", direct ? "direct" : "tailscale");
+      String name = deviceName.getText().toString().trim();
+      saved.edit().putString("tailscale.deviceName", name).apply();
+      builder.environment().put("PANEBOARD_DEVICE_NAME", name);
       builder.environment().put("TS_LOGS_DIR", getCacheDir().getAbsolutePath());
       builder.environment().put("TS_NO_LOGS_NO_SUPPORT", "true");
       final Process process = builder.start();

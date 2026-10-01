@@ -124,7 +124,7 @@ func main() {
 		anet.SetAndroidVersion(10)
 	}
 	netmon.RegisterInterfaceGetter(interfaces)
-	s := &tsnet.Server{Dir: os.Args[1], Hostname: "paneboard-android-probe", Logf: func(string, ...any) {}, UserLogf: func(string, ...any) {}}
+	s := &tsnet.Server{Dir: os.Args[1], Hostname: deviceHostname(os.Getenv("PANEBOARD_DEVICE_NAME")), Logf: func(string, ...any) {}, UserLogf: func(string, ...any) {}}
 	if err := s.Start(); err != nil {
 		emit("error", err.Error())
 		return
