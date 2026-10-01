@@ -53,27 +53,41 @@ the stored server identity through a launcher intent.
 
 ## Build
 
-All tools, caches, signing keys and output stay inside the workspace. The current
-Windows script uses portable Go 1.27.1, JDK 17, Android platform 35 and build-tools
-35.0.0. Place these in `output/node_modules/android-toolchain/` and
-`output/node_modules/android-sdk-tools/`, then run:
+All tools, caches, signing keys and output stay inside the workspace. Both build
+scripts use Go 1.27.1, JDK 17, Android platform 35 and build-tools 35.0.0, kept
+under `output/node_modules/android-toolchain/` and
+`output/node_modules/android-sdk-tools/`.
+
+On Linux (x86-64), fetch the pinned toolchain once, then build:
+
+```sh
+./android/probe/setup-linux-toolchain.sh   # accepts the Android SDK license
+./android/probe/build.sh
+```
+
+On Windows, place the portable tools in the same two directories and run:
 
 ```powershell
 ./android/probe/build.ps1
 ```
 
+Each machine signs with its own `output/android-signing/` key unless you copy
+that directory across. An APK signed by a different key cannot update an
+installed app in place: uninstall first, which discards the app's Tailscale
+identity and saved connection profiles.
+
 The deliverable is `output/android-release/Paneboard-1.0.apk`, with a SHA-256
 checksum beside it. The APK is not debuggable and has no WebView debugging.
 The build bundles Go/module license texts inside the APK. It does not build,
-deploy, restart or modify the Windows server.
+deploy, restart or modify the Paneboard server.
 
 **Back up `output/android-signing/` securely.** It contains the release keystore,
-its randomly generated password and signing lineage. The directory ACL permits
-only the building Windows account and SYSTEM. Never commit or distribute these
+its randomly generated password and signing lineage. The directory is private to
+the building account (Windows: that account and SYSTEM; Linux: mode 700). Never commit or distribute these
 private files with the APK. Future updates need the same release key and a higher
 manifest versionCode. Losing the key prevents normal in-place updates.
 
-When the local prototype debug key exists, the build creates a signing lineage
+When the local prototype debug key exists, the Windows build creates a signing lineage
 to rotate to the private release key on Android 9+, retaining installed app data.
 Rollback to the old signing key is disabled. The internal package name remains
 `app.paneboard.probe` solely for upgrade compatibility; the launcher says Paneboard.
