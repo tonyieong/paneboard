@@ -6133,6 +6133,40 @@ a:focus-visible {
   height: 28px;
 }
 
+/* The tabs fill the taller row and sit on its bottom rule, and their close
+   column widens to the 28px button instead of letting it spill past the tab. */
+.app.mode-mobile :is(.pane-tab, .browser-tab, .notepad-tab),
+.app.mobile-device :is(.pane-tab, .browser-tab, .notepad-tab) {
+  height: auto;
+  align-self: stretch;
+  grid-template-columns: minmax(24px, 1fr) 28px;
+}
+
+/* Workspace tabs likewise rest on the row's bottom rule, the way their open
+   top edge and rounded top corners draw them, rather than floating centred
+   with a gap beneath. The 32px arrows line up with them; the sidebar button
+   keeps 2px off the rule, since centring it in the 37px row lands on a half
+   pixel. */
+.app.mode-mobile .tabs,
+.app.mobile-device .tabs {
+  align-items: stretch;
+}
+
+.app.mode-mobile .workspace-bar,
+.app.mobile-device .workspace-bar {
+  align-items: flex-end;
+}
+
+.app.mode-mobile .workspace-bar > .mobile-actions,
+.app.mobile-device .workspace-bar > .mobile-actions {
+  margin-bottom: 2px;
+}
+
+.app.mode-mobile .workspace-bar .tab,
+.app.mobile-device .workspace-bar .tab {
+  height: 32px;
+}
+
 /* The keybar is pressed more than anything else on a phone. */
 .app.mode-mobile .mobile-keybar,
 .app.mobile-device .mobile-keybar {
