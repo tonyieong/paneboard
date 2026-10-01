@@ -52,7 +52,7 @@ public class MainActivity extends Activity {
   private boolean destroyed;
   private boolean direct;
   private boolean stopping;
-  private TextView connectionHelp;
+  private TextView connectionHelp, fingerprintLabel;
   private SharedPreferences saved;
   private RadioGroup modes;
   private RadioButton tailscaleMode, directMode;
@@ -153,7 +153,8 @@ public class MainActivity extends Activity {
     endpoint.setHint("https://100.x.x.x:5023/");
     endpoint.setContentDescription("伺服器網址");
     body.addView(endpoint);
-    body.addView(text("已核實嘅憑證 SHA-256", 14));
+    fingerprintLabel = text("已核實嘅憑證 SHA-256", 14);
+    body.addView(fingerprintLabel);
     fingerprint = new EditText(this);
     fingerprint.setTypeface(Typeface.MONOSPACE);
     fingerprint.setTextSize(12);
@@ -181,6 +182,10 @@ public class MainActivity extends Activity {
     authorize = button("登入 Tailscale", body, view -> authorize());
     authorize.setEnabled(false);
     test = button("測試 HTTPS 及 WebSocket", body, view -> {
+      if (fingerprint.getText().toString().trim().isEmpty()) {
+        showError("未有憑證指紋。先按「連線並開啟 Workspace」確認一次伺服器憑證。");
+        return;
+      }
       try {
         saveProfile();
         results.setText(direct ? "正在測試，使用手機現有網絡……" : "正在測試，只會透過內嵌 Tailscale 連線……");
@@ -217,6 +222,57 @@ public class MainActivity extends Activity {
       .putString(profileKey("pin"), fingerprint.getText().toString().trim()).apply();
   }
 
+  // A pin the user confirmed belongs to the address it was read from. Pointing
+  // the profile at another server must ask again rather than fail on a pin
+  // that was never meant for it. A pin typed or imported since then is the
+  // user's own choice and is kept.
+  private boolean needsCertificateConfirmation() {
+    if (direct) return false;
+    String url = endpoint.getText().toString().trim();
+    String pin = fingerprint.getText().toString().trim();
+    String confirmedFor = saved.getString(profileKey("pinUrl"), "");
+    if (!confirmedFor.isEmpty() && !confirmedFor.equals(url) && pin.equals(saved.getString(profileKey("pinConfirmed"), ""))) {
+      fingerprint.setText("");
+      saved.edit().remove(profileKey("pinUrl")).remove(profileKey("pinConfirmed")).apply();
+    }
+    return fingerprint.getText().toString().trim().isEmpty();
+  }
+
+  private static String readableFingerprint(String hex) {
+    StringBuilder out = new StringBuilder();
+    for (int i = 0; i < hex.length(); i += 2) {
+      if (i > 0) out.append(':');
+      out.append(hex.substring(i, i + 2).toUpperCase(java.util.Locale.ROOT));
+    }
+    return out.toString();
+  }
+
+  private void confirmCertificate(JSONObject offer) {
+    final String url = offer.optString("url"), sha256 = offer.optString("sha256");
+    if (!sha256.matches("[0-9a-f]{64}") || !url.equals(endpoint.getText().toString().trim())) {
+      showError("收到非預期嘅憑證資料，已取消連線。");
+      stopCore();
+      return;
+    }
+    final String readable = readableFingerprint(sha256);
+    new AlertDialog.Builder(this)
+      .setTitle("確認伺服器憑證")
+      .setMessage(url + "\n\nSHA-256\n" + readable
+        + "\n\n第一次連去呢部伺服器。請同伺服器上顯示嘅指紋核對。確定後會永久保存；之後憑證有變，App 會拒絕連線。")
+      .setCancelable(false)
+      .setNegativeButton("取消", (dialog, which) -> {
+        stopCore();
+        results.setText("已取消連線，冇保存任何憑證。");
+      })
+      .setPositiveButton("確定", (dialog, which) -> {
+        fingerprint.setText(readable);
+        saveProfile();
+        saved.edit().putString(profileKey("pinUrl"), url).putString(profileKey("pinConfirmed"), readable).apply();
+        requestWorkspace();
+      })
+      .show();
+  }
+
   private void loadProfile(boolean migrate) {
     endpoint.setText(saved.getString(profileKey("url"), migrate ? saved.getString("serverUrl", "") : ""));
     fingerprint.setText(saved.getString(profileKey("pin"), migrate ? saved.getString("certificateSha256", "") : ""));
@@ -224,8 +280,12 @@ public class MainActivity extends Activity {
 
   private void connect() {
     if (stopping) return;
-    if (endpoint.getText().toString().trim().isEmpty() || fingerprint.getText().toString().trim().isEmpty()) {
-      showError("請輸入伺服器網址及已核實嘅憑證指紋，或匯入連線設定。");
+    if (endpoint.getText().toString().trim().isEmpty()) {
+      showError("請輸入伺服器網址，或匯入連線設定。");
+      return;
+    }
+    if (direct && fingerprint.getText().toString().trim().isEmpty()) {
+      showError("直接連線需要已核實嘅憑證指紋，或匯入連線設定。");
       return;
     }
     saveProfile();
@@ -242,6 +302,11 @@ public class MainActivity extends Activity {
       start.setEnabled(false);
       test.setEnabled(false);
       workspace.setEnabled(false);
+      if (needsCertificateConfirmation()) {
+        results.setText("正在讀取伺服器憑證，請稍候確認……");
+        send(new JSONObject().put("Op", "fingerprint").put("URL", endpoint.getText().toString().trim()));
+        return;
+      }
       results.setText("正在核實伺服器憑證及連線，完成後會開啟 Workspace……");
       send(new JSONObject().put("Op", "workspace").put("URL", endpoint.getText().toString().trim()).put("Pin", fingerprint.getText().toString().trim()));
     } catch (Exception error) { stopCore(); showError("未能開啟 Workspace，請重新連線。"); }
@@ -288,6 +353,7 @@ public class MainActivity extends Activity {
       ? "使用 Wi-Fi／流動網絡（包括系統已啟用嘅 VPN）。請填可直接到達嘅伺服器網址。"
       : "透過內置 Tailscale 連去你嘅私有網絡，唔需要系統 VPN。連線失敗唔會轉直連。");
     authorize.setVisibility(direct ? View.GONE : View.VISIBLE);
+    fingerprintLabel.setText(direct ? "已核實嘅憑證 SHA-256" : "憑證 SHA-256（可留空，第一次連線時確認）");
     if (core == null) status.setText("尚未啟動連線");
   }
 
@@ -363,12 +429,18 @@ public class MainActivity extends Activity {
       test.setEnabled(true);
       try { openWorkspace(new JSONObject(value)); }
       catch (Exception error) { closeWorkspace(); showError("未能建立 Workspace 畫面"); }
+    } else if (type.equals("fingerprint")) {
+      openingWorkspace = false;
+      try { confirmCertificate(new JSONObject(value)); }
+      catch (Exception error) { stopCore(); showError("未能讀取伺服器憑證"); }
     } else if (type.equals("result")) results.append("\n" + value);
     else if (type.equals("error")) {
       pendingOpen = false;
       if (openingWorkspace) { openingWorkspace = false; start.setEnabled(true); test.setEnabled(true); }
       workspace.setEnabled(test.isEnabled());
-      showError(value);
+      showError(value.contains("Certificate fingerprint mismatch")
+        ? "伺服器憑證同已保存嘅唔一樣，已阻止連線。如果你確定伺服器換咗憑證，清空指紋欄再連線就會重新確認。"
+        : value);
     }
   }
 

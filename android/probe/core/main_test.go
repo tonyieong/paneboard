@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -71,5 +76,38 @@ func TestDirectTargetKeepsHTTPSAndPinRequirements(t *testing.T) {
 	}
 	if _, _, err := connectionTarget("https://100.93.254.50:5023", pin, "automatic"); err == nil {
 		t.Fatal("accepted unknown mode")
+	}
+}
+
+func TestServerFingerprintReadsTheTailnetServersLeaf(t *testing.T) {
+	server := httptest.NewTLSServer(http.NotFoundHandler())
+	defer server.Close()
+	var dialed string
+	dial := func(ctx context.Context, network, address string) (net.Conn, error) {
+		dialed = address
+		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+	}
+	sum, err := serverFingerprint(dial, "https://100.93.254.50:5023/", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := sha256.Sum256(server.Certificate().Raw)
+	if sum != hex.EncodeToString(want[:]) {
+		t.Fatalf("fingerprint %s, want %x", sum, want)
+	}
+	if dialed != "100.93.254.50:5023" {
+		t.Fatalf("dialed %s, want the tailnet address", dialed)
+	}
+	// What was confirmed is exactly what the pinned transport then accepts.
+	if _, _, err := target("https://100.93.254.50:5023/", sum); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := serverFingerprint(dial, "https://100.93.254.50:5023/", server.Certificate().NotAfter.Add(time.Hour)); err == nil {
+		t.Fatal("offered an expired certificate for confirmation")
+	}
+	for _, address := range []string{"https://192.168.1.20:5023", "https://server.example:5023", "http://100.93.254.50:5023"} {
+		if _, err := serverFingerprint(dial, address, time.Now()); err == nil {
+			t.Errorf("offered confirmation for non-tailnet target %s", address)
+		}
 	}
 }

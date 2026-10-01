@@ -48,6 +48,15 @@ trust. The file contains public connection information, never a password or toke
 ```
 
 Use `"direct"` for the direct mode. Colon-separated fingerprints are accepted.
+
+In Tailscale mode the fingerprint may be left empty. The first connection then
+reads the server's certificate through the tunnel and shows its SHA-256 for
+confirmation: **確定** saves it permanently for that address, **取消** stops the
+connection and saves nothing. A later certificate change is refused with a
+warning; clear the field to confirm a new one. WireGuard has already
+authenticated the node behind the Tailscale IP, which is what makes trusting
+the first certificate safe there. Direct mode has no such guarantee and still
+requires an independently verified fingerprint.
 The launcher ignores endpoint/pin extras; another app cannot silently replace
 the stored server identity through a launcher intent.
 
@@ -235,3 +244,16 @@ successfully. Subsequent device startup, authorization and connection checks pas
   the navigation bar, the terminal keybar stayed directly above the open
   keyboard, and Back asked before closing the Workspace ("留低" kept it open,
   "離開" returned to the connection screen). Android 15 itself was not tested.
+
+### First-use certificate confirmation (2026-10-01)
+
+- Go: `serverFingerprint` is offered only for Tailscale targets, rejects expired
+  certificates, and its result is exactly the pin the transport then accepts.
+  All nine Go test groups passed.
+- On the phone, in Tailscale mode against an isolated HTTPS instance on the
+  host's Tailscale address (port 5022), with the fingerprint left empty: the
+  dialog showed the server's real SHA-256; Back did not dismiss it; 取消 stopped
+  the connection and left the field empty; 確定 opened the Workspace and saved
+  the pin; reconnecting and restarting the app did not ask again; after the
+  server's certificate was replaced, the connection was refused with the
+  mismatch warning instead of a new prompt.

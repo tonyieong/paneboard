@@ -186,6 +186,18 @@ func runCommands(dial tailnetDial, mode string, login func() error) {
 			if err := probe(dial, cmd.URL, cmd.Pin, mode); err != nil {
 				emit("error", err.Error())
 			}
+		case "fingerprint":
+			if mode != "tailscale" {
+				emit("error", "Certificate confirmation needs embedded Tailscale; enter a verified fingerprint for direct mode")
+				continue
+			}
+			sum, err := serverFingerprint(dial, cmd.URL, time.Now())
+			if err != nil {
+				emit("error", err.Error())
+				continue
+			}
+			payload, _ := json.Marshal(map[string]string{"url": cmd.URL, "sha256": sum})
+			emit("fingerprint", string(payload))
 		case "workspace":
 			if closeBridge != nil {
 				closeBridge()
