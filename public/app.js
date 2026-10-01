@@ -4071,6 +4071,7 @@
     const fallback = () => {
       const textarea = document.createElement('textarea');
       textarea.value = text;
+      textarea.readOnly = true;
       textarea.style.position = 'fixed';
       textarea.style.opacity = '0';
       document.body.appendChild(textarea);
@@ -8528,13 +8529,16 @@
     element.addEventListener('click', () => term.focus());
     element.addEventListener('contextmenu', (event) => {
       event.preventDefault();
+      // Own the event before xterm moves and focuses its hidden textarea. On a
+      // phone that can open the keyboard and resize away the touch selection.
+      event.stopPropagation();
       // A long press fires this halfway through the gesture; that menu belongs
       // to touchend, once the selection is final.
       if (touchScroll.isTouchActive()) {
         return;
       }
       openTerminalContextMenu(terminalTabId, event.clientX, event.clientY);
-    });
+    }, { capture: true });
     term.attachCustomKeyEventHandler((event) => terminalShortcut(terminalTabId, event));
     term.onTitleChange((title) => updatePaneTitleFromTerminal(paneId, terminalTabId, title));
     term.onBell(() => showTerminalNotification(paneId));
@@ -8741,6 +8745,16 @@
       return;
     }
     const fallback = () => {
+      if (isMobileLayout()) {
+        // HTTP and some mobile WebViews deny clipboard reads. A native input
+        // lets the phone's own Paste action supply text without hardware keys.
+        const text = window.prompt(window.PaneboardI18n?.t('Paste') ?? 'Paste');
+        if (text) {
+          terminal.term.paste(text);
+        }
+        terminal.term.focus();
+        return;
+      }
       terminal.term.focus();
       showToast('Clipboard access is unavailable. Press Ctrl+V to paste.');
     };
@@ -8837,21 +8851,25 @@
     if (!term) {
       return;
     }
+    // Closing the software keyboard changes the row count and xterm clears its
+    // selection on a vertical resize. Keep the text until the menu is used.
+    const selectedText = terminalSelectionText(term);
     const items = [
-      { label: 'Copy', shortcut: 'Ctrl+Shift+C', disabled: !term.hasSelection(), action: () => copyTerminalSelection(terminalTabId) },
+      { label: 'Copy', shortcut: 'Ctrl+Shift+C', disabled: !selectedText, action: () => copyBrowserText(selectedText) },
       { label: 'Paste', shortcut: 'Ctrl+Shift+V', action: () => pasteTerminalText(terminalTabId) },
       { label: 'Select all', shortcut: 'Ctrl+Shift+A', action: () => selectAllTerminal(terminalTabId) },
       { label: 'Clear', shortcut: 'Ctrl+Shift+L', action: () => clearTerminal(terminalTabId) }
     ];
     const menu = document.createElement('div');
     menu.className = 'terminal-context-menu';
+    menu.classList.toggle('terminal-context-mobile', isMobileLayout());
     menu.setAttribute('role', 'menu');
     menu.innerHTML = items.map((item, index) => `
       <button type="button" role="menuitem" class="terminal-context-item" data-terminal-context-index="${index}" ${item.disabled ? 'disabled' : ''}>${escapeHtml(item.label)}<span class="terminal-context-shortcut">${escapeHtml(item.shortcut)}</span></button>
     `).join('');
     document.body.appendChild(menu);
-    menu.style.left = `${Math.min(clientX, window.innerWidth - menu.offsetWidth - 6)}px`;
-    menu.style.top = `${Math.min(clientY, viewportHeight() - menu.offsetHeight - 6)}px`;
+    menu.style.left = `${Math.max(6, Math.min(clientX, window.innerWidth - menu.offsetWidth - 6))}px`;
+    menu.style.top = `${Math.max(6, Math.min(clientY, viewportHeight() - menu.offsetHeight - 6))}px`;
     menu.querySelectorAll('[data-terminal-context-index]').forEach((button) => {
       button.onclick = () => {
         const item = items[Number(button.dataset.terminalContextIndex)];
@@ -8922,14 +8940,18 @@
     let selecting = false;
     let selectionAnchor = null;
     let touchActive = false;
+    let scrolling = false;
     const cancelLongPress = () => {
       window.clearTimeout(longPressTimer);
       longPressTimer = 0;
     };
     element.addEventListener('touchstart', (event) => {
       cancelLongPress();
+      touchActive = false;
+      scrolling = false;
       selecting = false;
       selectionAnchor = null;
+      element.classList.remove('touch-selecting');
       if (!isMobileLayout() || event.touches.length !== 1) {
         lastY = 0;
         return;
@@ -8962,7 +8984,11 @@
         extendTerminalTouchSelection(element, term, selectionAnchor, touch);
         return;
       }
-      if (Math.hypot(touch.clientX - startX, touch.clientY - startY) > moveTolerance) {
+      if (!scrolling) {
+        if (Math.hypot(touch.clientX - startX, touch.clientY - startY) <= moveTolerance) {
+          return;
+        }
+        scrolling = true;
         cancelLongPress();
       }
       if (!lastY) {

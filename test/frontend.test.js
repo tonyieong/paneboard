@@ -2254,7 +2254,7 @@ test('context menus clamp against the visible viewport, not the layout viewport'
   // Clamping to window.innerHeight put a menu opened near the bottom of a
   // phone screen behind the URL bar, where its lower items could not be tapped.
   assert.match(appSource, /function viewportHeight\(\) \{\s*return window\.visualViewport\?\.height \|\| window\.innerHeight;/s);
-  const clamps = [...appSource.matchAll(/menu\.style\.top = `\$\{Math\.min\(clientY, ([\w.?()]+) -/g)].map((match) => match[1]);
+  const clamps = [...appSource.matchAll(/menu\.style\.top = `\$\{(?:Math\.max\(6, )?Math\.min\(clientY, ([\w.?()]+) -/g)].map((match) => match[1]);
   assert.equal(clamps.length, 2);
   for (const clamp of clamps) {
     assert.equal(clamp, 'viewportHeight()', `menu still clamps to ${clamp}`);
@@ -3092,4 +3092,108 @@ test('the /reasoning autocomplete only offers levels the active model supports',
   // The backend must publish which model is active alongside the catalog,
   // or the frontend has nothing to match against.
   assert.match(aiSource, /currentModel:\s*runtime\.model/);
+});
+
+test('terminal menu copies its original selection after a keyboard resize clears xterm', () => {
+  let selected = 'mobile selection';
+  const copied = [];
+  const buttons = Array.from({ length: 4 }, (_, index) => ({ dataset: { terminalContextIndex: String(index) }, focus() { selected = ''; } }));
+  const menu = {
+    classList: { toggle() {} }, setAttribute() {}, style: {}, offsetWidth: 210, offsetHeight: 190,
+    querySelectorAll: () => buttons, querySelector: () => buttons[0]
+  };
+  const context = vm.createContext({
+    state: { terminals: new Map([['tab', { term: { hasSelection: () => Boolean(selected) } }]]) },
+    document: { createElement: () => menu, body: { appendChild() {} }, addEventListener() {} },
+    window: { innerWidth: 360 }, viewportHeight: () => 300, isMobileLayout: () => true,
+    terminalSelectionText: () => selected, copyBrowserText: (text) => copied.push(text),
+    copyTerminalSelection: () => { if (selected) copied.push(selected); },
+    closeTerminalContextMenu() {}, handleTerminalMenuOutside() {}, handleTerminalMenuKey() {},
+    pasteTerminalText() {}, selectAllTerminal() {}, clearTerminal() {}, escapeHtml: (text) => text
+  });
+  const start = coreAppSource.indexOf('  function openTerminalContextMenu(');
+  const end = coreAppSource.indexOf('  function terminalCellAtTouch(', start);
+  vm.runInContext(coreAppSource.slice(start, end), context);
+  context.openTerminalContextMenu('tab', 350, 290);
+  assert.equal(selected, '', 'focusing the menu simulates the software keyboard closing');
+  buttons[0].onclick();
+  assert.deepEqual(copied, ['mobile selection']);
+  assert.ok(Number.parseFloat(menu.style.left) >= 0);
+  assert.ok(Number.parseFloat(menu.style.top) >= 0);
+});
+
+test('mobile terminal ignores finger jitter and cancels a hold when a second finger arrives', () => {
+  const listeners = {};
+  const wheels = [];
+  const menus = [];
+  let timer = null;
+  let selected = 0;
+  const classes = new Set();
+  const element = {
+    querySelector: () => ({ dispatchEvent: (event) => wheels.push(event.deltaY) }),
+    classList: { add: (name) => classes.add(name), remove: (name) => classes.delete(name) },
+    addEventListener: (name, fn) => { listeners[name] = fn; }
+  };
+  const context = vm.createContext({
+    window: { setTimeout: (fn) => { timer = fn; return 1; }, clearTimeout: () => { timer = null; } },
+    navigator: {}, isMobileLayout: () => true,
+    selectTerminalWordAtTouch: () => { selected++; return {}; }, extendTerminalTouchSelection() {},
+    WheelEvent: function (type, options) { Object.assign(this, options); }
+  });
+  const start = coreAppSource.indexOf('  function installMobileTerminalTouchScroll(');
+  const end = coreAppSource.indexOf('  function createTerminalWriter(', start);
+  vm.runInContext(coreAppSource.slice(start, end), context);
+  const controller = context.installMobileTerminalTouchScroll(element, {}, (...args) => menus.push(args));
+  const point = (x, y) => ({ clientX: x, clientY: y });
+  const fire = (name, touches, changedTouches = touches) => listeners[name]({ touches, changedTouches, preventDefault() {} });
+  fire('touchstart', [point(50, 100)]);
+  fire('touchmove', [point(52, 102)]);
+  assert.deepEqual(wheels, [], 'small finger movement must not scroll the word out from under a hold');
+  assert.ok(timer);
+  timer();
+  assert.equal(selected, 1);
+  fire('touchend', [], [point(52, 102)]);
+  assert.equal(menus.length, 1);
+  assert.equal(controller.isTouchActive(), false);
+
+  fire('touchstart', [point(50, 100)]);
+  timer();
+  fire('touchstart', [point(50, 100), point(80, 100)]);
+  assert.equal(controller.isTouchActive(), false);
+  assert.equal(classes.has('touch-selecting'), false);
+  fire('touchend', [], [point(50, 100)]);
+  assert.equal(menus.length, 1, 'a cancelled two-finger gesture must not open a selection menu');
+
+  fire('touchstart', [point(50, 100)]);
+  fire('touchmove', [point(50, 125)]);
+  assert.deepEqual(wheels, [25]);
+  assert.equal(timer, null);
+  fire('touchcancel', []);
+  assert.equal(controller.isTouchActive(), false);
+});
+
+test('mobile terminal can paste through native input when clipboard access is denied', async () => {
+  const pasted = [];
+  const prompts = [];
+  let focused = 0;
+  let value = 'hello\nworld';
+  const context = vm.createContext({
+    state: { terminals: new Map([['tab', { term: { paste: (text) => pasted.push(text), focus: () => focused++ } }]]) },
+    navigator: { clipboard: { readText: () => Promise.reject(new Error('denied')) } },
+    window: { prompt: (label) => { prompts.push(label); return value; } },
+    isMobileLayout: () => true, showToast: () => assert.fail('a phone must not require Ctrl+V')
+  });
+  const start = coreAppSource.indexOf('  function pasteTerminalText(');
+  const end = coreAppSource.indexOf('  function selectAllTerminal(', start);
+  vm.runInContext(coreAppSource.slice(start, end), context);
+  context.pasteTerminalText('tab');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(pasted, ['hello\nworld']);
+  assert.deepEqual(prompts, ['Paste']);
+  assert.equal(focused, 1);
+  value = null;
+  context.navigator.clipboard = undefined;
+  context.pasteTerminalText('tab');
+  assert.equal(pasted.length, 1, 'cancelling native input must not send anything to the shell');
+  assert.equal(focused, 2);
 });
