@@ -2653,6 +2653,7 @@ textarea:focus-visible {
 
 .appearance-section {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 
@@ -3323,6 +3324,16 @@ textarea:focus-visible {
 
   .settings-section {
     margin-bottom: 28px;
+  }
+
+  .display-mode-setting .segmented {
+    max-width: 100%;
+  }
+
+  .display-mode-setting .segmented-option {
+    min-width: 0;
+    flex: 1;
+    padding-inline: 8px;
   }
 
   .theme-setting {
