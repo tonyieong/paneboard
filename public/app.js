@@ -8792,6 +8792,10 @@
       if (text) {
         terminal.term.paste(text);
       }
+      // The context menu that started this held focus and is gone now, and a
+      // clipboard permission prompt can take it too, so typing would otherwise
+      // land nowhere after a paste.
+      terminal.term.focus();
     }, fallback);
   }
 

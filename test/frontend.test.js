@@ -3281,6 +3281,23 @@ test('mobile terminal can paste through native input when clipboard access is de
   assert.equal(focused, 2);
 });
 
+test('a terminal paste from the context menu hands focus back to the shell', async () => {
+  const pasted = [];
+  let focused = 0;
+  const context = vm.createContext({
+    state: { terminals: new Map([['tab', { term: { paste: (text) => pasted.push(text), focus: () => focused++ } }]]) },
+    navigator: { clipboard: { readText: () => Promise.resolve('ls -la') } },
+    window: {}, isMobileLayout: () => false, showToast: () => assert.fail('a granted clipboard needs no hint')
+  });
+  const start = coreAppSource.indexOf('  function pasteTerminalText(');
+  const end = coreAppSource.indexOf('  function selectAllTerminal(', start);
+  vm.runInContext(coreAppSource.slice(start, end), context);
+  context.pasteTerminalText('tab');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(pasted, ['ls -la']);
+  assert.equal(focused, 1, 'the closed menu must not leave keystrokes with nowhere to go');
+});
+
 test('clipboard denial does not open an extra mobile copy input', async () => {
   const toasts = [];
   const textarea = { style: {}, select() {}, remove() {} };
@@ -3338,4 +3355,71 @@ test('mobile native selection keeps the OS menu and avoids focusing xterm', () =
   listeners.contextmenu(event);
   assert.equal(prevented, 1);
   assert.equal(customMenus, 1, 'desktop must retain the terminal context menu');
+});
+
+// Each AI tab recalls what was sent in it with Up and Down, the way a shell
+// recalls earlier commands.
+function loadAiPromptHistory() {
+  const start = aiClientSource.indexOf('    function aiPromptHistory(tabId) {');
+  const end = aiClientSource.indexOf('    function aiSurface(tabId) {', start);
+  assert.ok(start >= 0 && end > start, 'prompt history not found in the AI pane client');
+  const context = vm.createContext({ state: { aiPromptHistory: new Map() } });
+  vm.runInContext(aiClientSource.slice(start, end), context);
+  const input = {
+    value: '', selectionStart: 0, selectionEnd: 0, style: {}, scrollHeight: 20,
+    setSelectionRange(from, to) { this.selectionStart = from; this.selectionEnd = to; }
+  };
+  const menu = { hidden: false, innerHTML: 'menu' };
+  const surface = {
+    dataset: { aiTab: 'tab' },
+    querySelector: (selector) => (selector === '[data-ai-input]' ? input : menu)
+  };
+  const type = (value, caret = value.length) => {
+    input.value = value;
+    input.selectionStart = caret;
+    input.selectionEnd = caret;
+  };
+  return { context, input, menu, surface, type };
+}
+
+test('the AI composer recalls earlier prompts with Up and Down', () => {
+  const { context, input, menu, surface, type } = loadAiPromptHistory();
+  assert.equal(context.recallAiPrompt(surface, -1), false, 'no history leaves the arrow to the textarea');
+
+  for (const event of [
+    { role: 'user', kind: 'text', text: 'first' },
+    { role: 'assistant', kind: 'text', text: 'a reply is not a prompt' },
+    { role: 'user', kind: 'text', text: '/model opus' },
+    { role: 'user', kind: 'text', text: '/model opus' },
+    { role: 'user', kind: 'text', text: '', images: [{ id: 'a' }] },
+    { role: 'user', kind: 'text', text: 'line one\nline two' }
+  ]) context.rememberAiPrompt('tab', event);
+
+  type('half typed');
+  assert.equal(context.recallAiPrompt(surface, 1), false, 'Down before Up has nothing newer to show');
+  assert.equal(context.recallAiPrompt(surface, -1), true);
+  assert.equal(input.value, 'line one\nline two');
+  assert.equal(input.selectionStart, input.value.length);
+  // Inside a recalled multi-line prompt Up first moves between its lines.
+  assert.equal(context.recallAiPrompt(surface, -1), false);
+  input.selectionStart = input.selectionEnd = 2;
+  assert.equal(context.recallAiPrompt(surface, -1), true);
+  assert.equal(input.value, '/model opus', 'a repeated prompt is recalled once');
+  assert.equal(menu.hidden, true, 'a recalled command must not reopen the completion menu');
+  assert.equal(context.recallAiPrompt(surface, -1), true);
+  assert.equal(input.value, 'first');
+  assert.equal(context.recallAiPrompt(surface, -1), true, 'the oldest prompt holds');
+  assert.equal(input.value, 'first');
+
+  assert.equal(context.recallAiPrompt(surface, 1), true);
+  assert.equal(input.value, '/model opus');
+  assert.equal(context.recallAiPrompt(surface, 1), true);
+  assert.equal(input.value, 'line one\nline two');
+  assert.equal(context.recallAiPrompt(surface, 1), true);
+  assert.equal(input.value, 'half typed', 'walking past the newest prompt restores the draft');
+  assert.equal(context.recallAiPrompt(surface, 1), false);
+
+  // Up only leaves a multi-line draft from its first line.
+  type('draft\nsecond line');
+  assert.equal(context.recallAiPrompt(surface, -1), false);
 });

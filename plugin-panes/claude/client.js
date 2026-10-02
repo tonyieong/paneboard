@@ -11,7 +11,9 @@
       aiCommands: new Map(),
       aiCapabilities: new Map(),
       // Pasted images waiting to go out with the next prompt, keyed by tab id.
-      aiAttachments: new Map()
+      aiAttachments: new Map(),
+      // What the user has sent in each tab, for Up/Down recall in the composer.
+      aiPromptHistory: new Map()
     };
 
     // One surface per tab, all but the active one hidden, mirroring how a
@@ -656,6 +658,67 @@
         : at.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     }
 
+    // The prompts come from the user messages the server replays and echoes,
+    // so the history outlives a reload and a prompt sent from another device
+    // is recalled too.
+    function aiPromptHistory(tabId) {
+      if (!state.aiPromptHistory.has(tabId)) {
+        state.aiPromptHistory.set(tabId, { entries: [], index: -1, draft: '' });
+      }
+      return state.aiPromptHistory.get(tabId);
+    }
+
+    function rememberAiPrompt(tabId, event) {
+      const text = event.kind === 'text' && event.role === 'user' ? String(event.text || '') : '';
+      if (!text.trim()) return;
+      const history = aiPromptHistory(tabId);
+      if (history.entries[history.entries.length - 1] !== text) {
+        history.entries.push(text);
+      }
+    }
+
+    // Like a shell: Up walks back through earlier prompts, Down walks forward
+    // and ends on whatever was being typed before. Inside a multi-line message
+    // the arrows still move between its lines until the caret reaches the edge.
+    function recallAiPrompt(surface, delta) {
+      const input = surface.querySelector('[data-ai-input]');
+      const history = aiPromptHistory(surface.dataset.aiTab);
+      if (!input || !history.entries.length) return false;
+      const edge = delta < 0
+        ? !input.value.slice(0, input.selectionStart).includes('\n')
+        : !input.value.slice(input.selectionEnd).includes('\n');
+      if (!edge) return false;
+      const browsing = history.index !== -1;
+      if (!browsing && delta > 0) return false;
+      if (!browsing) {
+        history.draft = input.value;
+        history.index = history.entries.length - 1;
+      } else if (delta < 0) {
+        history.index = Math.max(0, history.index - 1);
+      } else if (history.index < history.entries.length - 1) {
+        history.index += 1;
+      } else {
+        history.index = -1;
+      }
+      input.value = history.index === -1 ? history.draft : history.entries[history.index];
+      input.setSelectionRange(input.value.length, input.value.length);
+      fitAiInput(input);
+      // A recalled "/model opus" must not reopen the completion menu, which
+      // would take over the next Up and Enter.
+      const menu = surface.querySelector('[data-ai-commands]');
+      if (menu) {
+        menu.hidden = true;
+        menu.innerHTML = '';
+      }
+      return true;
+    }
+
+    // Grows with the message rather than scrolling a one-line box.
+    function fitAiInput(input) {
+      input.style.height = 'auto';
+      input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+    }
+
     function aiSurface(tabId) {
       return app.querySelector(`[data-ai-provider="${provider}"][data-ai-tab="${tabId}"]`);
     }
@@ -833,6 +896,10 @@
               log.innerHTML = events.map((item) => renderAiEvent(item, paneId, tabId)).join('');
               if (scroller) scroller.scrollTop = scroller.scrollHeight;
             }
+            const history = aiPromptHistory(tabId);
+            history.entries = [];
+            history.index = -1;
+            (message.events || []).forEach((item) => rememberAiPrompt(tabId, item));
             state.aiCommands.set(tabId, { list: message.commands || [], ready: Boolean(message.commandsReady) });
             state.aiCapabilities.set(tabId, message.capabilities || {});
             setAiFolder(tabId, message.cwd || '');
@@ -841,6 +908,7 @@
             return;
           }
           if (message.type === 'event') {
+            rememberAiPrompt(tabId, message.event);
             appendAiEvent(tabId, message.event, message.streaming);
             return;
           }
@@ -909,6 +977,7 @@
       state.aiCommands.clear();
       state.aiCapabilities.clear();
       state.aiAttachments.clear();
+      state.aiPromptHistory.clear();
     }
 
     function renderAiAttachments(surface) {
@@ -992,6 +1061,9 @@
       });
       input.value = '';
       input.style.height = '';
+      const history = aiPromptHistory(tabId);
+      history.index = -1;
+      history.draft = '';
       state.aiAttachments.delete(tabId);
       renderAiAttachments(surface);
       updateAiCommandMenu(surface);
@@ -1022,7 +1094,11 @@
         if (input) {
           input.addEventListener('keydown', (event) => {
             if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-              if (moveAiCommandChoice(surface, event.key === 'ArrowDown' ? 1 : -1)) {
+              const delta = event.key === 'ArrowDown' ? 1 : -1;
+              if (moveAiCommandChoice(surface, delta)) {
+                event.preventDefault();
+              } else if (!event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey
+                && !event.isComposing && recallAiPrompt(surface, delta)) {
                 event.preventDefault();
               }
               return;
@@ -1047,10 +1123,11 @@
               sendAiPrompt(surface);
             }
           });
-          // Grows with the message rather than scrolling a one-line box.
           input.addEventListener('input', () => {
-            input.style.height = 'auto';
-            input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+            // Editing a recalled prompt makes it the draft; Up starts over
+            // from the newest prompt.
+            aiPromptHistory(surface.dataset.aiTab).index = -1;
+            fitAiInput(input);
             updateAiCommandMenu(surface);
           });
           input.addEventListener('paste', (event) => handleAiPaste(event, surface));
@@ -1167,6 +1244,7 @@
       state.aiConnections.delete(tabId);
       state.aiCommands.delete(tabId);
       state.aiCapabilities.delete(tabId);
+      state.aiPromptHistory.delete(tabId);
     }
 
     return {
