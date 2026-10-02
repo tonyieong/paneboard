@@ -28,10 +28,16 @@ explicitly authorized by the user (5023 in this workspace).
 
 Use **Connect and open Workspace** for the normal flow. Optionally enable automatic
 connection on app launch. Tailscale sign-in is needed only when its saved identity
-requires authorization; Paneboard still uses its ordinary server login. Closing
-the Workspace clears its temporary WebView login storage. WebSocket recovery is
-handled by Paneboard's existing client. The Workspace has no native toolbar:
-Back asks whether to stay, reload the page or leave for the connection settings.
+requires authorization; Paneboard still uses its ordinary server login. Opening
+the Workspace verifies HTTPS and the certificate pin without waiting for the
+WebSocket diagnostic; the explicit test button still runs both checks.
+Selecting **Keep me signed in for 30 days** saves only the session token in
+app-private preferences, separately for each connection mode, server and
+verified certificate. It survives app termination and changes to the local
+adapter port. Leaving the Workspace clears temporary WebView storage but retains
+an opted-in token; sign-out, expiry or password changes require another login.
+WebSocket recovery is handled by Paneboard's existing client. The Workspace has
+no native toolbar: Back asks whether to stay, reload the page or leave for the connection settings.
 
 In Tailscale mode, **Tailscale 裝置名稱** sets how the phone appears in the
 tailnet. It defaults to the phone's own device name (Settings → About), or its
@@ -125,7 +131,8 @@ Rollback to the old signing key is disabled. The internal package name remains
    authentication credentials, validates the local Host/Origin before mapping to the
    upstream authority, strips its own capability and blocks external redirects.
    Return to connection settings to close the adapter and clear that WebView
-   origin's stored login data. Reopening can require another Paneboard login.
+   origin's temporary storage. Reopening restores an opted-in remembered login;
+   ordinary sessions require another Paneboard login.
 6. With the user's permission, disconnect any existing system VPN and repeat.
    The VPN status label checks Android's network capabilities; verify Android's
    system UI too. Never claim an existing VPN belongs to this probe.

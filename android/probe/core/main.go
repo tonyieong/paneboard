@@ -50,6 +50,13 @@ func interfaces() ([]netmon.Interface, error) {
 }
 
 func probe(dial tailnetDial, raw, fingerprint, mode string) error {
+	return checkServer(dial, raw, fingerprint, mode, true)
+}
+
+// Opening the app verifies HTTPS and the pin; the explicit diagnostic button
+// additionally exercises WebSocket rejection. A diagnostic is not a prerequisite
+// for loading a workspace, whose own WebSocket authenticates normally.
+func checkServer(dial tailnetDial, raw, fingerprint, mode string, testWebSocket bool) error {
 	u, pin, err := connectionTarget(raw, fingerprint, mode)
 	if err != nil {
 		return err
@@ -77,6 +84,9 @@ func probe(dial tailnetDial, raw, fingerprint, mode string) error {
 	emit("result", fmt.Sprintf("HTTPS OK; server login required: %t", config.AuthRequired))
 	if !config.AuthRequired {
 		return errors.New("WebSocket probe requires server authentication to be enabled; no pane will be opened")
+	}
+	if !testWebSocket {
+		return nil
 	}
 	ws, _, err := websocket.Dial(ctx, "wss://"+u.Host+"/ws?paneId=paneboard-connection-probe", &websocket.DialOptions{
 		HTTPClient: client, HTTPHeader: http.Header{"Origin": []string{u.Scheme + "://" + u.Host}},
@@ -205,7 +215,7 @@ func runCommands(dial tailnetDial, mode string, login func() error) {
 			}
 			// Running describes the node, not reachability of the selected server.
 			// Verify TLS and server authentication before handing a page to WebView.
-			if err := probe(dial, cmd.URL, cmd.Pin, mode); err != nil {
+			if err := checkServer(dial, cmd.URL, cmd.Pin, mode, false); err != nil {
 				emit("error", err.Error())
 				continue
 			}

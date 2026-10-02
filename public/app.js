@@ -58,7 +58,7 @@
   const savedSidebarOpen = localStorage.getItem('paneboard.sidebarOpen');
   const savedSidebarPinned = localStorage.getItem('paneboard.sidebarPinned');
   const state = {
-    token: localStorage.getItem('paneboard.token') || sessionStorage.getItem('paneboard.token') || '',
+    token: window.PaneboardAndroid?.getToken() || localStorage.getItem('paneboard.token') || sessionStorage.getItem('paneboard.token') || '',
     config: null,
     pluginPanes: [],
     sessions: [],
@@ -243,9 +243,11 @@
     localStorage.removeItem('paneboard.token');
     sessionStorage.removeItem('paneboard.token');
     (remember ? localStorage : sessionStorage).setItem('paneboard.token', token);
+    window.PaneboardAndroid?.saveToken(remember ? token : '');
   }
 
   function clearToken() {
+    window.PaneboardAndroid?.saveToken('');
     localStorage.removeItem('paneboard.token');
     sessionStorage.removeItem('paneboard.token');
     state.token = '';

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 func TestTargetRestrictions(t *testing.T) {
@@ -125,5 +127,81 @@ func TestDeviceHostname(t *testing.T) {
 		if got := deviceHostname(name); got != want {
 			t.Errorf("deviceHostname(%q) = %q, want %q", name, got, want)
 		}
+	}
+}
+
+func TestWorkspaceCheckSkipsWebSocketDiagnosticButVerifiesHTTPS(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		body      string
+		wrongPin  bool
+		wantError bool
+	}{
+		{"authenticated server", `{"authRequired":true}`, false, false},
+		{"authentication disabled", `{"authRequired":false}`, false, true},
+		{"invalid configuration", `not json`, false, true},
+		{"incorrect pin", `{"authRequired":true}`, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			requests := 0
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				if r.URL.Path != "/api/config" {
+					t.Errorf("unexpected startup request: %s", r.URL.Path)
+				}
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			pin := sha256.Sum256(server.Certificate().Raw)
+			if tc.wrongPin {
+				pin = [32]byte{}
+			}
+			dial := func(ctx context.Context, network, address string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+			}
+			err := checkServer(dial, "https://server.example:5011", hex.EncodeToString(pin[:]), "direct", false)
+			if (err != nil) != tc.wantError {
+				t.Fatalf("checkServer error = %v, want error %t", err, tc.wantError)
+			}
+			wantRequests := 1
+			if tc.wrongPin {
+				wantRequests = 0
+			}
+			if requests != wantRequests {
+				t.Fatalf("requests = %d, want %d", requests, wantRequests)
+			}
+		})
+	}
+}
+
+func TestExplicitDiagnosticStillChecksWebSocketAuthentication(t *testing.T) {
+	requests := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.URL.Path == "/api/config" {
+			_, _ = w.Write([]byte(`{"authRequired":true}`))
+			return
+		}
+		if r.URL.Path != "/ws" {
+			t.Errorf("unexpected diagnostic request %s", r.URL.Path)
+		}
+		ws, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer ws.CloseNow()
+		_ = ws.Close(websocket.StatusPolicyViolation, "Login required")
+	}))
+	defer server.Close()
+	pin := sha256.Sum256(server.Certificate().Raw)
+	dial := func(ctx context.Context, network, address string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+	}
+	if err := probe(dial, "https://server.example:5011", hex.EncodeToString(pin[:]), "direct"); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 {
+		t.Fatalf("diagnostic made %d requests, want config and WebSocket", requests)
 	}
 }

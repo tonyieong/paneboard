@@ -11,6 +11,7 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Bundle;
+import android.webkit.JavascriptInterface;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -49,6 +50,7 @@ public class MainActivity extends Activity {
   private ScrollView connectionView;
   private WebView webView;
   private volatile String workspaceOrigin = "";
+  private String workspaceTokenKey = "";
   private String authorizationUrl = "";
   private boolean destroyed;
   private boolean direct;
@@ -312,6 +314,14 @@ public class MainActivity extends Activity {
     else if (workspace.isEnabled()) { pendingOpen = false; requestWorkspace(); }
   }
 
+  private String rememberedTokenKey() {
+    Uri server = Uri.parse(endpoint.getText().toString().trim());
+    String pin = fingerprint.getText().toString().replace(":", "").replaceAll("\\s", "").toLowerCase(java.util.Locale.ROOT);
+    return "rememberedToken." + (direct ? "direct." : "tailscale.")
+      + server.getScheme() + "://" + server.getHost().toLowerCase(java.util.Locale.ROOT)
+      + ":" + (server.getPort() < 0 ? 443 : server.getPort()) + "." + pin;
+  }
+
   private void requestWorkspace() {
     if (openingWorkspace) return;
     try {
@@ -326,6 +336,7 @@ public class MainActivity extends Activity {
         return;
       }
       results.setText("正在核實伺服器憑證及連線，完成後會開啟 Workspace……");
+      workspaceTokenKey = rememberedTokenKey();
       send(new JSONObject().put("Op", "workspace").put("URL", endpoint.getText().toString().trim()).put("Pin", fingerprint.getText().toString().trim()));
     } catch (Exception error) { stopCore(); showError("未能開啟 Workspace，請重新連線。"); }
   }
@@ -486,6 +497,9 @@ public class MainActivity extends Activity {
     padForSystemInsets(page, 0, 0, 0, 0);
     final WebView browser = new WebView(this);
     webView = browser;
+    // The loopback port changes every launch. Persist only an opted-in token,
+    // scoped to the verified upstream, never the temporary loopback origin.
+    browser.addJavascriptInterface(new WorkspaceSession(workspaceTokenKey), "PaneboardAndroid");
     WebView.setWebContentsDebuggingEnabled(false);
     WebSettings settings = browser.getSettings();
     settings.setJavaScriptEnabled(true);
@@ -535,7 +549,7 @@ public class MainActivity extends Activity {
     if (workspace != null) workspace.setEnabled(test.isEnabled());
   }
 
-  // Closing the Workspace clears its login, and a back gesture is easy to make
+  // A back gesture is easy to make
   // by accident, so leaving it is confirmed first. Back is also the only way
   // to reload, since the Workspace has no toolbar.
   @Override public void onBackPressed() {
@@ -545,7 +559,7 @@ public class MainActivity extends Activity {
     }
     new AlertDialog.Builder(this)
       .setTitle("離開 Workspace？")
-      .setMessage("離開會返去連線設定，並清除登入資料，返嚟時要重新登入。")
+      .setMessage("離開會返去連線設定。已勾選「記住我」嘅登入會保留；其他登入需要重新輸入密碼。")
       .setNegativeButton("留低", null)
       .setNeutralButton("重新載入", (dialog, which) -> { if (webView != null) webView.reload(); })
       .setPositiveButton("離開", (dialog, which) -> closeWorkspace())
@@ -565,6 +579,21 @@ public class MainActivity extends Activity {
     if (commands == null) throw new java.io.IOException("Core is not running");
     commands.write(command.toString() + "\n");
     commands.flush();
+  }
+
+  public final class WorkspaceSession {
+    private final String tokenKey;
+    WorkspaceSession(String tokenKey) { this.tokenKey = tokenKey; }
+
+    @JavascriptInterface public String getToken() { return saved.getString(tokenKey, ""); }
+
+    @JavascriptInterface public void saveToken(String token) {
+      if (token == null || token.length() > 8192) return;
+      // commit before returning so killing the app immediately after sign-in
+      // cannot race an asynchronous preferences write. No password is stored.
+      if (token.isEmpty()) saved.edit().remove(tokenKey).commit();
+      else saved.edit().putString(tokenKey, token).commit();
+    }
   }
 
   private void showError(String message) {
