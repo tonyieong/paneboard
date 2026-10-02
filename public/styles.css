@@ -619,6 +619,109 @@ textarea {
   display: none;
 }
 
+/* Floats over the top right of the pane body instead of taking a grid row, so
+   opening it never resizes the terminal underneath. */
+.pane-find-bar {
+  position: absolute;
+  top: calc(var(--pane-toolbar-height) + 4px);
+  right: 8px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: min(300px, calc(100% - 16px));
+  height: var(--pane-toolbar-height);
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  box-shadow: 0 4px 12px var(--shadow);
+}
+
+/* Clears the row under the tab strip: the terminal keybar on desktop, and the
+   AI pane's model and folder row. */
+.pane[data-pane-type="terminal"] .pane-find-bar,
+.pane[data-pane-type="ai"] .pane-find-bar {
+  top: calc(2 * var(--pane-toolbar-height) + 4px);
+}
+
+.pane-find-bar input {
+  flex: 1;
+  min-width: 40px;
+  height: 100%;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--terminal-bg);
+  color: var(--text);
+  font: 11px/1 "Cascadia Mono", Consolas, monospace;
+}
+
+.pane-find-bar input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.pane-find-bar.no-match input {
+  border-color: var(--danger);
+}
+
+.pane-find-result {
+  flex: 0 0 auto;
+  min-width: 34px;
+  padding: 0 2px;
+  color: var(--muted);
+  font: 10px/1 "Cascadia Mono", Consolas, monospace;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.pane-find-bar.no-match .pane-find-result {
+  color: var(--danger);
+}
+
+.pane-find-bar button {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.pane-find-bar button:hover {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.pane-find-bar button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.pane-find-bar .file-action-icon {
+  width: 13px;
+  height: 13px;
+}
+
+/* Keeps the start of a conversation reachable below the bar. */
+.pane-find-open [data-ai-scroll] {
+  padding-top: calc(var(--pane-toolbar-height) + 8px);
+}
+
+::highlight(paneboard-find) {
+  background-color: color-mix(in srgb, var(--warn) 35%, transparent);
+}
+
+::highlight(paneboard-find-current) {
+  background-color: var(--warn);
+  color: var(--ink);
+}
+
 .pane-close,
 .pane-usage-refresh {
   position: absolute;
@@ -6133,6 +6236,38 @@ a:focus-visible {
   width: 32px;
   height: 32px;
   margin-bottom: 0;
+}
+
+/* Clears the taller 36px mobile tab strip, with 44px touch targets. */
+.app.mode-mobile .pane-find-bar,
+.app.mobile-device .pane-find-bar {
+  top: 40px;
+  right: 4px;
+  width: calc(100% - 8px);
+  height: 48px;
+}
+
+.app.mode-mobile .pane-find-open [data-ai-scroll],
+.app.mobile-device .pane-find-open [data-ai-scroll] {
+  padding-top: 56px;
+}
+
+/* On mobile the AI pane still has its model and folder row under the strip. */
+.app.mode-mobile .pane[data-pane-type="ai"] .pane-find-bar,
+.app.mobile-device .pane[data-pane-type="ai"] .pane-find-bar {
+  top: calc(40px + var(--pane-toolbar-height));
+}
+
+.app.mode-mobile .pane-find-bar input,
+.app.mobile-device .pane-find-bar input {
+  font-size: 16px;
+}
+
+.app.mode-mobile .pane-find-bar button,
+.app.mobile-device .pane-find-bar button {
+  flex-basis: 44px;
+  width: 44px;
+  height: 44px;
 }
 
 .app.mode-mobile .pane-tab-close,

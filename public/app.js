@@ -76,6 +76,7 @@
     terminalTitleTimers: new Map(),
     paneFontSizeTimers: new Map(),
     notepadAutosaveTimers: new Map(),
+    paneFinds: new Map(),
     themeTransitionFrame: 0,
     clickTimer: null,
     selectedFiles: {},
@@ -882,6 +883,7 @@
         }).join('')}
       </div>
       ${uploadStatus}
+      ${pane.type === 'files' ? '' : `<button class="pane-new-tab pane-find-toggle" type="button" data-pane-find aria-label="Find" title="Find (Ctrl+Shift+F)">${fileActionIcon('search')}</button>`}
       <button class="pane-new-tab" type="button" data-pane-new-tab aria-label="New tab" title="New tab">${fileActionIcon('add')}</button>`;
   }
 
@@ -3135,6 +3137,16 @@
         changePaneFontSize(state.activePaneId, key === '-' ? -1 : 1);
         return;
       }
+      // Ahead of the input check, because an AI pane's composer usually has
+      // focus. A terminal handles the key itself in terminalShortcut().
+      if (event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey && key === 'f' && !event.defaultPrevented) {
+        const pane = findPaneState(state.activePaneId)?.pane;
+        if (pane && ['terminal', 'ai'].includes(pane.type || 'terminal')) {
+          event.preventDefault();
+          openPaneFind(pane.id);
+        }
+        return;
+      }
       if (event.target.closest?.('input, textarea, select, .inline-rename')) {
         return;
       }
@@ -4742,6 +4754,10 @@
       };
     });
     root.querySelector('[data-pane-new-tab]')?.addEventListener('click', () => addPaneTab(paneId));
+    root.querySelector('[data-pane-find]')?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openPaneFind(paneId);
+    });
   }
 
   function wirePaneTabStrips(root) {
@@ -8793,6 +8809,302 @@
     terminal.term.focus();
   }
 
+  // Find in a terminal or AI pane. The bar is built on demand and searches the
+  // pane's active tab every time, so switching tabs or new output needs no
+  // bookkeeping: the next search simply sees the current text.
+  function openPaneFind(paneId) {
+    const found = findPaneState(paneId);
+    const paneElement = document.querySelector(`[data-pane="${paneId}"]`);
+    if (!found || !paneElement || !['terminal', 'ai'].includes(found.pane.type || 'terminal')) {
+      return;
+    }
+    let bar = paneElement.querySelector('[data-pane-find-bar]');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.className = 'pane-find-bar';
+      bar.dataset.paneFindBar = '';
+      bar.setAttribute('role', 'search');
+      bar.innerHTML = `
+        <input type="text" data-pane-find-input placeholder="Find" aria-label="Find" spellcheck="false" autocomplete="off">
+        <span class="pane-find-result" data-pane-find-result aria-live="polite"></span>
+        <button type="button" data-pane-find-step="-1" aria-label="Previous match" title="Previous match">${fileActionIcon('browser-back')}</button>
+        <button type="button" data-pane-find-step="1" aria-label="Next match" title="Next match">${fileActionIcon('browser-forward')}</button>
+        <button type="button" data-pane-find-close aria-label="Close find" title="Close find">${fileActionIcon('close')}</button>`;
+      paneElement.appendChild(bar);
+      state.paneFinds.set(paneId, { query: '', position: null });
+      const input = bar.querySelector('[data-pane-find-input]');
+      input.addEventListener('input', () => runPaneFind(paneId, 0));
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          runPaneFind(paneId, event.shiftKey ? -1 : 1);
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          closePaneFind(paneId);
+        }
+      });
+      bar.querySelectorAll('[data-pane-find-step]').forEach((button) => {
+        button.onclick = () => runPaneFind(paneId, Number(button.dataset.paneFindStep));
+      });
+      bar.querySelector('[data-pane-find-close]').onclick = () => closePaneFind(paneId);
+      // A click reaching the pane would activate it and hand focus back to the
+      // terminal, away from the find box.
+      bar.addEventListener('click', (event) => {
+        event.stopPropagation();
+        activatePaneForFind(paneId, input);
+      });
+    }
+    const input = bar.querySelector('[data-pane-find-input]');
+    paneElement.classList.add('pane-find-open');
+    placePaneFindBar(paneElement, bar);
+    activatePaneForFind(paneId, input);
+    const term = state.terminals.get(activePaneTabId(found.pane))?.term;
+    const selection = found.pane.type === 'ai' ? String(window.getSelection?.() || '') : term ? terminalSelectionText(term) : '';
+    if (selection && !selection.includes('\n')) {
+      input.value = selection;
+    }
+    input.focus({ preventScroll: true });
+    input.select();
+    if (input.value) {
+      runPaneFind(paneId, 0);
+    }
+  }
+
+  // A pane can be wider than the board's visible area. Anchored to the pane's
+  // own right edge the bar would land off screen, and focusing it would then
+  // scroll the whole board sideways, so it keeps to the part on screen.
+  function placePaneFindBar(paneElement, bar) {
+    const board = paneElement.closest('.pane-grid');
+    const pane = paneElement.getBoundingClientRect();
+    const visibleRight = Math.min(pane.right, board ? board.getBoundingClientRect().right : window.innerWidth);
+    const hidden = Math.max(0, pane.right - visibleRight) / paneZoomFactor(paneElement);
+    bar.style.right = hidden ? `${Math.round(hidden + 8)}px` : '';
+  }
+
+  // setActivePane() focuses the terminal once the server has answered, so the
+  // find box takes focus back after that.
+  function activatePaneForFind(paneId, input) {
+    if (paneId !== state.activePaneId) {
+      setActivePane(paneId, false).then(() => input.isConnected && input.focus());
+    }
+  }
+
+  function closePaneFind(paneId) {
+    const paneElement = document.querySelector(`[data-pane="${paneId}"]`);
+    paneElement?.querySelector('[data-pane-find-bar]')?.remove();
+    paneElement?.classList.remove('pane-find-open');
+    state.paneFinds.delete(paneId);
+    updateFindHighlights();
+    const pane = findPaneState(paneId)?.pane;
+    if (pane?.type === 'ai') {
+      aiPane.surface(activePaneTabId(pane))?.querySelector('[data-ai-input]')?.focus();
+    } else if (pane) {
+      state.terminals.get(activePaneTabId(pane))?.term.focus();
+    }
+  }
+
+  // step 0 starts a new query, 1 and -1 move to the next or previous match.
+  function runPaneFind(paneId, step) {
+    const pane = findPaneState(paneId)?.pane;
+    const paneElement = document.querySelector(`[data-pane="${paneId}"]`);
+    const find = state.paneFinds.get(paneId);
+    const bar = paneElement?.querySelector('[data-pane-find-bar]');
+    if (!pane || !find || !bar) {
+      return;
+    }
+    find.query = bar.querySelector('[data-pane-find-input]').value;
+    const tabId = activePaneTabId(pane);
+    const matches = !find.query ? []
+      : pane.type === 'ai' ? aiFindMatches(aiPane.surface(tabId), find.query)
+        : terminalFindMatches(state.terminals.get(tabId)?.term, find.query);
+    const index = paneFindIndex(matches, find.position?.tabId === tabId ? find.position : null, step);
+    const match = matches[index];
+    find.position = match ? { tabId, ...match.position } : null;
+    find.ranges = pane.type === 'ai' ? matches.map((item) => item.range) : [];
+    find.current = pane.type === 'ai' && match ? match.range : null;
+    if (match) {
+      if (pane.type === 'ai') {
+        revealAiFindMatch(match.range);
+      } else {
+        revealTerminalFindMatch(state.terminals.get(tabId).term, match, bar);
+      }
+    } else if (pane.type !== 'ai') {
+      state.terminals.get(tabId)?.term.clearSelection();
+    }
+    updateFindHighlights();
+    const result = bar.querySelector('[data-pane-find-result]');
+    result.textContent = !find.query ? ''
+      : match ? `${index + 1}/${matches.length}`
+        : window.PaneboardI18n?.t('No match') ?? 'No match';
+    bar.classList.toggle('no-match', Boolean(find.query) && !match);
+  }
+
+  // A fresh query lands on the match nearest the end, since in a terminal or a
+  // conversation that is the newest text. Stepping wraps around both ways.
+  function paneFindIndex(matches, position, step) {
+    if (!matches.length) {
+      return -1;
+    }
+    if (!step || !position) {
+      return step > 0 ? 0 : matches.length - 1;
+    }
+    const current = matches.findIndex((match) => paneFindCompare(match.position, position) >= 0);
+    if (current < 0) {
+      return step > 0 ? 0 : matches.length - 1;
+    }
+    const same = paneFindCompare(matches[current].position, position) === 0;
+    const next = step > 0 ? (same ? current + 1 : current) : current - 1;
+    return (next + matches.length) % matches.length;
+  }
+
+  function paneFindCompare(a, b) {
+    return (a.row - b.row) || (a.offset - b.offset);
+  }
+
+  // Wrapped rows are joined first, the same way terminalSelectionText() joins
+  // them, so a word broken across the right edge is still found.
+  function terminalFindMatches(term, query) {
+    if (!term || !query) {
+      return [];
+    }
+    const buffer = term.buffer.active;
+    const needle = query.toLowerCase();
+    const matches = [];
+    let row = 0;
+    while (row < buffer.length) {
+      const first = row;
+      // Untrimmed, so a space that falls on the wrap point is still there.
+      let text = buffer.getLine(row)?.translateToString(false) || '';
+      row += 1;
+      while (row < buffer.length && (buffer.getLine(row)?.isWrapped || terminalRowIsFull(term, buffer.getLine(row - 1)))) {
+        text += buffer.getLine(row).translateToString(false);
+        row += 1;
+      }
+      if (text.toLowerCase().includes(needle)) {
+        matches.push(...terminalLineMatches(term, first, row, needle));
+      }
+    }
+    return matches;
+  }
+
+  // Characters and cells only line up one to one for single width text, so the
+  // matched line is walked cell by cell to find where each match really sits.
+  function terminalLineMatches(term, firstRow, endRow, needle) {
+    const buffer = term.buffer.active;
+    const cells = [];
+    let text = '';
+    for (let row = firstRow; row < endRow; row += 1) {
+      const line = buffer.getLine(row);
+      for (let x = 0; x < term.cols; x += 1) {
+        const cell = line.getCell(x);
+        const width = cell?.getWidth() ?? 1;
+        if (!width) {
+          continue;
+        }
+        const chars = cell.getChars() || ' ';
+        for (let i = 0; i < chars.length; i += 1) {
+          cells.push({ row, x, width });
+        }
+        text += chars;
+      }
+    }
+    const lower = text.toLowerCase();
+    const matches = [];
+    // Lower casing can change a string's length, and then the offsets would
+    // no longer point at the right cells.
+    if (lower.length !== text.length) {
+      return matches;
+    }
+    for (let at = lower.indexOf(needle); at >= 0; at = lower.indexOf(needle, at + needle.length)) {
+      const start = cells[at];
+      const end = cells[at + needle.length - 1];
+      matches.push({
+        position: { row: start.row, offset: start.x },
+        length: (end.row - start.row) * term.cols + end.x + end.width - start.x
+      });
+    }
+    return matches;
+  }
+
+  // Rows under the find bar count as hidden: a terminal cannot be padded
+  // without changing its size, so the match is scrolled clear of the bar.
+  function revealTerminalFindMatch(term, match, bar) {
+    const { row, offset } = match.position;
+    term.select(offset, row, match.length);
+    const screen = term.element?.querySelector('.xterm-screen')?.getBoundingClientRect();
+    const covered = screen?.height
+      ? Math.max(0, Math.ceil((bar.getBoundingClientRect().bottom - screen.top) / (screen.height / term.rows)))
+      : 0;
+    const top = term.buffer.active.viewportY;
+    if (row < top + covered || row >= top + term.rows) {
+      term.scrollToLine(Math.max(0, row - Math.floor(term.rows / 2)));
+    }
+  }
+
+  // Thinking and tool blocks the user has hidden stay out of the results, so
+  // the count never includes text that cannot be scrolled to.
+  function aiFindMatches(surface, query) {
+    const log = surface?.querySelector('[data-ai-log]');
+    if (!log || !query) {
+      return [];
+    }
+    const needle = query.toLowerCase();
+    const walker = document.createTreeWalker(log, NodeFilter.SHOW_TEXT);
+    const matches = [];
+    let row = 0;
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      const value = node.nodeValue.toLowerCase();
+      if (value.length !== node.nodeValue.length || !value.includes(needle) || !node.parentElement?.getClientRects().length) {
+        row += 1;
+        continue;
+      }
+      for (let at = value.indexOf(needle); at >= 0; at = value.indexOf(needle, at + needle.length)) {
+        const range = document.createRange();
+        range.setStart(node, at);
+        range.setEnd(node, at + needle.length);
+        matches.push({ position: { row, offset: at }, range });
+      }
+      row += 1;
+    }
+    return matches;
+  }
+
+  // The scroller is padded clear of the find bar while it is open, so its
+  // visible box is measured from inside that padding.
+  function revealAiFindMatch(range) {
+    const element = range.startContainer.parentElement;
+    const scroller = element?.closest('[data-ai-scroll]');
+    if (!scroller) {
+      return;
+    }
+    const box = range.getBoundingClientRect();
+    const view = scroller.getBoundingClientRect();
+    const top = view.top + (parseFloat(getComputedStyle(scroller).paddingTop) || 0);
+    if (box.top < top || box.bottom > view.bottom) {
+      scroller.scrollTop += box.top - top - (view.bottom - top - box.height) / 2;
+    }
+  }
+
+  // The CSS Custom Highlight API paints matches without touching the
+  // conversation's markup, which the AI pane re-renders as messages stream in.
+  function updateFindHighlights() {
+    if (!window.CSS?.highlights || typeof Highlight !== 'function') {
+      return;
+    }
+    const all = [];
+    const current = [];
+    state.paneFinds.forEach((find) => {
+      all.push(...(find.ranges || []));
+      if (find.current) current.push(find.current);
+    });
+    // Added one at a time: a long transcript can hold more matches than a
+    // spread call accepts arguments.
+    const highlight = (ranges) => ranges.reduce((result, range) => result.add(range), new Highlight());
+    CSS.highlights.set('paneboard-find', highlight(all));
+    CSS.highlights.set('paneboard-find-current', highlight(current));
+  }
+
   // xterm hands every key here first; returning false keeps the shortcut out of
   // the shell. Ctrl+C is left alone so it still interrupts the running command.
   function terminalShortcut(terminalTabId, event) {
@@ -8830,6 +9142,12 @@
         event.preventDefault();
         clearTerminal(terminalTabId);
         return false;
+      case 'f': {
+        event.preventDefault();
+        const paneId = document.getElementById(`terminal-${terminalTabId}`)?.closest('[data-pane]')?.dataset.pane;
+        if (paneId) openPaneFind(paneId);
+        return false;
+      }
       default:
         return true;
     }

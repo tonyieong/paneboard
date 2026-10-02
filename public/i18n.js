@@ -196,6 +196,7 @@
       'Next match': '下一個符合項目',
       'Close find': '關閉尋找',
       'Find': '尋找',
+      'Find (Ctrl+Shift+F)': '尋找 (Ctrl+Shift+F)',
       'Replace': '取代',
       'Replace all': '全部取代',
       'Undo': '復原',

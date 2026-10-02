@@ -2300,6 +2300,71 @@ test('copying keeps separate lines apart when the row above has room left', asyn
   assert.deepEqual(text.split('\r\n'), ['first', 'second']);
 });
 
+// Find walks the same buffer, so it runs against a headless terminal too.
+function loadTerminalFind() {
+  const helpers = [
+    ['  function terminalRowIsFull(term, line) {', '  function terminalSelectionText(term) {'],
+    ['  function paneFindIndex(matches, position, step) {', '  function revealTerminalFindMatch(term, match, bar) {']
+  ].map(([from, to]) => {
+    const start = appSource.indexOf(from);
+    const end = appSource.indexOf(to);
+    assert.ok(start >= 0 && end > start, `${from.trim()} not found in app.js`);
+    return appSource.slice(start, end);
+  });
+  const context = vm.createContext({});
+  vm.runInContext(helpers.join('\n'), context);
+  return context;
+}
+
+test('terminal find matches case-insensitively, across wrapped rows and wide characters', async () => {
+  const { terminalFindMatches } = loadTerminalFind();
+  const term = new HeadlessTerminal({ allowProposedApi: true, cols: 20, rows: 10 });
+
+  await writeHeadless(term, `Error one\r\n${'x'.repeat(16)}err or\r\n漢字error\r\n`);
+
+  // The helpers run in their own realm, so results are compared as plain data.
+  const find = (query) => JSON.parse(JSON.stringify(terminalFindMatches(term, query)));
+  const matches = find('ERROR');
+  assert.deepEqual(matches.map((match) => match.position), [
+    { row: 0, offset: 0 },
+    { row: 3, offset: 4 }
+  ]);
+  // Two double-width characters put the match four cells in.
+  assert.equal(matches[1].length, 5);
+
+  // The space sits on the wrap point: 16 x's, "err " fills the row.
+  const wrapped = find('err or');
+  assert.deepEqual(wrapped.map((match) => [match.position, match.length]), [[{ row: 1, offset: 16 }, 6]]);
+  assert.deepEqual(find('missing'), []);
+});
+
+test('pane find starts at the newest match and wraps in both directions', () => {
+  const { paneFindIndex } = loadTerminalFind();
+  const matches = [{ row: 0, offset: 2 }, { row: 3, offset: 0 }, { row: 3, offset: 9 }].map((position) => ({ position }));
+
+  assert.equal(paneFindIndex([], null, 0), -1);
+  assert.equal(paneFindIndex(matches, null, 0), 2);
+  assert.equal(paneFindIndex(matches, { row: 3, offset: 9 }, 1), 0);
+  assert.equal(paneFindIndex(matches, { row: 0, offset: 2 }, -1), 2);
+  assert.equal(paneFindIndex(matches, { row: 3, offset: 0 }, -1), 0);
+  // The current match scrolled out of the buffer: step from where it was.
+  assert.equal(paneFindIndex(matches, { row: 1, offset: 0 }, 1), 1);
+  assert.equal(paneFindIndex(matches, { row: 1, offset: 0 }, -1), 0);
+});
+
+test('terminal and AI panes offer find from their tab strip and Ctrl+Shift+F', () => {
+  assert.match(appSource, /pane\.type === 'files' \? '' : `<button class="pane-new-tab pane-find-toggle" type="button" data-pane-find aria-label="Find" title="Find \(Ctrl\+Shift\+F\)">/);
+  assert.match(appSource, /root\.querySelector\('\[data-pane-find\]'\)\?\.addEventListener\('click'/);
+  // In a terminal the key would otherwise reach the shell as ^F.
+  assert.match(appSource, /case 'f': \{\s*event\.preventDefault\(\);[\s\S]*?openPaneFind\(paneId\);\s*return false;/);
+  // The AI composer is a textarea, so the document shortcut runs before the input check.
+  const handler = appSource.slice(appSource.indexOf('function installKeyboardShortcuts()'));
+  assert.ok(handler.indexOf("key === 'f' && !event.defaultPrevented") < handler.indexOf("if (event.target.closest?.('input, textarea, select, .inline-rename'))"));
+  assert.match(appSource, /pane\.type === 'ai' \? aiFindMatches\(aiPane\.surface\(tabId\), find\.query\)/);
+  assert.match(styles, /::highlight\(paneboard-find-current\)/);
+  assert.match(i18nSource, /'Find \(Ctrl\+Shift\+F\)': '尋找 \(Ctrl\+Shift\+F\)'/);
+});
+
 test('a renamed terminal tab is pinned and stops following the shell title', () => {
   assert.match(appSource, /JSON\.stringify\(\{ processTitle: nextTitle \}\)/);
   assert.match(appSource, /if \(!nextTitle \|\| !tab \|\| tab\.titlePinned \|\| tab\.title === nextTitle\)/);
