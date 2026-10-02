@@ -1039,14 +1039,13 @@ textarea {
 
 .settings-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .settings-grid label {
   display: grid;
   gap: 5px;
-  color: var(--muted);
+  color: var(--text);
   font-size: 12px;
 }
 
@@ -1063,16 +1062,6 @@ textarea {
 
 .settings-wide {
   grid-column: 1 / -1;
-}
-
-.settings-check {
-  display: flex !important;
-  align-items: center;
-  grid-template-columns: auto 1fr;
-}
-
-.settings-check input {
-  width: auto;
 }
 
 .notification-setting {
@@ -1342,10 +1331,6 @@ textarea {
 
   .pane-resize {
     display: none;
-  }
-
-  .settings-grid {
-    grid-template-columns: 1fr;
   }
 
   .file-toolbar {
@@ -2486,16 +2471,16 @@ textarea:focus-visible {
 }
 
 .settings-panel {
-  width: min(860px, calc(100vw - 32px));
-  height: min(600px, calc(var(--app-height, 100dvh) - 32px));
+  width: min(960px, calc(100vw - 32px));
+  height: min(720px, calc(var(--app-height, 100dvh) - 32px));
   max-height: none;
   border-radius: 8px;
   transform-origin: center;
 }
 
 .settings-header {
-  min-height: 46px;
-  padding: 6px 12px;
+  min-height: 52px;
+  padding: 8px 14px 8px 16px;
 }
 
 .settings-header .product-mark {
@@ -2518,12 +2503,15 @@ textarea:focus-visible {
 .settings-shell {
   min-height: 0;
   display: grid;
-  grid-template-columns: 164px minmax(0, 1fr);
+  grid-template-columns: 184px minmax(0, 1fr);
 }
 
 .settings-nav {
   min-height: 0;
-  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
   border-right: 1px solid var(--line);
   background: var(--rail);
   overflow: auto;
@@ -2532,9 +2520,9 @@ textarea:focus-visible {
 .settings-nav a {
   display: flex;
   align-items: center;
-  gap: 7px;
-  min-height: 30px;
-  padding: 0 8px;
+  gap: 9px;
+  min-height: 34px;
+  padding: 0 10px;
   border-radius: 6px;
   color: var(--muted);
   text-decoration: none;
@@ -2567,12 +2555,21 @@ textarea:focus-visible {
 }
 
 .settings-body {
-  padding: 12px 14px 16px;
+  padding: 16px 28px 24px;
   scroll-behavior: smooth;
 }
 
+.settings-body,
+.settings-nav {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+/* Jumping to a section from the nav leaves its heading clear of the header
+   rule. Kept under the 18px line syncSettingsNav treats as "current". */
 .settings-section {
-  margin: 0 0 16px;
+  margin: 0 0 36px;
+  scroll-margin-top: 16px;
 }
 
 .settings-section:last-child {
@@ -2584,15 +2581,14 @@ textarea:focus-visible {
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
-  margin-bottom: 9px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--line);
+  margin-bottom: 14px;
 }
 
 .section-heading h2 {
   margin: 0;
   color: var(--text);
-  font-size: 14px;
+  font-size: calc(var(--system-font-size) + 4px);
+  font-weight: 650;
 }
 
 .section-heading p {
@@ -2655,18 +2651,26 @@ textarea:focus-visible {
   gap: 5px;
 }
 
+.appearance-section {
+  display: grid;
+  gap: 12px;
+}
+
+.appearance-section > .section-heading {
+  margin-bottom: 2px;
+}
+
 .theme-mode-setting,
 .display-mode-setting {
   display: grid;
-  gap: 7px;
-  padding: 8px;
+  gap: 10px;
+  padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface-soft) 60%, transparent);
 }
 
 .display-mode-setting {
-  margin-top: 10px;
   justify-items: start;
 }
 
@@ -2705,12 +2709,14 @@ textarea:focus-visible {
 
 .theme-mode-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
+  gap: 2px 12px;
 }
 
 .theme-mode-heading span {
+  flex: none;
   color: var(--text);
   font-weight: 650;
 }
@@ -2798,10 +2804,14 @@ textarea:focus-visible {
 
 .mobile-keybar-setting {
   display: grid;
-  gap: 6px;
-  margin-top: 12px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.mobile-keybar-setting-heading h3,
+.custom-theme-heading h3 {
+  font-size: var(--system-font-size);
+  font-weight: 600;
 }
 
 .mobile-keybar-setting-heading {
@@ -3043,60 +3053,75 @@ textarea:focus-visible {
   background: var(--surface-soft);
 }
 
-/* Settings read as a list of rows: the name on the left, its control right
-   aligned against a shared edge, with a hairline between rows. Captioning
-   every field from above doubled the height of one-word numeric settings and
-   left the value column ragged. */
+/* Settings read as grouped lists: each group is one card, a row per setting
+   with its name and explanation on the left and the control on a shared right
+   edge, and a hairline between rows. Two columns of half-width rows left the
+   controls floating mid-dialog with nothing lining up. */
 .settings-grid {
-  gap: 0 20px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-soft) 60%, transparent);
 }
 
 .settings-grid > label,
 .settings-grid > .settings-wide {
-  min-height: 32px;
-  padding: 4px 0;
+  min-height: 44px;
+  padding: 9px 0;
   border-bottom: 1px solid var(--line);
 }
 
-.settings-grid > label {
-  display: flex;
-  flex-wrap: wrap;
+.settings-grid > :last-child {
+  border-bottom: 0;
+}
+
+/* The caption is an anonymous grid item: the control claims column two across
+   both rows, so the caption auto-places top left and the hint drops below it. */
+.settings-grid label:not(.settings-wide) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   align-content: center;
-  justify-content: space-between;
-  gap: 0 12px;
+  gap: 2px 16px;
   font-size: 12px;
 }
 
+.settings-grid label:not(.settings-wide) > :is(input, select, textarea) {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
 /* What a setting does used to live in a title attribute, which a phone never
-   shows and a mouse only reveals after a pause. The sentence wraps onto its own
-   full-width line below the row instead. */
+   shows and a mouse only reveals after a pause. */
 .settings-grid label:not(.settings-wide) > .field-hint {
-  flex: 1 0 100%;
-  order: 1;
-  margin-top: 1px;
-  text-align: left;
+  grid-column: 1;
+  margin: 0;
   line-height: 1.45;
 }
 
 .settings-grid input,
 .settings-grid select,
 .settings-grid textarea {
-  flex: 0 0 auto;
-  width: 132px;
-  min-height: 28px;
+  min-height: 30px;
   max-width: none;
-  padding: 4px 7px;
-  border-radius: 5px;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.settings-grid label:not(.settings-wide) > :is(input, select) {
+  width: 200px;
+}
+
+.settings-grid label:not(.settings-wide) > input[type="number"] {
+  width: 120px;
 }
 
 /* Fields that hold longer free text (paths, keys, multi-line values) have no
-   room left beside their caption, so they keep the stacked layout and span
-   both columns. */
+   room beside their caption, so they stack and take the full row. */
 .settings-grid > .settings-wide {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 5px;
+  gap: 6px;
   align-content: center;
 }
 
@@ -3109,22 +3134,51 @@ textarea:focus-visible {
 }
 
 /* Checkboxes are not text fields: the input-style frame made them read as
-   disabled inputs next to the real ones. Reversing the row puts the box on
-   the same right-hand edge as every other control. */
+   disabled inputs next to the real ones. They render as switches instead. */
 .settings-check {
-  flex-direction: row-reverse;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 0 12px;
   border: 0;
   background: transparent;
+  cursor: pointer;
 }
 
-.settings-check input {
-  flex: none;
-  width: auto;
+.settings-grid .settings-check input[type="checkbox"] {
+  appearance: none;
+  position: relative;
+  width: 34px;
+  height: 20px;
   min-height: 0;
-  accent-color: var(--accent);
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  cursor: pointer;
+}
+
+.settings-grid .settings-check input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.settings-grid .settings-check input[type="checkbox"]:checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.settings-grid .settings-check input[type="checkbox"]:checked::before {
+  background: var(--panel);
+  transform: translateX(14px);
+}
+
+.settings-grid .settings-check input[type="checkbox"]:disabled {
+  opacity: .45;
+  cursor: not-allowed;
 }
 
 .notification-setting .settings-check {
@@ -3135,9 +3189,9 @@ textarea:focus-visible {
 /* Sections that hold more than a handful of rows read as one undifferentiated
    list, so related rows carry a subhead saying what the group is for. */
 .settings-subhead {
-  margin: 14px 0 4px;
+  margin: 22px 0 8px;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--system-font-size);
   font-weight: 600;
 }
 
@@ -3157,12 +3211,16 @@ textarea:focus-visible {
 /* Settings almost nobody touches, kept reachable without adding noise to the
    rows that people do change. */
 .settings-advanced {
-  margin-top: 12px;
-  border-top: 1px solid var(--line);
-  padding-top: 8px;
+  margin-top: 14px;
+}
+
+.settings-advanced > .settings-grid {
+  margin-top: 8px;
 }
 
 .settings-advanced > summary {
+  width: fit-content;
+  padding: 4px 0;
   cursor: pointer;
   color: var(--muted);
   font-size: 12px;
@@ -3218,8 +3276,9 @@ textarea:focus-visible {
     height: calc(var(--app-height, 100dvh) - 12px);
   }
 
+  /* Leaves each icon-only nav entry 44px wide inside the padding and border. */
   .settings-shell {
-    grid-template-columns: 48px minmax(0, 1fr);
+    grid-template-columns: 54px minmax(0, 1fr);
   }
 
   .mobile-keybar-setting-heading {
@@ -3248,6 +3307,7 @@ textarea:focus-visible {
   }
 
   .settings-nav a {
+    min-height: 44px;
     justify-content: center;
     padding: 0;
     font-family: "Cascadia Mono", Consolas, monospace;
@@ -3258,7 +3318,11 @@ textarea:focus-visible {
   }
 
   .settings-body {
-    padding: 12px 10px 16px;
+    padding: 14px 12px 20px;
+  }
+
+  .settings-section {
+    margin-bottom: 28px;
   }
 
   .theme-setting {
@@ -3276,21 +3340,39 @@ textarea:focus-visible {
     gap: 10px;
   }
 
-  /* One row per line, and back to full-size hit targets: two columns of
-     right-aligned controls leave no readable room for the captions. */
+  /* Full-size hit targets and narrower controls, so the caption keeps
+     readable room beside them. */
   .settings-grid {
-    grid-template-columns: minmax(0, 1fr);
+    padding: 0 12px;
   }
 
   .settings-grid > label,
   .settings-grid > .settings-wide {
-    min-height: 40px;
+    min-height: 48px;
   }
 
   .settings-grid input,
   .settings-grid select,
   .settings-grid textarea {
     min-height: 34px;
+  }
+
+  .settings-grid label:not(.settings-wide) > :is(input, select) {
+    width: 148px;
+  }
+
+  .settings-grid label:not(.settings-wide) > input[type="number"] {
+    width: 96px;
+  }
+
+  /* Beside a control the caption column is too narrow for a sentence, so the
+     hint takes the full row below and the control centres on the caption. */
+  .settings-grid label:not(.settings-wide) > :is(input, select, textarea) {
+    grid-row: 1;
+  }
+
+  .settings-grid label:not(.settings-wide) > .field-hint {
+    grid-column: 1 / -1;
   }
 
   .settings-footer button {
@@ -4609,10 +4691,6 @@ textarea:focus-visible {
 .file-path-value,
 .compact-file-row small {
   font-size: max(9px, calc(var(--pane-font-size, var(--file-pane-font-size)) - 1px));
-}
-
-.appearance-font-setting {
-  margin-top: 12px;
 }
 
 /* Optional floating navigation keeps the workspace width stable. */

@@ -1950,12 +1950,17 @@ test('settings navigation maps to real sections and follows the visible section'
   assert.match(appSource, /requestAnimationFrame\(\(\) => setActiveSettingsSection\(section\.id\)\)/);
 });
 
-test('settings use a compact, minimal density tighter than the legacy workspace panel', () => {
-  assert.match(styles, /\.settings-panel\s*\{[^}]*width:\s*min\(860px,[^}]*height:\s*min\(600px/s);
-  assert.match(styles, /\.settings-shell\s*\{[^}]*grid-template-columns:\s*164px minmax\(0, 1fr\)/s);
-  assert.match(styles, /\.settings-nav a\s*\{[^}]*min-height:\s*30px/s);
-  assert.match(styles, /\.settings-body\s*\{[^}]*padding:\s*12px 14px 16px/s);
+test('settings dialog has a fixed shell with a sidebar and roomy content column', () => {
+  assert.match(styles, /\.settings-panel\s*\{[^}]*width:\s*min\(960px,[^}]*height:\s*min\(720px/s);
+  assert.match(styles, /\.settings-shell\s*\{[^}]*grid-template-columns:\s*184px minmax\(0, 1fr\)/s);
+  assert.match(styles, /\.settings-nav a\s*\{[^}]*min-height:\s*34px/s);
+  assert.match(styles, /\.settings-body\s*\{[^}]*padding:\s*16px 28px 24px/s);
   assert.match(styles, /\.settings-footer\s*\{[^}]*min-height:\s*44px/s);
+  // A nav jump must leave the heading below the header but inside the 18px
+  // band syncSettingsNav treats as the current section.
+  const margin = Number(styles.match(/\.settings-section\s*\{[^}]*scroll-margin-top:\s*(\d+)px/s)?.[1]);
+  const band = Number(appSource.match(/settingsBody\.getBoundingClientRect\(\)\.top \+ (\d+)/)?.[1]);
+  assert.ok(margin > 0 && margin <= band, `scroll-margin-top ${margin}px must be within the ${band}px nav band`);
 });
 
 test('settings sizes against the visual viewport so the footer stays on screen', () => {
@@ -1963,7 +1968,7 @@ test('settings sizes against the visual viewport so the footer stays on screen',
   // Apply and Save below the visible area.
   assert.match(styles, /\.settings-overlay\s*\{[^}]*height:\s*var\(--app-height, 100dvh\)/s);
   assert.match(styles, /\.settings-panel\s*\{[^}]*max-height:\s*calc\(var\(--app-height, 100dvh\) - 32px\)/s);
-  assert.match(styles, /\.settings-panel\s*\{[^}]*height:\s*min\(600px, calc\(var\(--app-height, 100dvh\) - 32px\)\)/s);
+  assert.match(styles, /\.settings-panel\s*\{[^}]*height:\s*min\(720px, calc\(var\(--app-height, 100dvh\) - 32px\)\)/s);
   assert.match(styles, /@media \(max-width:\s*760px\)[\s\S]*?\.settings-panel\s*\{[^}]*height:\s*calc\(var\(--app-height, 100dvh\) - 12px\)/s);
   const settingsRules = styles.replace(/\/\*[\s\S]*?\*\//g, '').match(/\.settings-(overlay|panel)\s*\{[^}]*\}/gs) || [];
   assert.ok(settingsRules.length >= 4);
@@ -1972,12 +1977,22 @@ test('settings sizes against the visual viewport so the footer stays on screen',
   }
 });
 
-test('settings read as rows with the control right aligned against a shared edge', () => {
+test('settings read as grouped rows with the control right aligned against a shared edge', () => {
+  assert.match(styles, /\.settings-grid\s*\{[^}]*border:\s*1px solid var\(--line\)[^}]*border-radius:\s*8px/s);
   assert.match(styles, /\.settings-grid > label,\s*\.settings-grid > \.settings-wide\s*\{[^}]*border-bottom:\s*1px solid var\(--line\)/s);
-  assert.match(styles, /\.settings-grid > label\s*\{[^}]*justify-content:\s*space-between/s);
-  assert.match(styles, /\.settings-grid input,[\s\S]*?\.settings-grid textarea\s*\{[^}]*width:\s*132px/s);
-  // Checkboxes reverse so their box lands on the same edge as the text fields.
-  assert.match(styles, /\.settings-check\s*\{[^}]*flex-direction:\s*row-reverse/s);
+  assert.match(styles, /\.settings-grid > :last-child\s*\{[^}]*border-bottom:\s*0/s);
+  assert.match(styles, /\.settings-grid label:not\(\.settings-wide\)\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto/s);
+  // Every control, checkboxes included, claims the right-hand column.
+  assert.match(styles, /\.settings-grid label:not\(\.settings-wide\) > :is\(input, select, textarea\)\s*\{[^}]*grid-column:\s*2/s);
+  assert.match(styles, /\.settings-grid label:not\(\.settings-wide\) > :is\(input, select\)\s*\{[^}]*width:\s*200px/s);
+  assert.doesNotMatch(styles, /display:\s*flex !important/);
+});
+
+test('settings checkboxes render as theme-coloured switches', () => {
+  assert.match(styles, /\.settings-check input\[type="checkbox"\]\s*\{[^}]*appearance:\s*none[^}]*border-radius:\s*999px/s);
+  assert.match(styles, /\.settings-check input\[type="checkbox"\]:checked\s*\{[^}]*background:\s*var\(--accent\)/s);
+  assert.match(styles, /\.settings-check input\[type="checkbox"\]:checked::before\s*\{[^}]*transform:\s*translateX/s);
+  assert.match(styles, /\.settings-check input\[type="checkbox"\]:disabled\s*\{[^}]*opacity/s);
 });
 
 test('settings fields that hold long text span both columns and stretch', () => {
@@ -1985,10 +2000,14 @@ test('settings fields that hold long text span both columns and stretch', () => 
   assert.match(styles, /\.settings-wide input,[\s\S]*?\.settings-wide textarea\s*\{[^}]*width:\s*auto/s);
 });
 
-test('settings rows drop to one column with full-size hit targets on mobile', () => {
+test('settings rows stay one column with full-size hit targets on mobile', () => {
+  assert.match(styles, /\.settings-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s);
   const mobile = styles.slice(styles.indexOf('@media (max-width: 760px)'));
-  assert.match(mobile, /\.settings-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s);
+  assert.match(mobile, /\.settings-grid > label,\s*\.settings-grid > \.settings-wide\s*\{[^}]*min-height:\s*48px/s);
   assert.match(mobile, /\.settings-grid input,[\s\S]*?\.settings-grid textarea\s*\{[^}]*min-height:\s*34px/s);
+  assert.match(mobile, /\.settings-nav a\s*\{[^}]*min-height:\s*44px/s);
+  // On a phone the hint takes the whole row instead of the narrow caption column.
+  assert.match(mobile, /\.settings-grid label:not\(\.settings-wide\) > \.field-hint\s*\{[^}]*grid-column:\s*1 \/ -1/s);
 });
 
 test('settings apply stays open while save closes the dialog', () => {
@@ -2014,10 +2033,8 @@ test('every settings row explains itself in visible text, not a title attribute'
   for (const name of ['ui.system_font_size', 'ui.grid_size', 'ui.vertical_slots', 'persistence.autosave_minutes', 'shell.preferred', 'usage.warn_percent', 'usage.alert_percent', 'server.port']) {
     assert.match(settingsMarkup, new RegExp(`name="${name.replace('.', '\\.')}"[^>]*>\\s*<small class="field-hint"`));
   }
-  // The hint wraps onto its own full-width line below the row, including in the
-  // reversed checkbox rows.
-  assert.match(styles, /\.settings-grid label:not\(\.settings-wide\) > \.field-hint\s*\{[^}]*flex:\s*1 0 100%[^}]*order:\s*1/s);
-  assert.match(styles, /\.settings-check\s*\{[^}]*flex-wrap:\s*wrap/s);
+  // The hint sits on its own line under the caption, checkbox rows included.
+  assert.match(styles, /\.settings-grid label:not\(\.settings-wide\) > \.field-hint\s*\{[^}]*grid-column:\s*1;/s);
 });
 
 test('single-field settings sections are folded into the section they belong to', () => {

@@ -91,3 +91,21 @@ test('every terminal context menu label has a zh-HK translation', () => {
     assert.notEqual(i18n.t(label), label, `${label} has no zh-HK translation`);
   }
 });
+
+// Settings copy is matched by exact text, so a hint added in English only
+// falls through silently and leaves the dialog half translated.
+test('every static settings caption and hint has a zh-HK translation', () => {
+  const { i18n } = loadI18n({ savedLocale: 'zh-HK' });
+  const start = appSource.indexOf('<div class="settings-body">');
+  const markup = appSource.slice(start, appSource.indexOf('<footer class="settings-footer">', start));
+  const texts = [
+    ...[...markup.matchAll(/<small class="field-hint"[^>]*>([^<$]+)<\/small>/g)].map((match) => match[1]),
+    ...[...markup.matchAll(/<label(?: class="[^"]*")?>([A-Z][^<$]+)<(?:input|select|textarea)/g)].map((match) => match[1]),
+    ...[...markup.matchAll(/<h[23][^>]*>([^<$]+)</g)].map((match) => match[1])
+  ].map((text) => text.trim().replace(/&amp;/g, '&'));
+  assert.ok(texts.length > 40, `only ${texts.length} settings strings found`);
+  // Product names stay as they are in every language.
+  const names = new Set(['AI', 'Codex', 'Claude Code', 'MiniMax', 'MiniMax Coding Plan']);
+  const missing = texts.filter((text) => !names.has(text) && i18n.t(text) === text);
+  assert.deepEqual(missing, []);
+});
