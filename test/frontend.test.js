@@ -2338,6 +2338,31 @@ test('terminal find matches case-insensitively, across wrapped rows and wide cha
   assert.deepEqual(find('missing'), []);
 });
 
+test('pane find fits the visible part of a horizontally scrolled mobile pane', () => {
+  const start = appSource.indexOf('  function placePaneFindBar(');
+  const end = appSource.indexOf('  // setActivePane()', start);
+  assert.ok(start >= 0 && end > start);
+  const context = vm.createContext({
+    window: { innerWidth: 390 },
+    paneZoomFactor: () => 1,
+    isMobileLayout: () => true
+  });
+  vm.runInContext(appSource.slice(start, end), context);
+  const bar = { style: {} };
+  const pane = {
+    closest: () => ({ getBoundingClientRect: () => ({ left: 0, right: 390 }) }),
+    getBoundingClientRect: () => ({ left: -284, right: 288 })
+  };
+  context.placePaneFindBar(pane, bar);
+  assert.equal(bar.style.maxWidth, '280px');
+  assert.equal(bar.style.right, '');
+  pane.getBoundingClientRect = () => ({ left: 0, right: 572 });
+  context.paneZoomFactor = () => 2;
+  context.placePaneFindBar(pane, bar);
+  assert.equal(bar.style.maxWidth, '187px');
+  assert.equal(bar.style.right, '95px');
+});
+
 test('pane find starts at the newest match and wraps in both directions', () => {
   const { paneFindIndex } = loadTerminalFind();
   const matches = [{ row: 0, offset: 2 }, { row: 3, offset: 0 }, { row: 3, offset: 9 }].map((position) => ({ position }));

@@ -8876,9 +8876,14 @@
   function placePaneFindBar(paneElement, bar) {
     const board = paneElement.closest('.pane-grid');
     const pane = paneElement.getBoundingClientRect();
-    const visibleRight = Math.min(pane.right, board ? board.getBoundingClientRect().right : window.innerWidth);
-    const hidden = Math.max(0, pane.right - visibleRight) / paneZoomFactor(paneElement);
-    bar.style.right = hidden ? `${Math.round(hidden + 8)}px` : '';
+    const boardBox = board?.getBoundingClientRect();
+    const visibleRight = Math.min(pane.right, boardBox?.right ?? window.innerWidth, window.innerWidth);
+    const visibleLeft = Math.max(pane.left, boardBox?.left ?? 0, 0);
+    const zoom = paneZoomFactor(paneElement);
+    const gutter = isMobileLayout() ? 4 : 8;
+    const hidden = Math.max(0, pane.right - visibleRight) / zoom;
+    bar.style.right = hidden ? `${Math.round(hidden + gutter)}px` : '';
+    bar.style.maxWidth = `${Math.max(0, (visibleRight - visibleLeft) / zoom - 2 * gutter)}px`;
   }
 
   // setActivePane() focuses the terminal once the server has answered, so the
