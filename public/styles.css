@@ -2906,7 +2906,7 @@ textarea:focus-visible {
 
 .mobile-keybar-setting-row {
   display: grid;
-  grid-template-columns: 20px 54px 88px 104px minmax(150px, 1fr) auto;
+  grid-template-columns: 20px 54px 88px 104px minmax(0, 1fr) auto;
   align-items: end;
   gap: 6px;
   padding: 5px;
