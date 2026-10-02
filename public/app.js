@@ -4078,15 +4078,7 @@
       textarea.select();
       const copied = document.execCommand('copy');
       textarea.remove();
-      if (!copied) {
-        if (isMobileLayout()) {
-          // Some phone browsers deny both clipboard APIs. Keep the selected
-          // text in native input so their own selection menu can copy it.
-          window.prompt(window.PaneboardI18n?.t('Copy') ?? 'Copy', text);
-        } else {
-          showToast('Clipboard access is unavailable.');
-        }
-      }
+      if (!copied) showToast('Clipboard access is unavailable.');
     };
     if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).catch(fallback);
     else fallback();
@@ -8530,21 +8522,29 @@
     const fit = new FitAddon.FitAddon();
     term.loadAddon(fit);
     term.open(element);
-    const touchScroll = installMobileTerminalTouchScroll(element, term, (clientX, clientY) => {
-      openTerminalContextMenu(terminalTabId, clientX, clientY);
-    });
+    installMobileTerminalTouchScroll(element);
     fitTerminal(term, fit, true);
-    element.addEventListener('click', () => term.focus());
+    element.addEventListener('click', () => {
+      if (!isMobileLayout() || !hasNativeTerminalSelection(element)) term.focus();
+    });
+    element.addEventListener('mousedown', (event) => {
+      // xterm's mouse selection must not replace the phone's native selection.
+      if (isMobileLayout() && event.target.closest('.xterm-rows')) event.stopPropagation();
+    }, { capture: true });
+    element.addEventListener('copy', (event) => {
+      if (isMobileLayout() && hasNativeTerminalSelection(element)) event.stopPropagation();
+    }, { capture: true });
     element.addEventListener('contextmenu', (event) => {
+      if (isMobileLayout() && event.target.closest('.xterm-rows')) {
+        // Keep the OS selection handles and Copy action on the output itself.
+        // Native copy works even when this browser denies clipboard APIs.
+        event.stopPropagation();
+        return;
+      }
       event.preventDefault();
       // Own the event before xterm moves and focuses its hidden textarea. On a
       // phone that can open the keyboard and resize away the touch selection.
       event.stopPropagation();
-      // A long press fires this halfway through the gesture; that menu belongs
-      // to touchend, once the selection is final.
-      if (touchScroll.isTouchActive()) {
-        return;
-      }
       openTerminalContextMenu(terminalTabId, event.clientX, event.clientY);
     }, { capture: true });
     term.attachCustomKeyEventHandler((event) => terminalShortcut(terminalTabId, event));
@@ -8890,126 +8890,43 @@
     document.addEventListener('keydown', handleTerminalMenuKey, true);
   }
 
-  function terminalCellAtTouch(element, term, touch) {
-    const screen = element.querySelector('.xterm-screen');
-    const rect = screen?.getBoundingClientRect();
-    if (!rect?.width || !rect.height) {
-      return null;
-    }
-    const column = Math.max(0, Math.min(term.cols - 1, Math.floor((touch.clientX - rect.left) / rect.width * term.cols)));
-    const viewportRow = Math.max(0, Math.min(term.rows - 1, Math.floor((touch.clientY - rect.top) / rect.height * term.rows)));
-    return { column, row: term.buffer.active.viewportY + viewportRow };
+  function hasNativeTerminalSelection(element) {
+    const selection = window.getSelection();
+    return Boolean(selection && !selection.isCollapsed
+      && element.contains(selection.anchorNode) && element.contains(selection.focusNode));
   }
 
-  function terminalWordCell(line, column) {
-    return /[\p{L}\p{N}_-]/u.test(line?.getCell(column)?.getChars() || '');
-  }
-
-  function selectTerminalWordAtTouch(element, term, touch) {
-    const cell = terminalCellAtTouch(element, term, touch);
-    const line = cell && term.buffer.active.getLine(cell.row);
-    if (!cell || !line) {
-      return null;
-    }
-    let start = cell.column;
-    let end = cell.column;
-    if (terminalWordCell(line, cell.column)) {
-      while (start > 0 && terminalWordCell(line, start - 1)) {
-        start -= 1;
-      }
-      while (end < term.cols - 1 && terminalWordCell(line, end + 1)) {
-        end += 1;
-      }
-    }
-    term.select(start, cell.row, end - start + 1);
-    return { start: { column: start, row: cell.row }, end: { column: end, row: cell.row } };
-  }
-
-  function extendTerminalTouchSelection(element, term, anchor, touch) {
-    const cell = terminalCellAtTouch(element, term, touch);
-    if (!cell || !anchor) {
-      return;
-    }
-    const beforeAnchor = cell.row < anchor.start.row || (cell.row === anchor.start.row && cell.column < anchor.start.column);
-    const start = beforeAnchor ? cell : anchor.start;
-    const end = beforeAnchor ? anchor.end : cell;
-    const length = (end.row - start.row) * term.cols + end.column - start.column + 1;
-    term.select(start.column, start.row, Math.max(1, length));
-  }
-
-  function installMobileTerminalTouchScroll(element, term, openContextMenu) {
+  function installMobileTerminalTouchScroll(element) {
     const scrollSurface = element.querySelector('.xterm-scrollable-element');
-    const longPressDelay = 500;
     const moveTolerance = 10;
     let lastY = 0;
     let startX = 0;
     let startY = 0;
-    let longPressTimer = 0;
-    let selecting = false;
-    let selectionAnchor = null;
-    let touchActive = false;
     let scrolling = false;
-    const cancelLongPress = () => {
-      window.clearTimeout(longPressTimer);
-      longPressTimer = 0;
-    };
     element.addEventListener('touchstart', (event) => {
-      cancelLongPress();
-      touchActive = false;
+      lastY = 0;
       scrolling = false;
-      selecting = false;
-      selectionAnchor = null;
-      element.classList.remove('touch-selecting');
-      if (!isMobileLayout() || event.touches.length !== 1) {
-        lastY = 0;
-        return;
-      }
-      touchActive = true;
+      if (!isMobileLayout() || event.touches.length !== 1) return;
       const touch = event.touches[0];
       lastY = touch.clientY;
       startX = touch.clientX;
       startY = touch.clientY;
-      const point = { clientX: touch.clientX, clientY: touch.clientY };
-      longPressTimer = window.setTimeout(() => {
-        selecting = true;
-        lastY = 0;
-        selectionAnchor = selectTerminalWordAtTouch(element, term, point);
-        if (!selectionAnchor) {
-          selecting = false;
-          return;
-        }
-        element.classList.add('touch-selecting');
-        navigator.vibrate?.(12);
-      }, longPressDelay);
     }, { passive: true, capture: true });
     element.addEventListener('touchmove', (event) => {
-      if (!isMobileLayout() || event.touches.length !== 1) {
-        return;
-      }
+      if (!isMobileLayout() || event.touches.length !== 1 || !lastY) return;
+      // Leave dragging the native selection handles to the browser.
+      if (hasNativeTerminalSelection(element)) return;
       const touch = event.touches[0];
-      if (selecting) {
-        event.preventDefault();
-        extendTerminalTouchSelection(element, term, selectionAnchor, touch);
-        return;
-      }
       if (!scrolling) {
-        if (Math.hypot(touch.clientX - startX, touch.clientY - startY) <= moveTolerance) {
-          return;
-        }
+        if (Math.hypot(touch.clientX - startX, touch.clientY - startY) <= moveTolerance) return;
         scrolling = true;
-        cancelLongPress();
-      }
-      if (!lastY) {
-        return;
       }
       const nextY = touch.clientY;
       // Dragging down pulls older output back into view, so the text follows the
       // finger the way a page does under a touch.
       const deltaY = nextY - lastY;
       lastY = nextY;
-      if (!deltaY) {
-        return;
-      }
+      if (!deltaY) return;
       event.preventDefault();
       scrollSurface?.dispatchEvent(new WheelEvent('wheel', {
         bubbles: true,
@@ -9018,32 +8935,8 @@
         deltaY
       }));
     }, { passive: false, capture: true });
-    element.addEventListener('touchend', (event) => {
-      cancelLongPress();
-      if (selecting) {
-        event.preventDefault();
-        // The menu waits for the finger to lift, so the long press can still be
-        // dragged to grow the selection before anything covers the terminal.
-        const touch = event.changedTouches[0];
-        if (touch) {
-          openContextMenu?.(touch.clientX, touch.clientY);
-        }
-      }
-      touchActive = false;
-      lastY = 0;
-      selecting = false;
-      selectionAnchor = null;
-      element.classList.remove('touch-selecting');
-    }, { passive: false, capture: true });
-    element.addEventListener('touchcancel', () => {
-      cancelLongPress();
-      touchActive = false;
-      lastY = 0;
-      selecting = false;
-      selectionAnchor = null;
-      element.classList.remove('touch-selecting');
-    }, { passive: true, capture: true });
-    return { isTouchActive: () => touchActive };
+    element.addEventListener('touchend', () => { lastY = 0; }, { passive: true, capture: true });
+    element.addEventListener('touchcancel', () => { lastY = 0; }, { passive: true, capture: true });
   }
 
   function createTerminalWriter(term, element) {

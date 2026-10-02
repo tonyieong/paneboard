@@ -1023,7 +1023,7 @@ test('usage cards reflow to fit the pane width and refreshing keeps the current 
 });
 
 test('mobile terminal sends touch movement through the xterm scroll surface with a compact virtual key row', () => {
-  assert.match(appSource, /function installMobileTerminalTouchScroll\(element, term, openContextMenu\)/);
+  assert.match(appSource, /function installMobileTerminalTouchScroll\(element\)/);
   assert.match(appSource, /new WheelEvent\('wheel'/);
   // Dragging down pulls older output back into view, so the text follows the
   // finger instead of running away from it.
@@ -1036,23 +1036,9 @@ test('mobile terminal sends touch movement through the xterm scroll surface with
   assert.match(appSource, /function sendMobileTerminalKey\(button\)/);
 });
 
-test('mobile terminal long press selects a word without breaking touch scrolling', () => {
-  assert.match(appSource, /installMobileTerminalTouchScroll\(element, term, \(clientX, clientY\) => \{/);
-  assert.match(appSource, /const longPressDelay = 500/);
-  assert.match(appSource, /function terminalCellAtTouch\(element, term, touch\)/);
-  assert.match(appSource, /function selectTerminalWordAtTouch\(element, term, touch\)/);
-  assert.match(appSource, /term\.select\(/);
-  assert.match(appSource, /classList\.add\('touch-selecting'\)/);
-  assert.match(styles, /\.terminal\.touch-selecting/);
-});
-
-test('the terminal menu waits for the finger to lift so a selection can still be dragged open', () => {
-  // The browser fires contextmenu partway through the long press, while the
-  // selection is still being dragged; that one is dropped.
-  assert.match(appSource, /if \(touchScroll\.isTouchActive\(\)\) \{\s*return;\s*\}/);
-  assert.match(appSource, /return \{ isTouchActive: \(\) => touchActive \};/);
-  const touchEnd = appSource.slice(appSource.indexOf("element.addEventListener('touchend'"), appSource.indexOf("element.addEventListener('touchcancel'"));
-  assert.match(touchEnd, /openContextMenu\?\.\(touch\.clientX, touch\.clientY\)/);
+test('mobile terminal output allows native text selection without the extra selection overlay', () => {
+  assert.match(styles, /xterm-rows[^}]*-webkit-user-select:\s*text[^}]*user-select:\s*text[^}]*pointer-events:\s*auto/s);
+  assert.doesNotMatch(styles, /\.terminal\.touch-selecting/);
 });
 
 test('a keybar modifier keeps terminal focus and modifies the next software-keyboard character', () => {
@@ -3112,7 +3098,7 @@ test('terminal menu copies its original selection after a keyboard resize clears
     pasteTerminalText() {}, selectAllTerminal() {}, clearTerminal() {}, escapeHtml: (text) => text
   });
   const start = coreAppSource.indexOf('  function openTerminalContextMenu(');
-  const end = coreAppSource.indexOf('  function terminalCellAtTouch(', start);
+  const end = coreAppSource.indexOf('  function hasNativeTerminalSelection(', start);
   vm.runInContext(coreAppSource.slice(start, end), context);
   context.openTerminalContextMenu('tab', 350, 290);
   assert.equal(selected, '', 'focusing the menu simulates the software keyboard closing');
@@ -3122,54 +3108,44 @@ test('terminal menu copies its original selection after a keyboard resize clears
   assert.ok(Number.parseFloat(menu.style.top) >= 0);
 });
 
-test('mobile terminal ignores finger jitter and cancels a hold when a second finger arrives', () => {
+test('mobile terminal scroll leaves native selection handles alone and ignores finger jitter', () => {
   const listeners = {};
   const wheels = [];
-  const menus = [];
-  let timer = null;
-  let selected = 0;
-  const classes = new Set();
+  let selected = false;
+  let prevented = 0;
   const element = {
     querySelector: () => ({ dispatchEvent: (event) => wheels.push(event.deltaY) }),
-    classList: { add: (name) => classes.add(name), remove: (name) => classes.delete(name) },
     addEventListener: (name, fn) => { listeners[name] = fn; }
   };
   const context = vm.createContext({
-    window: { setTimeout: (fn) => { timer = fn; return 1; }, clearTimeout: () => { timer = null; } },
-    navigator: {}, isMobileLayout: () => true,
-    selectTerminalWordAtTouch: () => { selected++; return {}; }, extendTerminalTouchSelection() {},
+    isMobileLayout: () => true, hasNativeTerminalSelection: () => selected,
     WheelEvent: function (type, options) { Object.assign(this, options); }
   });
   const start = coreAppSource.indexOf('  function installMobileTerminalTouchScroll(');
   const end = coreAppSource.indexOf('  function createTerminalWriter(', start);
   vm.runInContext(coreAppSource.slice(start, end), context);
-  const controller = context.installMobileTerminalTouchScroll(element, {}, (...args) => menus.push(args));
+  context.installMobileTerminalTouchScroll(element);
   const point = (x, y) => ({ clientX: x, clientY: y });
-  const fire = (name, touches, changedTouches = touches) => listeners[name]({ touches, changedTouches, preventDefault() {} });
+  const fire = (name, touches) => listeners[name]({ touches, preventDefault() { prevented++; } });
   fire('touchstart', [point(50, 100)]);
   fire('touchmove', [point(52, 102)]);
-  assert.deepEqual(wheels, [], 'small finger movement must not scroll the word out from under a hold');
-  assert.ok(timer);
-  timer();
-  assert.equal(selected, 1);
-  fire('touchend', [], [point(52, 102)]);
-  assert.equal(menus.length, 1);
-  assert.equal(controller.isTouchActive(), false);
-
-  fire('touchstart', [point(50, 100)]);
-  timer();
-  fire('touchstart', [point(50, 100), point(80, 100)]);
-  assert.equal(controller.isTouchActive(), false);
-  assert.equal(classes.has('touch-selecting'), false);
-  fire('touchend', [], [point(50, 100)]);
-  assert.equal(menus.length, 1, 'a cancelled two-finger gesture must not open a selection menu');
-
+  assert.deepEqual(wheels, []);
+  assert.equal(prevented, 0);
+  selected = true;
+  fire('touchmove', [point(50, 150)]);
+  assert.deepEqual(wheels, [], 'moving selection handles must not scroll the terminal');
+  assert.equal(prevented, 0, 'the browser must receive the default selection gesture');
+  fire('touchend', []);
+  selected = false;
+  fire('touchmove', [point(50, 175)]);
+  assert.deepEqual(wheels, [], 'a completed gesture must not scroll');
   fire('touchstart', [point(50, 100)]);
   fire('touchmove', [point(50, 125)]);
   assert.deepEqual(wheels, [25]);
-  assert.equal(timer, null);
+  fire('touchstart', [point(50, 125), point(80, 125)]);
+  fire('touchmove', [point(50, 175)]);
+  assert.deepEqual(wheels, [25], 'a second finger must cancel scrolling');
   fire('touchcancel', []);
-  assert.equal(controller.isTouchActive(), false);
 });
 
 test('mobile terminal can paste through native input when clipboard access is denied', async () => {
@@ -3198,38 +3174,61 @@ test('mobile terminal can paste through native input when clipboard access is de
   assert.equal(focused, 2);
 });
 
-test('mobile copy retains text in native input when both clipboard methods are denied', async () => {
-  const prompts = [];
+test('clipboard denial does not open an extra mobile copy input', async () => {
   const toasts = [];
-  let copied = false;
-  let mobile = true;
-  let removed = 0;
-  const textarea = { style: {}, select() {}, remove() { removed++; } };
+  const textarea = { style: {}, select() {}, remove() {} };
   const context = vm.createContext({
-    document: { createElement: () => textarea, body: { appendChild() {} }, execCommand: () => copied },
+    document: { createElement: () => textarea, body: { appendChild() {} }, execCommand: () => false },
     navigator: { clipboard: { writeText: () => Promise.reject(new Error('denied')) } },
-    window: { prompt: (...args) => { prompts.push(args); return null; } },
-    isMobileLayout: () => mobile, showToast: (message) => toasts.push(message)
+    window: { prompt: () => assert.fail('native output selection replaces the extra copy input') },
+    isMobileLayout: () => true, showToast: (message) => toasts.push(message)
   });
   const start = coreAppSource.indexOf('  function copyBrowserText(');
   const end = coreAppSource.indexOf('  function pasteBrowserText(', start);
   vm.runInContext(coreAppSource.slice(start, end), context);
-  context.copyBrowserText('CODEX_CLIPBOARD_OK');
+  context.copyBrowserText('selected output');
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(prompts, [['Copy', 'CODEX_CLIPBOARD_OK']]);
-  assert.deepEqual(toasts, []);
-  assert.equal(removed, 1);
-  assert.equal(textarea.readOnly, true);
-
-  copied = true;
-  context.copyBrowserText('CLAUDE_CLIPBOARD_OK');
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(prompts.length, 1, 'successful copying must not open native input');
-
-  copied = false;
-  mobile = false;
-  context.navigator.clipboard = undefined;
-  context.copyBrowserText('desktop');
-  assert.equal(prompts.length, 1);
   assert.deepEqual(toasts, ['Clipboard access is unavailable.']);
+});
+
+test('mobile native selection keeps the OS menu and avoids focusing xterm', () => {
+  const listeners = {};
+  let mobile = true;
+  let selection = { isCollapsed: false, anchorNode: 'output', focusNode: 'output' };
+  let focused = 0;
+  let customMenus = 0;
+  const element = { addEventListener: (name, fn) => { listeners[name] = fn; }, contains: (node) => node === 'output' };
+  const context = vm.createContext({
+    window: { getSelection: () => selection }, isMobileLayout: () => mobile,
+    element, term: { focus: () => focused++ }, fit: {}, terminalTabId: 'tab',
+    installMobileTerminalTouchScroll() {}, fitTerminal() {},
+    openTerminalContextMenu: () => customMenus++
+  });
+  const helperStart = coreAppSource.indexOf('  function hasNativeTerminalSelection(');
+  const helperEnd = coreAppSource.indexOf('  function installMobileTerminalTouchScroll(', helperStart);
+  vm.runInContext(coreAppSource.slice(helperStart, helperEnd), context);
+  const start = coreAppSource.indexOf('    installMobileTerminalTouchScroll(element);');
+  const end = coreAppSource.indexOf('    term.attachCustomKeyEventHandler(', start);
+  vm.runInContext(coreAppSource.slice(start, end), context);
+  let prevented = 0;
+  let stopped = 0;
+  const event = { target: { closest: () => true }, preventDefault() { prevented++; }, stopPropagation() { stopped++; } };
+  listeners.contextmenu(event);
+  listeners.mousedown(event);
+  listeners.copy(event);
+  listeners.click();
+  assert.equal(prevented, 0, 'native context menu must not be cancelled');
+  assert.equal(stopped, 3, 'xterm must not steal native selection or replace its clipboard text');
+  assert.equal(customMenus, 0);
+  assert.equal(focused, 0, 'selecting output must not summon the keyboard');
+  selection.focusNode = 'other pane';
+  listeners.click();
+  assert.equal(focused, 1, 'selection elsewhere must not prevent terminal input');
+  selection = { isCollapsed: true };
+  listeners.click();
+  assert.equal(focused, 2);
+  mobile = false;
+  listeners.contextmenu(event);
+  assert.equal(prevented, 1);
+  assert.equal(customMenus, 1, 'desktop must retain the terminal context menu');
 });
