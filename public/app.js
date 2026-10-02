@@ -4078,7 +4078,15 @@
       textarea.select();
       const copied = document.execCommand('copy');
       textarea.remove();
-      if (!copied) showToast('Clipboard access is unavailable.');
+      if (!copied) {
+        if (isMobileLayout()) {
+          // Some phone browsers deny both clipboard APIs. Keep the selected
+          // text in native input so their own selection menu can copy it.
+          window.prompt(window.PaneboardI18n?.t('Copy') ?? 'Copy', text);
+        } else {
+          showToast('Clipboard access is unavailable.');
+        }
+      }
     };
     if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).catch(fallback);
     else fallback();

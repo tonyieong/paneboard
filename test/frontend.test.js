@@ -3197,3 +3197,39 @@ test('mobile terminal can paste through native input when clipboard access is de
   assert.equal(pasted.length, 1, 'cancelling native input must not send anything to the shell');
   assert.equal(focused, 2);
 });
+
+test('mobile copy retains text in native input when both clipboard methods are denied', async () => {
+  const prompts = [];
+  const toasts = [];
+  let copied = false;
+  let mobile = true;
+  let removed = 0;
+  const textarea = { style: {}, select() {}, remove() { removed++; } };
+  const context = vm.createContext({
+    document: { createElement: () => textarea, body: { appendChild() {} }, execCommand: () => copied },
+    navigator: { clipboard: { writeText: () => Promise.reject(new Error('denied')) } },
+    window: { prompt: (...args) => { prompts.push(args); return null; } },
+    isMobileLayout: () => mobile, showToast: (message) => toasts.push(message)
+  });
+  const start = coreAppSource.indexOf('  function copyBrowserText(');
+  const end = coreAppSource.indexOf('  function pasteBrowserText(', start);
+  vm.runInContext(coreAppSource.slice(start, end), context);
+  context.copyBrowserText('CODEX_CLIPBOARD_OK');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(prompts, [['Copy', 'CODEX_CLIPBOARD_OK']]);
+  assert.deepEqual(toasts, []);
+  assert.equal(removed, 1);
+  assert.equal(textarea.readOnly, true);
+
+  copied = true;
+  context.copyBrowserText('CLAUDE_CLIPBOARD_OK');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(prompts.length, 1, 'successful copying must not open native input');
+
+  copied = false;
+  mobile = false;
+  context.navigator.clipboard = undefined;
+  context.copyBrowserText('desktop');
+  assert.equal(prompts.length, 1);
+  assert.deepEqual(toasts, ['Clipboard access is unavailable.']);
+});
