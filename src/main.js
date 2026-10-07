@@ -99,14 +99,18 @@ function writeRuntimeInfo(root, config) {
 
 // The certificate is generated once and reused, so a browser only has to
 // trust it after the first https launch, not after every restart.
-function ensureTlsCredentials(root) {
+async function ensureTlsCredentials(root) {
   const targetDir = path.join(root, 'data');
   fs.mkdirSync(targetDir, { recursive: true });
   const keyPath = path.join(targetDir, 'tls-key.pem');
   const certPath = path.join(targetDir, 'tls-cert.pem');
   if (!fs.existsSync(keyPath) || !fs.existsSync(certPath)) {
-    const pems = selfsigned.generate([{ name: 'commonName', value: 'localhost' }], {
-      days: 3650,
+    const notBeforeDate = new Date();
+    const notAfterDate = new Date(notBeforeDate);
+    notAfterDate.setDate(notAfterDate.getDate() + 3650);
+    const pems = await selfsigned.generate([{ name: 'commonName', value: 'localhost' }], {
+      notBeforeDate,
+      notAfterDate,
       keySize: 2048,
       extensions: [{
         name: 'subjectAltName',
@@ -746,7 +750,7 @@ if ($Arguments.Count -gt 0) {
   child.unref();
 }
 
-function main() {
+async function main() {
   const root = appRoot();
   ensurePackagedIcon(root);
   const config = loadConfig(root).config;
@@ -793,7 +797,7 @@ function main() {
 
   const app = express();
   const server = config.server.protocol === 'https'
-    ? https.createServer(ensureTlsCredentials(root), app)
+    ? https.createServer(await ensureTlsCredentials(root), app)
     : http.createServer(app);
   const terminalManager = new TerminalManager({ config, root, store, shell });
   const loadedAiPlugins = loadAiPluginPanes(root);
