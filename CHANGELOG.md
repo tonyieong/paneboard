@@ -7,11 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-10-08
+
 ### Added
 
 - Linux server support: bash terminal panes, POSIX file panes with zip
   downloads, Chrome/Chromium browser panes, `npm run package:linux`, and a
   systemd user service installer. CI also runs on Ubuntu.
+- Android client with embedded Tailscale and direct pinned-HTTPS connections,
+  saved connection profiles, first-use certificate confirmation and remembered login.
+- Find in terminal and AI panes, plus prompt history recall with Up and Down.
+
+### Changed
+
+- Settings use grouped cards and switches, with layouts that fit narrow mobile screens.
+- Mobile terminal output uses native text selection and copy controls; mobile
+  navigation and terminal shortcut buttons have larger touch targets.
+
+### Fixed
+
+- Codex thread initialization preserves the configured model and reasoning effort.
+- Pasting into a terminal restores input focus.
+- Update qs, undici, proxy-addr, brace-expansion and selfsigned to patched versions,
+  and adapt HTTPS certificate generation to the asynchronous selfsigned API.
+
+## [0.1.7] - 2026-10-08
+
+- Release preparation only; no binary was published because the release
+  documentation check failed. Superseded by 0.1.8.
 
 ## [0.1.6] - 2026-08-31
 
@@ -286,7 +309,9 @@ First public release.
 - `nssm.exe` and a stray `tray_windows_release.exe` from version control. NSSM is
   now downloaded and hash-verified at install time.
 
-[Unreleased]: https://github.com/tonyieong/paneboard/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/tonyieong/paneboard/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/tonyieong/paneboard/compare/v0.1.7...v0.1.8
+[0.1.7]: https://github.com/tonyieong/paneboard/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/tonyieong/paneboard/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/tonyieong/paneboard/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/tonyieong/paneboard/compare/v0.1.3...v0.1.4
