@@ -1405,6 +1405,7 @@ async function main() {
     const { title, showThinking, showTools, cwd } = req.body || {};
     let ok = false;
     let folder = '';
+    let folderChanged = false;
     if (title !== undefined) {
       ok = store.renameAiTab(req.params.paneId, req.params.tabId, title);
     }
@@ -1417,16 +1418,17 @@ async function main() {
         res.status(400).json({ error: 'That folder does not exist on this machine.' });
         return;
       }
+      folderChanged = store.findAiTab(req.params.paneId, req.params.tabId)?.tab.cwd !== folder;
       ok = store.setAiTabCwd(req.params.paneId, req.params.tabId, folder) || ok;
     }
     if (!ok) {
       res.status(404).json({ error: 'AI tab not found.' });
       return;
     }
-    if (folder) {
+    if (folderChanged) {
       // The working folder is fixed when the process is spawned, so the CLI has
       // to be restarted for the change to mean anything.
-      aiManagerForTab(req.params.tabId)?.restartTab(req.params.tabId, `The working folder is now ${folder}. The agent was restarted there.`);
+      aiManagerForTab(req.params.tabId)?.restartTab(req.params.tabId, `The working folder is now ${folder}. A new agent session was started there; earlier messages remain on screen.`);
     }
     res.json({ ok: true, cwd: folder || undefined });
   });

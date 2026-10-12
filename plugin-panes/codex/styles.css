@@ -99,7 +99,7 @@
   background: var(--accent-soft);
 }
 
-.ai-bubble.typing::after {
+.ai-bubble.typing [data-ai-text]::after {
   content: '';
   display: inline-block;
   width: 6px;
@@ -110,7 +110,7 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .ai-bubble.typing::after {
+  .ai-bubble.typing [data-ai-text]::after {
     animation: ai-cursor-blink var(--dur-cursor) step-end infinite;
   }
 }
@@ -131,8 +131,22 @@
   margin: 0 0 6px;
 }
 
-.ai-bubble > :last-child {
+.ai-bubble [data-ai-text] > :last-child {
   margin-bottom: 0;
+}
+
+/* Keep the timestamp separate from text replaced by streaming patches. */
+.ai-message-time {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 0.85em;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  line-height: 1.4;
+}
+
+.ai-bubble.user .ai-message-time {
+  text-align: right;
 }
 
 .ai-attachment-images {

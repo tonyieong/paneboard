@@ -757,8 +757,8 @@ test('workspace motion is responsive, consistent, and reduced-motion safe', () =
 });
 
 test('the AI typing cursor blink uses a duration token and honours reduced motion', () => {
-  assert.match(styles, /\.ai-bubble\.typing::after\s*\{[^}]*vertical-align:\s*text-bottom;\s*\}/);
-  assert.match(styles, /@media \(prefers-reduced-motion: no-preference\)\s*\{\s*\.ai-bubble\.typing::after\s*\{[^}]*animation:\s*ai-cursor-blink var\(--dur-cursor\) step-end infinite/);
+  assert.match(styles, /\.ai-bubble\.typing \[data-ai-text\]::after\s*\{[^}]*vertical-align:\s*text-bottom;\s*\}/);
+  assert.match(styles, /@media \(prefers-reduced-motion: no-preference\)\s*\{\s*\.ai-bubble\.typing \[data-ai-text\]::after\s*\{[^}]*animation:\s*ai-cursor-blink var\(--dur-cursor\) step-end infinite/);
 });
 
 test('mobile workspace keeps only the brand icon and closes the sidebar after an action', () => {
@@ -3061,11 +3061,11 @@ test('thinking and tool visibility use persistent icon toggles', () => {
 // typewriter reveal.
 test('a streaming reply grows in place instead of animating after the fact', () => {
   assert.match(appSource, /function appendAiEvent\(tabId, event, streaming\)/);
-  assert.match(appSource, /if \(streaming\) \{[\s\S]{0,200}?bubble\.textContent = event\.text/);
+  assert.match(appSource, /if \(streaming\) \{[\s\S]{0,200}?content\.textContent = event\.text/);
   assert.match(appSource, /appendAiEvent\(tabId, message\.event, message\.streaming\)/);
 
   assert.match(appSource, /function patchAiEvent\(tabId, id, patch\)/);
-  assert.match(appSource, /if \(patch\.text !== undefined\)[\s\S]{0,300}?renderMarkdown\(patch\.text\)/);
+  assert.match(appSource, /if \(patch\.text !== undefined\)[\s\S]{0,500}?renderMarkdown\(patch\.text\)/);
   assert.match(appSource, /patchAiEvent\(tabId, message\.id, message\)/);
 });
 
@@ -3423,3 +3423,54 @@ test('the AI composer recalls earlier prompts with Up and Down', () => {
   type('draft\nsecond line');
   assert.equal(context.recallAiPrompt(surface, -1), false);
 });
+
+for (const [provider, source] of [['claude', aiClientSource], ['codex', codexClientSource]]) {
+  test(`${provider} message times use local calendar dates and 24-hour time`, () => {
+    const start = source.indexOf('    function formatAiMessageTime(');
+    const end = source.indexOf('    function aiFolderLabel(', start);
+    const escape = (value) => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;');
+    const context = vm.createContext({ Date, escapeHtml: escape, escapeAttr: escape, renderMarkdown: loadRenderMarkdown(),
+      renderAiAttachmentImages: () => '', renderAiQuestion: () => '', aiText: (value) => value });
+    vm.runInContext(source.slice(start, end), context);
+    const now = new Date(2026, 9, 13, 15, 45);
+    for (const [at, expected] of [
+      [new Date(2026, 9, 13, 0, 5), '00:05'],
+      [new Date(2026, 9, 13, 23, 9), '23:09'],
+      [new Date(2026, 9, 12, 23, 59), '2026-10-12 23:59'],
+      [new Date(2025, 11, 31, 16, 7), '2025-12-31 16:07']
+    ]) assert.equal(context.formatAiMessageTime(at.toISOString(), now), expected);
+    assert.equal(context.formatAiMessageTime('', now), '');
+    assert.equal(context.formatAiMessageTime('invalid', now), '');
+    assert.equal(context.formatAiMessageTime('2026-10-13T00:05:00+08:00', now),
+      context.formatAiMessageTime('2026-10-12T16:05:00Z', now), 'equivalent offsets use the browser timezone');
+    for (const role of ['user', 'assistant']) {
+      const event = { id: 'message', role, kind: 'text', text: '**Hello**', at: now.toISOString() };
+      const html = context.renderAiEvent(event, 'pane', 'tab');
+      assert.match(html, /<div data-ai-text><p><strong>Hello<\/strong><\/p><\/div><time /);
+      assert.ok(html.includes(`datetime="${now.toISOString()}"`));
+      assert.equal((html.match(/<time /g) || []).length, 1);
+    }
+    const at = new Date(2026, 9, 12, 23, 59);
+    assert.equal(context.formatAiMessageTime(at.toISOString(), new Date(2026, 9, 12, 23, 59)), '23:59');
+    assert.equal(context.formatAiMessageTime(at.toISOString(), new Date(2026, 9, 13, 0, 0)), '2026-10-12 23:59');
+  });
+
+  test(`${provider} streaming patches keep the original timestamp node`, () => {
+    const timestamp = { textContent: '23:59', dateTime: '2026-10-12T15:59:00.000Z' };
+    const content = { textContent: '', innerHTML: '' };
+    const node = { querySelector: (selector) => selector === '[data-ai-text]' ? content : timestamp,
+      classList: { remove() {} } };
+    const scroller = { scrollHeight: 100, scrollTop: 0, clientHeight: 100 };
+    const surface = { querySelector: (selector) => selector === '[data-ai-scroll]' ? scroller : node };
+    const context = vm.createContext({ aiSurface: () => surface, renderMarkdown: loadRenderMarkdown() });
+    const start = source.indexOf('    function patchAiEvent(');
+    const end = source.indexOf('    function setAiStatus(', start);
+    vm.runInContext(source.slice(start, end), context);
+    context.patchAiEvent('tab', 'message', { text: 'partial', done: false });
+    assert.equal(content.textContent, 'partial');
+    context.patchAiEvent('tab', 'message', { text: '**complete**', done: true });
+    assert.equal(content.innerHTML, '<p><strong>complete</strong></p>');
+    assert.equal(timestamp.textContent, '23:59');
+    assert.equal(timestamp.dateTime, '2026-10-12T15:59:00.000Z');
+  });
+}

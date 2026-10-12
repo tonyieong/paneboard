@@ -1037,7 +1037,13 @@ class StateStore {
   setAiTabCwd(paneId, tabId, cwd) {
     const found = this.findAiTab(paneId, tabId);
     if (!found) return false;
-    found.tab.cwd = String(cwd || '');
+    const next = String(cwd || '');
+    if (next !== found.tab.cwd) {
+      // A resumed agent carries the old project's environment and instructions.
+      // Keep the visible transcript, but start fresh in the new working folder.
+      found.tab.sessionId = '';
+    }
+    found.tab.cwd = next;
     this.save();
     return true;
   }

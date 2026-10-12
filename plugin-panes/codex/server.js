@@ -322,6 +322,9 @@ function readSessionTranscript(provider, sessionId, cwd, env = process.env) {
   }
   const events = [];
   for (const record of parseTranscriptLines(text)) {
+    const timestamp = record.timestamp;
+    const at = timestamp && !Number.isNaN(new Date(timestamp).getTime())
+      ? new Date(timestamp).toISOString() : undefined;
     if (provider === 'codex') {
       // event_msg carries only what the user actually typed and the model's
       // finished reply; the response_item log beside it also holds whatever
@@ -337,20 +340,20 @@ function readSessionTranscript(provider, sessionId, cwd, env = process.env) {
         const item = payload.item || {};
         const text = transcriptBlockText(item.content);
         if (item.type === 'UserMessage' && text) {
-          events.push({ role: 'user', kind: 'text', text });
+          events.push({ at, role: 'user', kind: 'text', text });
         } else if (item.type === 'AgentMessage' && text) {
-          events.push({ role: 'assistant', kind: 'text', text });
+          events.push({ at, role: 'assistant', kind: 'text', text });
         }
       } else if (payload.type === 'user_message' && payload.message) {
-        events.push({ role: 'user', kind: 'text', text: payload.message });
+        events.push({ at, role: 'user', kind: 'text', text: payload.message });
       } else if (payload.type === 'agent_message' && payload.phase === 'final_answer' && payload.message) {
-        events.push({ role: 'assistant', kind: 'text', text: payload.message });
+        events.push({ at, role: 'assistant', kind: 'text', text: payload.message });
       }
     } else {
       if ((record.type !== 'user' && record.type !== 'assistant') || record.isSidechain) continue;
       const value = transcriptBlockText(record.message?.content);
       if (value && !isInjectedContext(value)) {
-        events.push({ role: record.type, kind: 'text', text: value });
+        events.push({ at, role: record.type, kind: 'text', text: value });
       }
     }
   }
@@ -1182,7 +1185,7 @@ class CodexAdapter {
     const settings = this.config.ai || {};
     const model = this.modelOverride || settings.codex_model;
     const effort = this.effortOverride || settings.codex_effort;
-    const params = {};
+    const params = this.cwd ? { cwd: this.cwd } : {};
     if (model) {
       params.model = model;
     }
@@ -1675,6 +1678,7 @@ class CodexAdapter {
     const settings = this.config.ai || {};
     const params = {
       threadId: this.threadId,
+      ...(this.cwd ? { cwd: this.cwd } : {}),
       input
     };
     const model = this.modelOverride || settings.codex_model;
@@ -2366,8 +2370,8 @@ class AiManager {
 
   // Anything that changes how the CLI was launched -- its working folder above
   // all -- only takes effect on a fresh process, because those are decided at
-  // spawn time. The transcript and the resume id are kept: this is the same
-  // conversation, continued somewhere else.
+  // spawn time. A folder change drops the resume id in the store while keeping
+  // the transcript on screen; ordinary retries still resume the same session.
   restartTab(tabId, notice) {
     const runtime = this.runtimes.get(tabId);
     if (!runtime) {

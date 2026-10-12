@@ -1282,3 +1282,28 @@ test('an ai pane and tab can be started in a chosen folder', () => {
   restored.load();
   assert.equal(restored.findPane(pane.id).pane.aiTabs[0].cwd, root);
 });
+
+for (const provider of ['claude', 'codex']) {
+  test(`${provider} folder changes forget the agent session but preserve the visible transcript`, () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-state-'));
+    const store = new StateStore(root);
+    store.load();
+    const pane = store.createAiPane(store.state.sessions[0].tabs[0].panes[0].id, provider, root);
+    const tabId = pane.activeAiTabId;
+    const at = '2026-10-11T15:23:00.000Z';
+    const [message] = store.appendAiMessages(pane.id, tabId, [{ role: 'user', kind: 'text', text: 'earlier', at }]);
+    store.setAiSession(pane.id, tabId, 'old-project-session');
+    store.setAiTabCwd(pane.id, tabId, root);
+    assert.equal(store.findAiTab(pane.id, tabId).tab.sessionId, 'old-project-session', 'same folder preserves the session');
+    const next = path.join(root, 'next');
+    fs.mkdirSync(next);
+    store.setAiTabCwd(pane.id, tabId, next);
+    const restored = new StateStore(root);
+    restored.load();
+    const tab = restored.findAiTab(pane.id, tabId).tab;
+    assert.equal(tab.cwd, next);
+    assert.equal(tab.sessionId, '');
+    assert.deepEqual(tab.messages, [message]);
+    assert.equal(tab.messages[0].at, at);
+  });
+}
