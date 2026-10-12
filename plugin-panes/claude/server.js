@@ -321,6 +321,9 @@ function readSessionTranscript(provider, sessionId, cwd, env = process.env) {
   }
   const events = [];
   for (const record of parseTranscriptLines(text)) {
+    const timestamp = record.timestamp;
+    const at = timestamp && !Number.isNaN(new Date(timestamp).getTime())
+      ? new Date(timestamp).toISOString() : undefined;
     if (provider === 'codex') {
       // event_msg carries only what the user actually typed and the model's
       // finished reply; the response_item log beside it also holds whatever
@@ -330,15 +333,15 @@ function readSessionTranscript(provider, sessionId, cwd, env = process.env) {
       if (record.type !== 'event_msg') continue;
       const payload = record.payload || {};
       if (payload.type === 'user_message' && payload.message) {
-        events.push({ role: 'user', kind: 'text', text: payload.message });
+        events.push({ at, role: 'user', kind: 'text', text: payload.message });
       } else if (payload.type === 'agent_message' && payload.phase === 'final_answer' && payload.message) {
-        events.push({ role: 'assistant', kind: 'text', text: payload.message });
+        events.push({ at, role: 'assistant', kind: 'text', text: payload.message });
       }
     } else {
       if ((record.type !== 'user' && record.type !== 'assistant') || record.isSidechain) continue;
       const value = transcriptBlockText(record.message?.content);
       if (value && !isInjectedContext(value)) {
-        events.push({ role: record.type, kind: 'text', text: value });
+        events.push({ at, role: record.type, kind: 'text', text: value });
       }
     }
   }
@@ -2077,7 +2080,8 @@ class AiManager {
       } catch (error) {
         return;
       }
-      this.handleClientMessage(runtime, message);
+      // The socket survives a CLI restart, so messages must reach the new session.
+      this.handleClientMessage(this.runtimes.get(tabId) || runtime, message);
     });
 
     ws.on('close', () => {
@@ -2328,8 +2332,8 @@ class AiManager {
 
   // Anything that changes how the CLI was launched -- its working folder above
   // all -- only takes effect on a fresh process, because those are decided at
-  // spawn time. The transcript and the resume id are kept: this is the same
-  // conversation, continued somewhere else.
+  // spawn time. A folder change drops the resume id in the store while keeping
+  // the transcript on screen; ordinary retries still resume the same session.
   restartTab(tabId, notice) {
     const runtime = this.runtimes.get(tabId);
     if (!runtime) {

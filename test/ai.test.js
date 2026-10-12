@@ -2220,3 +2220,73 @@ test('resuming an unknown tab reports failure', () => {
   const { manager, pane } = managerFixture();
   assert.equal(manager.resumeSession(pane.id, 'no-such-tab', 'session-x', ''), false);
 });
+
+for (const provider of ['claude', 'codex']) {
+  test(`${provider} relaunches in a changed folder with a fresh agent session`, async () => {
+    const { manager, store, pane, tabId, spawns, root } = managerFixture({ provider });
+    store.setAiSession(pane.id, tabId, 'old-project-session');
+    const [earlier] = store.appendAiMessages(pane.id, tabId, [{ role: 'user', kind: 'text', text: 'earlier' }]);
+    const socket = fakeSocket();
+    manager.attach(tabId, socket);
+    const nextFolder = path.join(root, 'next');
+    fs.mkdirSync(nextFolder);
+    store.setAiTabCwd(pane.id, tabId, nextFolder);
+    manager.restartTab(tabId, 'New working folder. New session.');
+    await settle();
+    const launch = spawns.filter((call) => call.command !== 'taskkill').at(-1);
+    assert.equal(launch.options.cwd, nextFolder);
+    assert.doesNotMatch(launch.args.join(' '), /--resume/);
+    assert.deepEqual(store.findAiTab(pane.id, tabId).tab.messages[0], earlier);
+    assert.equal(socket.sent.some((message) => message.type === 'cleared'), false);
+    assert.equal(manager.runtimes.get(tabId).clients.has(socket), true);
+    if (provider === 'codex') {
+      const lines = () => launch.child.written.join('').trim().split('\n').map(JSON.parse);
+      launch.child.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: lines()[0].id, result: {} })}\n`);
+      await settle();
+      const start = lines().at(-1);
+      assert.equal(start.method, 'thread/start');
+      assert.equal(start.params.cwd, nextFolder);
+      launch.child.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: start.id, result: { thread: { id: 'new-project-session' } } })}\n`);
+      await settle();
+      socket.fire('message', JSON.stringify({ type: 'prompt', text: 'check this branch' }));
+      assert.equal(lines().at(-1).method, 'turn/start');
+      assert.equal(lines().at(-1).params.cwd, nextFolder);
+      assert.equal(lines().at(-1).params.threadId, 'new-project-session');
+    } else {
+      socket.fire('message', JSON.stringify({ type: 'prompt', text: 'check this branch' }));
+      assert.match(launch.child.written.join(''), /check this branch/);
+    }
+    manager.shutdown();
+  });
+
+  test(`${provider} resumed transcript preserves recorded timestamps`, () => {
+    const { manager, store, pane, tabId, root } = managerFixture({ provider });
+    const home = path.join(root, 'agent-home');
+    const dir = provider === 'claude'
+      ? path.join(home, 'projects', root.replace(/[^A-Za-z0-9]/g, '-'))
+      : path.join(home, 'sessions', '2026', '10', '11');
+    fs.mkdirSync(dir, { recursive: true });
+    manager.env = provider === 'claude' ? { CLAUDE_CONFIG_DIR: home } : { CODEX_HOME: home };
+    store.setAiTabCwd(pane.id, tabId, root);
+    const timestamps = ['2026-10-11T15:23:00.000Z', '2026-10-11T15:24:00.000Z'];
+    const records = provider === 'claude'
+      ? timestamps.map((timestamp, index) => ({ timestamp, type: index ? 'assistant' : 'user', message: { content: 'message' } }))
+      : timestamps.map((timestamp, index) => ({ timestamp, type: 'event_msg', payload: {
+        type: index ? 'agent_message' : 'user_message', phase: 'final_answer', message: 'message'
+      } }));
+    const file = provider === 'claude' ? 'saved-session.jsonl' : 'rollout-2026-10-11-saved-session.jsonl';
+    fs.writeFileSync(path.join(dir, file), records.map(JSON.stringify).join('\n'));
+    manager.resumeSession(pane.id, tabId, 'saved-session', '');
+    assert.deepEqual(store.findAiTab(pane.id, tabId).tab.messages.slice(0, 2).map((message) => message.at), timestamps);
+  });
+}
+
+test('codex applies the tab cwd when resuming an existing thread', () => {
+  const written = [];
+  const adapter = new CodexAdapter({ config: { ai: {} }, cwd: '/new/project',
+    write: (message) => written.push(message), onEvent() {}, onSession() {}, onStatus() {} });
+  adapter.start({ sessionId: 'saved-thread' });
+  answerCodexRequest(adapter, written, 'initialize', {});
+  assert.equal(written.at(-1).method, 'thread/resume');
+  assert.equal(written.at(-1).params.cwd, '/new/project');
+});

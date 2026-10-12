@@ -13,7 +13,8 @@
       // Pasted images waiting to go out with the next prompt, keyed by tab id.
       aiAttachments: new Map(),
       // What the user has sent in each tab, for Up/Down recall in the composer.
-      aiPromptHistory: new Map()
+      aiPromptHistory: new Map(),
+      aiTimeTimer: 0
     };
 
     // One surface per tab, all but the active one hidden, mirroring how a
@@ -262,12 +263,37 @@
       document.body.appendChild(overlay);
     }
 
+    function formatAiMessageTime(value, now = new Date()) {
+      if (!value) return '';
+      const at = new Date(value);
+      if (Number.isNaN(at.getTime())) return '';
+      const pad = (number) => String(number).padStart(2, '0');
+      const time = `${pad(at.getHours())}:${pad(at.getMinutes())}`;
+      return at.toDateString() === now.toDateString()
+        ? time
+        : `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${time}`;
+    }
+
+    function renderAiMessageTime(event) {
+      const label = formatAiMessageTime(event.at);
+      if (!label) return '';
+      const at = new Date(event.at).toISOString();
+      return `<time class="ai-message-time" datetime="${escapeAttr(at)}" title="${escapeAttr(at)}">${escapeHtml(label)}</time>`;
+    }
+
+    function refreshAiMessageTimes() {
+      app.querySelectorAll(`[data-ai-provider="${provider}"] .ai-message-time`).forEach((time) => {
+        const label = formatAiMessageTime(time.dateTime);
+        if (time.textContent !== label) time.textContent = label;
+      });
+    }
+
     function renderAiEvent(event, paneId, tabId) {
       if (event.kind === 'question') {
         return renderAiQuestion(event);
       }
       if (event.kind === 'text') {
-        return `<div class="ai-bubble ${event.role === 'user' ? 'user' : 'assistant'}" data-ai-event="${event.id}">${renderAiAttachmentImages(event, paneId, tabId)}${renderMarkdown(event.text)}</div>`;
+        return `<div class="ai-bubble ${event.role === 'user' ? 'user' : 'assistant'}" data-ai-event="${event.id}">${renderAiAttachmentImages(event, paneId, tabId)}<div data-ai-text>${renderMarkdown(event.text)}</div>${renderAiMessageTime(event)}</div>`;
       }
       if (event.kind === 'thinking') {
         return `<details class="ai-thinking" data-ai-event="${event.id}"><summary>${escapeHtml(aiText('Thinking'))}</summary><div>${renderMarkdown(event.text)}</div></details>`;
@@ -763,20 +789,22 @@
         const bubble = document.createElement('div');
         bubble.className = 'ai-bubble assistant typing';
         bubble.dataset.aiEvent = event.id;
+        bubble.innerHTML = `<div data-ai-text></div>${renderAiMessageTime(event)}`;
+        const content = bubble.querySelector('[data-ai-text]');
         log.appendChild(bubble);
         follow();
         if (streaming) {
           // Real tokens are already arriving live; showing only as much as the
           // CLI has actually generated is the streaming effect, no animation.
-          bubble.textContent = event.text || '';
+          content.textContent = event.text || '';
           follow();
           return;
         }
-        typeAiText(bubble, event.text || '', {
+        typeAiText(content, event.text || '', {
           onStep: follow,
           onDone: () => {
             bubble.classList.remove('typing');
-            bubble.innerHTML = renderMarkdown(event.text || '');
+            content.innerHTML = renderMarkdown(event.text || '');
             follow();
           }
         });
@@ -793,13 +821,15 @@
       const node = surface?.querySelector(`[data-ai-event="${id}"]`);
       if (!node) return;
       if (patch.text !== undefined) {
+        const content = node.querySelector('[data-ai-text]');
+        if (!content) return;
         const scroller = surface.querySelector('[data-ai-scroll]');
         const atBottom = scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 40;
         if (patch.done) {
           node.classList.remove('typing');
-          node.innerHTML = renderMarkdown(patch.text);
+          content.innerHTML = renderMarkdown(patch.text);
         } else {
-          node.textContent = patch.text;
+          content.textContent = patch.text;
         }
         if (atBottom) scroller.scrollTop = scroller.scrollHeight;
         return;
@@ -855,6 +885,9 @@
     function mountAiTab(paneId, tabId) {
       if (state.aiConnections.has(tabId)) {
         return;
+      }
+      if (!state.aiTimeTimer) {
+        state.aiTimeTimer = window.setInterval(refreshAiMessageTimes, 60000);
       }
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       let ws = null;
@@ -970,6 +1003,8 @@
     }
 
     function disposeAiPanes() {
+      window.clearInterval(state.aiTimeTimer);
+      state.aiTimeTimer = 0;
       for (const connection of state.aiConnections.values()) {
         connection.dispose();
       }
@@ -1242,6 +1277,10 @@
     function disposeTab(tabId) {
       state.aiConnections.get(tabId)?.dispose();
       state.aiConnections.delete(tabId);
+      if (!state.aiConnections.size) {
+        window.clearInterval(state.aiTimeTimer);
+        state.aiTimeTimer = 0;
+      }
       state.aiCommands.delete(tabId);
       state.aiCapabilities.delete(tabId);
       state.aiPromptHistory.delete(tabId);
