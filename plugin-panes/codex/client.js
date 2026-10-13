@@ -48,6 +48,9 @@
             <div class="ai-commands" data-ai-commands role="listbox" aria-label="${escapeAttr(aiText('Commands'))}" hidden></div>
             <div class="ai-attachments" data-ai-attachments hidden></div>
             <div class="ai-input-row">
+              <input type="file" accept="image/*" multiple data-ai-image-input hidden>
+              <button type="button" class="ai-send" data-ai-image-add aria-label="${escapeAttr(aiText('Attach image'))}" title="${escapeAttr(aiText('Attach image'))}">${fileActionIcon('image')}</button>
+              ${window.PaneboardAndroid?.pasteImage ? `<button type="button" class="ai-send" data-ai-image-paste aria-label="${escapeAttr(aiText('Paste image'))}" title="${escapeAttr(aiText('Paste image'))}">${fileActionIcon('paste')}</button>` : ''}
               <textarea class="ai-input" data-ai-input rows="1" aria-label="${escapeAttr(aiText('Message'))}" placeholder="${escapeAttr(aiText(tab.provider === 'codex' ? 'Ask Codex, or type a / command' : 'Ask Claude, or type a / command'))}"></textarea>
               <button type="button" class="ai-send" data-ai-send aria-label="Send" title="Send">${fileActionIcon('send')}</button>
             </div>
@@ -1055,32 +1058,37 @@
       img.src = dataUrl;
     }
 
-    // Ctrl+V and a right-click "Paste" both fire the same DOM paste event on a
-    // focused text field, so one listener covers both entry points the task
-    // asked for.
-    function handleAiPaste(event, surface) {
-      const items = [...(event.clipboardData?.items || [])].filter((item) => item.kind === 'file' && item.type.startsWith('image/'));
-      if (!items.length) return;
-      event.preventDefault();
+    function addAiImage(dataUrl, surface) {
       const tabId = surface.dataset.aiTab;
-      for (const item of items) {
-        const list = state.aiAttachments.get(tabId) || [];
-        if (list.length >= MAX_AI_IMAGES) break;
-        const file = item.getAsFile();
-        if (!file) continue;
+      if ((state.aiAttachments.get(tabId) || []).length >= MAX_AI_IMAGES) return;
+      resizeAiImage(dataUrl, (resized) => {
+        if (!resized || !surface.isConnected) return;
+        const current = state.aiAttachments.get(tabId) || [];
+        if (current.length >= MAX_AI_IMAGES) return;
+        current.push(resized);
+        state.aiAttachments.set(tabId, current);
+        renderAiAttachments(surface);
+      });
+    }
+
+    function attachAiImageFiles(files, surface) {
+      for (const file of Array.from(files || []).filter((file) => file.type.startsWith('image/')).slice(0, MAX_AI_IMAGES)) {
         const reader = new FileReader();
-        reader.onload = () => {
-          resizeAiImage(String(reader.result || ''), (resized) => {
-            if (!resized) return;
-            const current = state.aiAttachments.get(tabId) || [];
-            if (current.length >= MAX_AI_IMAGES) return;
-            current.push(resized);
-            state.aiAttachments.set(tabId, current);
-            renderAiAttachments(surface);
-          });
-        };
+        reader.onload = () => addAiImage(String(reader.result || ''), surface);
+        reader.onerror = () => showToast(aiText('Image could not be read.'));
         reader.readAsDataURL(file);
       }
+    }
+
+    // Browser paste and the native Android keyboard both feed the same
+    // attachment queue; the image picker works without clipboard support.
+    function handleAiPaste(event, surface) {
+      const files = [...(event.clipboardData?.items || [])]
+        .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+        .map((item) => item.getAsFile()).filter(Boolean);
+      if (!files.length) return;
+      event.preventDefault();
+      attachAiImageFiles(files, surface);
     }
 
     function sendAiPrompt(surface) {
@@ -1166,7 +1174,20 @@
             updateAiCommandMenu(surface);
           });
           input.addEventListener('paste', (event) => handleAiPaste(event, surface));
+          input.addEventListener('focus', () => window.PaneboardAndroid?.setImageInput?.(surface.dataset.aiTab));
+          input.addEventListener('blur', () => window.PaneboardAndroid?.setImageInput?.(''));
         }
+        surface.addEventListener('paneboard-image-paste', (event) => {
+          if (typeof event.detail?.dataUrl === 'string' && /^data:image\/(?:png|jpeg|gif|webp);base64,/.test(event.detail.dataUrl)) {
+            addAiImage(event.detail.dataUrl, surface);
+          }
+        });
+        surface.querySelector('[data-ai-image-add]')?.addEventListener('click', () => surface.querySelector('[data-ai-image-input]')?.click());
+        surface.querySelector('[data-ai-image-paste]')?.addEventListener('click', () => window.PaneboardAndroid?.pasteImage?.(surface.dataset.aiTab));
+        surface.querySelector('[data-ai-image-input]')?.addEventListener('change', (event) => {
+          attachAiImageFiles(event.target.files, surface);
+          event.target.value = '';
+        });
         surface.querySelector('[data-ai-attachments]')?.addEventListener('click', (event) => {
           const button = event.target.closest('[data-ai-attachment-remove]');
           if (!button) return;

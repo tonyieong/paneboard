@@ -3474,3 +3474,109 @@ for (const [provider, source] of [['claude', aiClientSource], ['codex', codexCli
     assert.equal(timestamp.dateTime, '2026-10-12T15:59:00.000Z');
   });
 }
+
+function loadDownloadSaver(native) {
+  const links = [];
+  const revoked = [];
+  const scheduled = [];
+  const context = vm.createContext({
+    window: { PaneboardAndroid: native }, Uint8Array,
+    btoa: (value) => Buffer.from(value, 'binary').toString('base64'),
+    document: { body: { appendChild() {} }, createElement() { const link = { click() { this.clicked = true; }, remove() {} }; links.push(link); return link; } },
+    URL: { createObjectURL: () => 'blob:test', revokeObjectURL: (url) => revoked.push(url) },
+    setTimeout: (callback) => scheduled.push(callback)
+  });
+  const start = coreAppSource.indexOf('  async function saveAndroidResponseAsFile(');
+  const end = coreAppSource.indexOf('  async function createFolder(', start);
+  vm.runInContext(coreAppSource.slice(start, end), context);
+  return { context, links, revoked, scheduled };
+}
+
+test('Android downloads preserve the filename and binary bytes in bounded chunks', async () => {
+  const chunks = [];
+  let begun;
+  let finished = '';
+  const { context, links } = loadDownloadSaver({
+    beginDownload: (name, type) => { begun = { name, type }; return 'download-id'; },
+    appendDownload: (id, data) => { assert.equal(id, 'download-id'); chunks.push(Buffer.from(data, 'base64')); return true; },
+    finishDownload: (id) => { finished = id; return true; },
+    cancelDownload: () => assert.fail('a successful download must not be cancelled')
+  });
+  const bytes = Buffer.alloc(180000);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = i % 256;
+  const parts = [bytes.subarray(0, 140000), bytes.subarray(140000)];
+  let released = false;
+  await context.saveResponseAsFile({
+    headers: { get: (key) => key === 'Content-Disposition' ? "attachment; filename*=UTF-8''%E5%9C%96%E7%89%87.zip" : 'application/zip' },
+    body: { getReader: () => ({ read: async () => parts.length ? { value: parts.shift(), done: false } : { done: true }, releaseLock: () => { released = true; } }) },
+    blob: () => assert.fail('Android must stream rather than create an unsupported blob URL')
+  }, 'fallback.zip');
+  assert.deepEqual(begun, { name: '圖片.zip', type: 'application/zip' });
+  assert.ok(chunks.every(chunk => chunk.length <= 65536));
+  assert.deepEqual(Buffer.concat(chunks), bytes);
+  assert.equal(finished, 'download-id');
+  assert.equal(released, true);
+  assert.equal(links.length, 0);
+});
+
+for (const failure of ['append', 'finish', 'read']) {
+  test(`Android downloads discard partial files after ${failure} failure`, async () => {
+    let cancelled = 0;
+    let streamCancelled = 0;
+    let released = 0;
+    const { context } = loadDownloadSaver({ beginDownload: () => 'id', appendDownload: () => failure !== 'append',
+      finishDownload: () => failure !== 'finish', cancelDownload: (id) => { assert.equal(id, 'id'); cancelled++; } });
+    const parts = [new Uint8Array([0, 255])];
+    const response = { headers: { get: () => '' }, body: { getReader: () => ({
+      read: async () => { if (failure === 'read') throw new Error('connection lost'); return parts.length ? { value: parts.shift(), done: false } : { done: true }; },
+      cancel: async () => { streamCancelled++; }, releaseLock: () => { released++; }
+    }) } };
+    await assert.rejects(context.saveResponseAsFile(response, 'test.bin'), failure === 'read' ? /connection lost/ : /Download failed/);
+    assert.equal(cancelled, 1);
+    assert.equal(streamCancelled, 1);
+    assert.equal(released, 1);
+  });
+}
+
+test('ordinary browsers and older Android apps keep the browser download path', async () => {
+  for (const native of [undefined, { getToken: () => '' }]) {
+    const { context, links, revoked, scheduled } = loadDownloadSaver(native);
+    await context.saveResponseAsFile({ headers: { get: () => '' }, blob: async () => ({}) }, 'saved.txt');
+    assert.equal(links[0].download, 'saved.txt');
+    assert.equal(links[0].clicked, true);
+    assert.deepEqual(revoked, [], 'the blob must survive until the download starts');
+    scheduled[0]();
+    assert.deepEqual(revoked, ['blob:test']);
+  }
+});
+
+for (const [provider, source] of [['claude', aiClientSource], ['codex', codexClientSource]]) {
+  test(`${provider} picked and native-pasted images share the bounded attachment queue`, () => {
+    const draws = [];
+    const state = { aiAttachments: new Map() };
+    const container = { hidden: true, innerHTML: '' };
+    const surface = { isConnected: true, dataset: { aiTab: 'tab' }, querySelector: () => container };
+    const context = vm.createContext({ state, MAX_AI_IMAGES: 4, showToast: () => assert.fail('valid images need no error'), aiText: value => value,
+      escapeAttr: value => value, fileActionIcon: () => '',
+      Image: class { constructor() { this.width = 4000; this.height = 2000; } set src(value) { this.onload(); } },
+      FileReader: class { readAsDataURL(file) { this.result = file.data; this.onload(); } },
+      document: { createElement() { return { getContext: () => ({ drawImage: (image, x, y, width, height) => draws.push([width, height]) }), toDataURL: () => 'data:image/jpeg;base64,aGVsbG8=' }; } }
+    });
+    const start = source.indexOf('    function renderAiAttachments(');
+    const end = source.indexOf('    function sendAiPrompt(', start);
+    vm.runInContext(source.slice(start, end), context);
+    context.attachAiImageFiles([{ type: 'text/plain', data: 'ignored' }, { type: 'image/png', data: 'data:image/png;base64,aGVsbG8=' }], surface);
+    assert.equal(state.aiAttachments.get('tab').length, 1);
+    context.addAiImage('data:image/jpeg;base64,aGVsbG8=', surface);
+    assert.equal(state.aiAttachments.get('tab').length, 2);
+    assert.equal(container.hidden, false);
+    assert.match(container.innerHTML, /<img /);
+    assert.deepEqual(draws[0], [1568, 784]);
+    for (let i = 0; i < 5; i++) context.addAiImage('data:image/jpeg;base64,aGVsbG8=', surface);
+    assert.equal(state.aiAttachments.get('tab').length, 4);
+    state.aiAttachments.clear();
+    surface.isConnected = false;
+    context.addAiImage('data:image/jpeg;base64,aGVsbG8=', surface);
+    assert.equal(state.aiAttachments.size, 0, 'a closed surface must not receive a delayed image');
+  });
+}
