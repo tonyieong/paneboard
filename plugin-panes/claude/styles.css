@@ -140,7 +140,7 @@
   display: block;
   margin-top: 5px;
   color: var(--muted);
-  font-size: 0.85em;
+  font-size: 0.75em;
   font-family: "Cascadia Mono", Consolas, monospace;
   line-height: 1.4;
 }
