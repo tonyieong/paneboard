@@ -3,6 +3,24 @@ package app.paneboard.probe;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.ClipboardManager;
+import android.content.ClipData;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.util.Base64;
+import android.webkit.WebChromeClient;
+import android.webkit.ValueCallback;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.InputConnectionWrapper;
+import android.view.inputmethod.InputContentInfo;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.Toast;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -49,6 +67,10 @@ public class MainActivity extends Activity {
   private Button start, authorize, test, workspace;
   private ScrollView connectionView;
   private WebView webView;
+  private WorkspaceSession workspaceSession;
+  private ValueCallback<Uri[]> uploadCallback;
+  private final Set<Uri> selectedUploadUris = ConcurrentHashMap.newKeySet();
+  private static final int PICK_UPLOAD = 2, SAVE_DOWNLOAD = 3;
   private volatile String workspaceOrigin = "";
   private String workspaceTokenKey = "";
   private String authorizationUrl = "";
@@ -343,6 +365,25 @@ public class MainActivity extends Activity {
 
   @Override protected void onActivityResult(int request, int result, Intent data) {
     super.onActivityResult(request, result, data);
+    if (request == PICK_UPLOAD) {
+      ValueCallback<Uri[]> callback = uploadCallback;
+      uploadCallback = null;
+      if (callback == null) return;
+      Uri[] uris = WebChromeClient.FileChooserParams.parseResult(result, data);
+      if (uris != null) {
+        for (Uri uri : uris) {
+          if (!"content".equals(uri.getScheme())) { callback.onReceiveValue(null); return; }
+        }
+        java.util.Collections.addAll(selectedUploadUris, uris);
+      }
+      callback.onReceiveValue(uris);
+      return;
+    }
+    if (request == SAVE_DOWNLOAD) {
+      WorkspaceSession session = workspaceSession;
+      if (session != null) session.savePickedDownload(result == RESULT_OK && data != null ? data.getData() : null);
+      return;
+    }
     if (request != 1 || result != RESULT_OK || data == null || data.getData() == null) return;
     final Uri document = data.getData();
     new Thread(() -> {
@@ -495,27 +536,46 @@ public class MainActivity extends Activity {
     // No native toolbar: the Workspace gets the whole screen, and Back offers
     // reloading or returning to the connection settings instead.
     padForSystemInsets(page, 0, 0, 0, 0);
-    final WebView browser = new WebView(this);
+    final WebView browser = new ImageWebView();
     webView = browser;
     // The loopback port changes every launch. Persist only an opted-in token,
     // scoped to the verified upstream, never the temporary loopback origin.
-    browser.addJavascriptInterface(new WorkspaceSession(workspaceTokenKey), "PaneboardAndroid");
+    workspaceSession = new WorkspaceSession(workspaceTokenKey, browser);
+    browser.addJavascriptInterface(workspaceSession, "PaneboardAndroid");
     WebView.setWebContentsDebuggingEnabled(false);
     WebSettings settings = browser.getSettings();
     settings.setJavaScriptEnabled(true);
     settings.setDomStorageEnabled(true);
     settings.setAllowFileAccess(false);
-    settings.setAllowContentAccess(false);
+    // Only content URIs returned by the user's file picker pass the interceptor.
+    settings.setAllowContentAccess(true);
     settings.setAllowFileAccessFromFileURLs(false);
     settings.setAllowUniversalAccessFromFileURLs(false);
     settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
     settings.setSupportMultipleWindows(false);
     settings.setJavaScriptCanOpenWindowsAutomatically(false);
     settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+    browser.setWebChromeClient(new WebChromeClient() {
+      @Override public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
+        if (view != webView || !workspaceUrl(Uri.parse(view.getUrl()))) { callback.onReceiveValue(null); return true; }
+        if (uploadCallback != null) uploadCallback.onReceiveValue(null);
+        uploadCallback = callback;
+        try {
+          Intent picker = params.createIntent();
+          picker.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+          startActivityForResult(picker, PICK_UPLOAD);
+        } catch (Exception error) {
+          uploadCallback = null;
+          callback.onReceiveValue(null);
+          Toast.makeText(MainActivity.this, "未能開啟檔案選擇器。", Toast.LENGTH_LONG).show();
+        }
+        return true;
+      }
+    });
     browser.setWebViewClient(new WebViewClient() {
       @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return !workspaceUrl(request.getUrl()); }
       @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-        if (workspaceUrl(request.getUrl())) return null;
+        if (workspaceUrl(request.getUrl()) || selectedUploadUris.contains(request.getUrl())) return null;
         return new WebResourceResponse("text/plain", "UTF-8", 403, "Blocked", java.util.Collections.emptyMap(), new ByteArrayInputStream(new byte[0]));
       }
       // SSL errors retain the platform default: cancel, never proceed.
@@ -533,6 +593,9 @@ public class MainActivity extends Activity {
   }
 
   private void closeWorkspace() {
+    if (uploadCallback != null) { uploadCallback.onReceiveValue(null); uploadCallback = null; }
+    selectedUploadUris.clear();
+    if (workspaceSession != null) { workspaceSession.close(); workspaceSession = null; }
     if (webView != null) {
       webView.stopLoading();
       webView.destroy();
@@ -581,9 +644,180 @@ public class MainActivity extends Activity {
     commands.flush();
   }
 
+  // Tell image-capable keyboards that only the focused AI composer accepts
+  // rich image content; terminal and password fields keep text-only input.
+  private final class ImageWebView extends WebView {
+    ImageWebView() { super(MainActivity.this); }
+    @Override public InputConnection onCreateInputConnection(EditorInfo info) {
+      InputConnection connection = super.onCreateInputConnection(info);
+      WorkspaceSession session = workspaceSession;
+      if (connection == null || session == null || session.imageTab.isEmpty()) return connection;
+      info.contentMimeTypes = new String[] { "image/*" };
+      return new InputConnectionWrapper(connection, false) {
+        @Override public boolean commitContent(InputContentInfo content, int flags, Bundle opts) {
+          if (content == null || session.imageTab.isEmpty() || !content.getDescription().hasMimeType("image/*")) return false;
+          boolean granted = (flags & InputConnection.INPUT_CONTENT_GRANT_READ_URI_PERMISSION) != 0;
+          try {
+            if (granted) content.requestPermission();
+            session.receiveImage(content.getContentUri(), session.imageTab, () -> { if (granted) content.releasePermission(); });
+            return true;
+          } catch (Exception error) {
+            if (granted) content.releasePermission();
+            return false;
+          }
+        }
+      };
+    }
+  }
+
+  private static final class PendingDownload {
+    final String id = java.util.UUID.randomUUID().toString();
+    final File file;
+    final String name, mime;
+    final OutputStream output;
+    boolean ready;
+    PendingDownload(File cache, String name, String mime) throws java.io.IOException {
+      this.file = File.createTempFile("paneboard-download-", ".tmp", cache);
+      this.name = name;
+      this.mime = mime;
+      this.output = new FileOutputStream(file);
+    }
+    void discard() {
+      try { output.close(); } catch (Exception ignored) {}
+      file.delete();
+    }
+  }
+
   public final class WorkspaceSession {
     private final String tokenKey;
-    WorkspaceSession(String tokenKey) { this.tokenKey = tokenKey; }
+    private final WebView browser;
+    private volatile boolean closed;
+    private volatile String imageTab = "";
+    private PendingDownload download;
+    WorkspaceSession(String tokenKey, WebView browser) { this.tokenKey = tokenKey; this.browser = browser; }
+
+    @JavascriptInterface public void setImageInput(String tabId) {
+      String next = tabId != null && tabId.matches("[A-Za-z0-9_-]{1,80}") ? tabId : "";
+      if (closed || next.equals(imageTab)) return;
+      imageTab = next;
+      runOnUiThread(() -> {
+        if (!closed && webView == browser) ((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).restartInput(browser);
+      });
+    }
+
+    @JavascriptInterface public void pasteImage(String tabId) {
+      if (closed || tabId == null || !tabId.matches("[A-Za-z0-9_-]{1,80}")) return;
+      runOnUiThread(() -> {
+        if (closed || webView != browser) return;
+        ClipboardManager clipboard = (ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+        ClipData clip = clipboard.getPrimaryClip();
+        Uri uri = clip != null && clip.getItemCount() > 0 ? clip.getItemAt(0).getUri() : null;
+        if (uri == null || !"content".equals(uri.getScheme()) || !clip.getDescription().hasMimeType("image/*")) {
+          Toast.makeText(MainActivity.this, "剪貼簿入面冇圖片。", Toast.LENGTH_SHORT).show();
+          return;
+        }
+        receiveImage(uri, tabId, () -> {});
+      });
+    }
+
+    private void receiveImage(Uri uri, String tabId, Runnable release) {
+      if (closed || !"content".equals(uri.getScheme())) { release.run(); return; }
+      new Thread(() -> {
+        try {
+          BitmapFactory.Options options = new BitmapFactory.Options();
+          options.inJustDecodeBounds = true;
+          try (InputStream input = getContentResolver().openInputStream(uri)) { BitmapFactory.decodeStream(input, null, options); }
+          if (options.outWidth <= 0 || options.outHeight <= 0) throw new java.io.IOException();
+          options.inJustDecodeBounds = false;
+          options.inSampleSize = 1;
+          while (Math.max(options.outWidth, options.outHeight) / options.inSampleSize > 1568) options.inSampleSize *= 2;
+          Bitmap bitmap;
+          try (InputStream input = getContentResolver().openInputStream(uri)) { bitmap = BitmapFactory.decodeStream(input, null, options); }
+          if (bitmap == null) throw new java.io.IOException();
+          String dataUrl;
+          try (ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
+            if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 85, bytes)) throw new java.io.IOException();
+            dataUrl = "data:image/jpeg;base64," + Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP);
+          } finally { bitmap.recycle(); }
+          final String payload = JSONObject.quote(dataUrl), target = JSONObject.quote(tabId);
+          runOnUiThread(() -> {
+            if (closed || webView != browser) return;
+            browser.evaluateJavascript("(function(){for(const surface of document.querySelectorAll('[data-ai-tab]')){if(surface.dataset.aiTab===" + target + "){surface.dispatchEvent(new CustomEvent('paneboard-image-paste',{detail:{dataUrl:" + payload + "}}));}}})()", null);
+          });
+        } catch (Exception error) {
+          runOnUiThread(() -> { if (!closed) Toast.makeText(MainActivity.this, "無法讀取圖片，請用加入圖片按鈕選擇。", Toast.LENGTH_LONG).show(); });
+        } finally { release.run(); }
+      }, "paneboard-paste-image").start();
+    }
+
+    @JavascriptInterface public synchronized String beginDownload(String name, String type) {
+      if (closed || download != null) return "";
+      String filename = name == null ? "download" : name.replaceAll("[\\\\/:\\p{Cntrl}]", "_");
+      if (filename.isEmpty()) filename = "download";
+      filename = filename.substring(0, Math.min(200, filename.length()));
+      String mime = type == null ? "" : type.split(";", 2)[0].trim();
+      if (!mime.matches("[A-Za-z0-9.+-]+/[A-Za-z0-9.+-]+")) mime = "application/octet-stream";
+      try { download = new PendingDownload(getCacheDir(), filename, mime); return download.id; }
+      catch (Exception error) { return ""; }
+    }
+
+    @JavascriptInterface public synchronized boolean appendDownload(String id, String base64) {
+      if (closed || download == null || download.ready || !download.id.equals(id) || base64 == null || base64.length() > 90000) return false;
+      try {
+        byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
+        if (bytes.length > 65536) return false;
+        download.output.write(bytes);
+        return true;
+      } catch (Exception error) { download.discard(); download = null; return false; }
+    }
+
+    @JavascriptInterface public synchronized boolean finishDownload(String id) {
+      if (closed || download == null || download.ready || !download.id.equals(id)) return false;
+      PendingDownload item = download;
+      try { item.output.close(); item.ready = true; }
+      catch (Exception error) { item.discard(); download = null; return false; }
+      runOnUiThread(() -> {
+        synchronized (WorkspaceSession.this) {
+          if (closed || webView != browser || download != item) return;
+          try {
+            Intent picker = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(item.mime).putExtra(Intent.EXTRA_TITLE, item.name);
+            startActivityForResult(picker, SAVE_DOWNLOAD);
+          } catch (Exception error) {
+            item.discard(); download = null;
+            Toast.makeText(MainActivity.this, "未能開啟儲存檔案對話框。", Toast.LENGTH_LONG).show();
+          }
+        }
+      });
+      return true;
+    }
+
+    @JavascriptInterface public synchronized void cancelDownload(String id) {
+      if (download != null && download.id.equals(id)) { download.discard(); download = null; }
+    }
+
+    private synchronized void savePickedDownload(Uri destination) {
+      PendingDownload item = download;
+      download = null;
+      if (item == null) return;
+      if (destination == null || !"content".equals(destination.getScheme())) { item.discard(); return; }
+      new Thread(() -> {
+        try (InputStream input = new FileInputStream(item.file); OutputStream output = getContentResolver().openOutputStream(destination, "w")) {
+          if (output == null) throw new java.io.IOException();
+          byte[] buffer = new byte[65536];
+          int count;
+          while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+          runOnUiThread(() -> Toast.makeText(MainActivity.this, "下載已儲存。", Toast.LENGTH_SHORT).show());
+        } catch (Exception error) {
+          runOnUiThread(() -> Toast.makeText(MainActivity.this, "未能儲存下載檔案。", Toast.LENGTH_LONG).show());
+        } finally { item.discard(); }
+      }, "paneboard-save-download").start();
+    }
+
+    private synchronized void close() {
+      closed = true;
+      imageTab = "";
+      if (download != null) { download.discard(); download = null; }
+    }
 
     @JavascriptInterface public String getToken() { return saved.getString(tokenKey, ""); }
 

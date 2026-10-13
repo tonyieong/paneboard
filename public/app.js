@@ -6753,19 +6753,61 @@
     return openAppModal({ title, message, confirmLabel, danger }).then((result) => result === true);
   }
 
+  // Android WebView cannot save blob URLs. Transfer bounded chunks to its
+  // private staging file, then let Android's document picker choose the target.
+  async function saveAndroidResponseAsFile(response, name, native) {
+    const id = native.beginDownload(name, response.headers.get('Content-Type') || 'application/octet-stream');
+    if (!id) throw new Error('Another download is waiting to be saved.');
+    let reader;
+    const append = (bytes) => {
+      for (let offset = 0; offset < bytes.length; offset += 65536) {
+        const chunk = bytes.subarray(offset, offset + 65536);
+        let binary = '';
+        for (const value of chunk) binary += String.fromCharCode(value);
+        if (!native.appendDownload(id, btoa(binary))) throw new Error('Download failed.');
+      }
+    };
+    try {
+      if (response.body?.getReader) {
+        reader = response.body.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          append(value);
+        }
+      } else {
+        append(new Uint8Array(await response.arrayBuffer()));
+      }
+      if (!native.finishDownload(id)) throw new Error('Download failed.');
+    } catch (error) {
+      native.cancelDownload(id);
+      if (reader) await reader.cancel().catch(() => {});
+      throw error;
+    } finally {
+      reader?.releaseLock();
+    }
+  }
+
   async function saveResponseAsFile(response, fallbackName) {
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+    const plainName = disposition.match(/filename="?([^";]+)"?/i)?.[1];
+    const name = encodedName ? decodeURIComponent(encodedName) : (plainName || fallbackName);
+    const native = window.PaneboardAndroid;
+    if (native?.beginDownload && native.appendDownload && native.finishDownload && native.cancelDownload) {
+      await saveAndroidResponseAsFile(response, name, native);
+      return;
+    }
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    const disposition = response.headers.get('Content-Disposition') || '';
-    const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
-    const plainName = disposition.match(/filename="?([^";]+)"?/i)?.[1];
-    link.download = encodedName ? decodeURIComponent(encodedName) : (plainName || fallbackName);
+    link.download = name;
     document.body.appendChild(link);
     link.click();
     link.remove();
-    URL.revokeObjectURL(url);
+    // Give the browser time to start reading the blob before releasing it.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   async function createFolder(paneId) {

@@ -880,6 +880,7 @@ h4.ai-heading {
 
 .ai-input {
   flex: 1;
+  min-width: 0;
   min-height: 30px;
   max-height: 160px;
   padding: 6px 8px;
@@ -910,6 +911,13 @@ h4.ai-heading {
 
 /* Touch targets need the room even though desktop chrome stays compact. */
 @media (pointer: coarse) {
+  .ai-send[data-ai-image-add],
+  .ai-send[data-ai-image-paste] {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+  }
+
   .ai-option {
     min-height: 36px;
   }
