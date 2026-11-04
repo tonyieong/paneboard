@@ -370,7 +370,7 @@ async function fetchCodexUsage({ codexHome, fetchImpl = defaultFetch, spawnImpl 
   const authPath = path.join(home, 'auth.json');
   log(`codex home=${home} homedir=${os.homedir()} configured=${codexHome || 'unset'}`);
   if (!fs.existsSync(authPath)) {
-    throw new Error('Codex is not signed in on this server.');
+    throw notConfiguredError('Codex is not signed in on this server.');
   }
   let auth;
   try {
@@ -516,7 +516,7 @@ async function fetchClaudeUsage({ claudeHome, fetchImpl = defaultFetch, ptyImpl 
   const credentialsPath = path.join(home, '.credentials.json');
   log(`claude home=${home} homedir=${os.homedir()} configDirEnv=${process.env.CLAUDE_CONFIG_DIR || 'unset'}`);
   if (!fs.existsSync(credentialsPath)) {
-    throw new Error('Claude Code is not signed in on this server.');
+    throw notConfiguredError('Claude Code is not signed in on this server.');
   }
   const credentials = readClaudeCredentials(credentialsPath);
   let accessToken = claudeAccessToken(credentials);
@@ -599,7 +599,7 @@ function minimaxWindow(kind, label, remainingPercent, resetsAt) {
 async function fetchMiniMaxUsage({ apiKey, region = 'global', fetchImpl = defaultFetch } = {}) {
   const token = String(apiKey || '').trim();
   if (!token) {
-    throw new Error('MiniMax API key is not configured.');
+    throw notConfiguredError('MiniMax API key is not configured.');
   }
   const host = region === 'china' ? 'api.minimaxi.com' : 'api.minimax.io';
   const url = `https://${host}/v1/token_plan/remains`;
@@ -664,11 +664,23 @@ function filterContent(provider, content) {
   return next;
 }
 
+// A provider nobody has signed in to is not an error worth a card: the Usage
+// pane hides it rather than asking every user to untick it in Settings.
+function notConfiguredError(message) {
+  const error = new Error(message);
+  error.code = 'not_configured';
+  return error;
+}
+
 async function providerResult(provider, label, fetcher, content) {
   try {
     return filterContent(await fetcher(), content);
   } catch (error) {
-    return { provider, label, error: error.message || 'Usage unavailable.' };
+    const result = { provider, label, error: error.message || 'Usage unavailable.' };
+    if (error.code === 'not_configured') {
+      result.notConfigured = true;
+    }
+    return result;
   }
 }
 

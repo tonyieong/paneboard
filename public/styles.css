@@ -36,7 +36,7 @@ body {
   overflow: hidden;
 }
 
-button, input {
+button, input, select {
   font: inherit;
 }
 
@@ -2556,7 +2556,6 @@ textarea:focus-visible {
 
 .settings-body {
   padding: 16px 28px 24px;
-  scroll-behavior: smooth;
 }
 
 .settings-body,
@@ -2565,8 +2564,8 @@ textarea:focus-visible {
   scrollbar-color: var(--line-strong) transparent;
 }
 
-/* Jumping to a section from the nav leaves its heading clear of the header
-   rule. Kept under the 18px line syncSettingsNav treats as "current". */
+/* Each category is its own page now, so a section only needs a margin while
+   search shows several at once. */
 .settings-section {
   margin: 0 0 36px;
   scroll-margin-top: 16px;
@@ -2604,7 +2603,7 @@ textarea:focus-visible {
   padding: 3px 7px;
   background: var(--accent-soft);
   color: var(--accent);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .restart-badge {
@@ -2806,7 +2805,6 @@ textarea:focus-visible {
 .mobile-keybar-setting {
   display: grid;
   gap: 8px;
-  margin-top: 22px;
 }
 
 .mobile-keybar-setting-heading h3,
@@ -2988,12 +2986,13 @@ textarea:focus-visible {
   display: grid;
   gap: 3px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .mobile-keybar-setting-row input,
 .mobile-keybar-setting-row select {
   min-width: 0;
+  font-size: 12px;
   min-height: 30px;
   padding: 4px 6px;
   border: 1px solid var(--line);
@@ -3010,8 +3009,7 @@ textarea:focus-visible {
 }
 
 .mobile-keybar-visible input {
-  min-height: auto;
-  accent-color: var(--accent);
+  min-height: 0;
 }
 
 .mobile-keybar-order {
@@ -3142,7 +3140,8 @@ textarea:focus-visible {
   cursor: pointer;
 }
 
-.settings-grid .settings-check input[type="checkbox"] {
+.settings-grid .settings-check input[type="checkbox"],
+.mobile-keybar-visible input[type="checkbox"] {
   appearance: none;
   position: relative;
   width: 34px;
@@ -3156,7 +3155,8 @@ textarea:focus-visible {
   cursor: pointer;
 }
 
-.settings-grid .settings-check input[type="checkbox"]::before {
+.settings-grid .settings-check input[type="checkbox"]::before,
+.mobile-keybar-visible input[type="checkbox"]::before {
   content: "";
   position: absolute;
   top: 2px;
@@ -3167,12 +3167,14 @@ textarea:focus-visible {
   background: var(--muted);
 }
 
-.settings-grid .settings-check input[type="checkbox"]:checked {
+.settings-grid .settings-check input[type="checkbox"]:checked,
+.mobile-keybar-visible input[type="checkbox"]:checked {
   border-color: var(--accent);
   background: var(--accent);
 }
 
-.settings-grid .settings-check input[type="checkbox"]:checked::before {
+.settings-grid .settings-check input[type="checkbox"]:checked::before,
+.mobile-keybar-visible input[type="checkbox"]:checked::before {
   background: var(--panel);
   transform: translateX(14px);
 }
@@ -3196,7 +3198,7 @@ textarea:focus-visible {
   font-weight: 600;
 }
 
-.settings-section > .settings-subhead:first-of-type {
+.section-heading + .settings-subhead {
   margin-top: 0;
 }
 
@@ -3326,13 +3328,10 @@ textarea:focus-visible {
     margin-bottom: 28px;
   }
 
-  .display-mode-setting .segmented {
-    max-width: 100%;
-  }
-
-  .display-mode-setting .segmented-option {
+  .settings-row-segmented .segmented-option {
     min-width: 0;
     flex: 1;
+    height: 44px;
     padding-inline: 8px;
   }
 
@@ -3388,6 +3387,7 @@ textarea:focus-visible {
 
   .settings-footer button {
     min-width: 78px;
+    min-height: 44px;
   }
 }
 
@@ -6489,4 +6489,319 @@ a:focus-visible {
 
 .rail-tooltip[hidden] {
   display: none;
+}
+
+/* Settings: paged categories, search, and rows that hold more than one
+   control. Kept last so the shared row rules above stay the single source for
+   label rows, and these only add what the newer row kinds need. */
+.settings-panel [hidden] {
+  display: none !important;
+}
+
+.settings-header .settings-search {
+  position: relative;
+  flex: 0 1 260px;
+  margin-left: auto;
+}
+
+.settings-header .settings-search input {
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 8px 4px 28px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--terminal-bg);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.settings-search-icon {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.settings-search-icon .file-action-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.settings-header .settings-search + .icon-button {
+  margin-left: 0;
+}
+
+.settings-search-empty {
+  margin: 24px 0;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* While searching, every matching page is listed, so the pages need the gap a
+   single page never did, and the per-page explanations give way to results. */
+.settings-searching .settings-section:not([hidden]) ~ .settings-section:not([hidden]) {
+  margin-top: 28px;
+}
+
+.settings-searching .section-heading p,
+.settings-searching .live-badge,
+.settings-searching [data-search-hide],
+.settings-searching .settings-advanced-note {
+  display: none;
+}
+
+/* A row whose control is not a single input: segmented buttons, a value and
+   a unit, a read-only value, or an action button. Same columns as a label row. */
+.settings-grid > .settings-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  align-content: center;
+  gap: 2px 16px;
+  min-height: 44px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--system-font-size);
+}
+
+.settings-grid > .settings-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-grid > .settings-row > :is(.segmented, button, .settings-value) {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.settings-grid > .settings-row > .field-hint {
+  grid-column: 1;
+  margin: 0;
+  line-height: 1.45;
+}
+
+.settings-grid label:not(.settings-wide) > .settings-control-group {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  gap: 6px;
+}
+
+.settings-grid label:not(.settings-wide) > .settings-control-group > input {
+  width: 110px;
+}
+
+.settings-grid label:not(.settings-wide) > .settings-control-group > select {
+  width: 72px;
+}
+
+.segmented-option {
+  white-space: nowrap;
+}
+
+.settings-value {
+  color: var(--text);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
+.settings-status.dirty {
+  color: var(--warn);
+}
+
+.restart-tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  color: var(--warn);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Security consequences are stated in the page, not in a placeholder that
+   disappears as soon as someone starts typing. */
+.settings-notices {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.settings-notices:empty {
+  display: none;
+}
+
+.settings-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: 0;
+  padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settings-notice.danger {
+  border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.settings-notice button {
+  flex: none;
+  min-height: 30px;
+}
+
+.settings-advanced > .settings-subhead:first-of-type,
+.settings-advanced-note {
+  margin-top: 12px;
+}
+
+.settings-advanced-note {
+  margin-bottom: 0;
+}
+
+.settings-advanced > summary {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  font-size: var(--system-font-size);
+}
+
+.settings-section > .settings-advanced {
+  margin-top: 18px;
+}
+
+/* Shortcut buttons: a summary row on the Terminal page, the editor on a page
+   of its own that the nav keeps under Terminal. */
+.keybar-summary-row > .mobile-keybar-preview {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+}
+
+.settings-back {
+  justify-self: start;
+  min-height: 30px;
+  margin-bottom: 4px;
+  padding: 0 10px 0 6px;
+}
+
+.mobile-keybar-setting .section-heading {
+  margin-bottom: 0;
+}
+
+.mobile-keybar-setting .mobile-keybar-setting-actions {
+  justify-content: flex-start;
+  margin-left: 0;
+}
+
+.mobile-keybar-setting .mobile-keybar-setting-actions button {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mobile-keybar-help {
+  margin-top: 0;
+}
+
+/* "Show" is a caption above the switch, like Label and Action beside it;
+   beside the switch it had no room and wrapped one character per line. */
+.mobile-keybar-setting-row .mobile-keybar-visible {
+  grid-template-columns: auto;
+  align-self: end;
+  justify-items: start;
+}
+
+.mobile-keybar-visible span {
+  order: -1;
+}
+
+.mobile-keybar-visible input[type="checkbox"] {
+  margin: 5px 0;
+}
+
+/* Pages differ in height, so the scrollbar comes and goes; reserving its
+   gutter keeps the cards the same width on every page. */
+.settings-body {
+  scrollbar-gutter: stable;
+}
+
+@media (max-width: 760px) {
+  .settings-header {
+    flex-wrap: wrap;
+  }
+
+  .settings-header .settings-search {
+    order: 3;
+    flex: 1 0 100%;
+  }
+
+  .settings-header .settings-search input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .settings-header .settings-search + .icon-button {
+    margin-left: auto;
+  }
+
+  .settings-grid > .settings-row > :is(.segmented, button, .settings-value),
+  .settings-grid label:not(.settings-wide) > .settings-control-group {
+    grid-row: 1;
+  }
+
+  .settings-grid > .settings-row > .field-hint {
+    grid-column: 1 / -1;
+  }
+
+  /* Segmented rows stack on a phone: the caption column beside them is too
+     narrow, and squeezing the options wrapped "Mobile" onto two lines. */
+  .settings-grid > .settings-row-segmented {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-grid > .settings-row-segmented > .segmented {
+    grid-column: 1;
+    grid-row: auto;
+    width: 100%;
+  }
+
+  .settings-grid > .settings-row-segmented > .field-hint {
+    grid-column: 1;
+  }
+
+  .settings-grid label:not(.settings-wide) > .settings-control-group > input {
+    width: 72px;
+  }
+
+  .settings-grid label:not(.settings-wide) > .settings-control-group > select {
+    width: 68px;
+  }
+
+  /* Touch targets: a switch row is a label, so the whole row is the target. */
+  .notification-setting .settings-check {
+    min-height: 44px;
+  }
+
+  /* The page text already says it previews live. */
+  .live-badge {
+    display: none;
+  }
+
+  .settings-back,
+  .settings-notice button,
+  .mobile-keybar-setting .mobile-keybar-setting-actions button,
+  .settings-advanced > summary {
+    min-height: 44px;
+  }
 }

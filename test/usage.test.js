@@ -463,6 +463,22 @@ test('reports a missing CLI sign-in without mentioning an API key', async () => 
   );
 });
 
+// A provider nobody signed in to is flagged so the Usage pane can hide it,
+// while a real failure on a signed-in provider stays an ordinary error card.
+test('usage overview flags providers that are not signed in or configured', async () => {
+  const overview = await fetchUsageOverview({
+    codex: () => fetchCodexUsage({ codexHome: path.join(os.tmpdir(), 'paneboard-codex-missing') }),
+    claude: () => Promise.reject(new Error('Claude usage request failed (500).')),
+    minimax: () => fetchMiniMaxUsage({ apiKey: '' })
+  });
+
+  const byProvider = Object.fromEntries(overview.providers.map((provider) => [provider.provider, provider]));
+  assert.equal(byProvider.codex.notConfigured, true);
+  assert.equal(byProvider.minimax.notConfigured, true);
+  assert.equal(byProvider.claude.notConfigured, undefined);
+  assert.equal(byProvider.claude.error, 'Claude usage request failed (500).');
+});
+
 test('usage overview keeps only the window kinds and extras enabled in settings', async () => {
   const overview = await fetchUsageOverview({
     claude: () => Promise.resolve({

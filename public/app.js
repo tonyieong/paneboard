@@ -52,6 +52,12 @@
     { label: '^R', action: 'shortcut', value: 'Ctrl+R', enabled: true }
   ];
   const TERMINAL_SCROLLBACK_LINES = 100000;
+
+  // Flags that let an agent act without asking. They are allowed, but Settings
+  // says plainly what they do instead of leaving them as an unexplained default.
+  function permissionBypassArgs(value) {
+    return /(^|\s)(--dangerously-skip-permissions|--allow-dangerously-skip-permissions|--yolo|--dangerously-bypass-approvals-and-sandbox)(\s|=|$)/.test(String(value || ''));
+  }
   // Long enough to coalesce a drag-resize, short enough that the reflow still
   // feels attached to the drag. Never worth a setting.
   const RESIZE_DEBOUNCE_MS = 100;
@@ -318,6 +324,34 @@
 
   function themeMode() {
     return activeTheme().mode;
+  }
+
+  // custom_theme.mode is the stored preference: light, dark, or system, which
+  // follows the device and resolves to light or dark whenever it is applied.
+  function themePreferenceOf(mode) {
+    return mode === 'light' || mode === 'dark' || mode === 'system' ? mode : 'dark';
+  }
+
+  function systemThemeMode() {
+    return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  }
+
+  function resolveThemeMode(preference) {
+    const value = themePreferenceOf(preference);
+    return value === 'system' ? systemThemeMode() : value;
+  }
+
+  function watchSystemTheme() {
+    if (state.systemThemeWatched || !window.matchMedia) {
+      return;
+    }
+    state.systemThemeWatched = true;
+    window.matchMedia('(prefers-color-scheme: light)').addEventListener?.('change', () => {
+      // An open Settings dialog is previewing a choice of its own.
+      if (state.config?.custom_theme?.mode === 'system' && !document.querySelector('.settings-overlay')) {
+        setThemeLive(selectedThemeForMode(systemThemeMode()));
+      }
+    });
   }
 
   function selectedThemeForMode(mode) {
@@ -7256,11 +7290,26 @@
 
   // The upload limit is stored in bytes, so the raw number tells a user nothing
   // about the size it allows.
-  function uploadLimitHint(bytes) {
-    const size = Number(bytes) || 0;
-    return size > 0
-      ? `Largest single upload: ${formatBytes(size)}. Use 0 for no limit.`
-      : 'No limit. Enter a size in bytes to cap a single upload.';
+  // The server stores the upload limit in bytes; Settings shows it as a number
+  // and a unit, picking the largest unit that represents it exactly.
+  const uploadLimitUnits = [['KB', 1024], ['MB', 1024 ** 2], ['GB', 1024 ** 3]];
+
+  function uploadLimitParts(bytes) {
+    const size = Math.max(0, Math.round(Number(bytes) || 0));
+    if (!size) {
+      return { value: 0, unit: 'MB' };
+    }
+    for (const [unit, factor] of [...uploadLimitUnits].reverse()) {
+      if (size % factor === 0) {
+        return { value: size / factor, unit };
+      }
+    }
+    return { value: Math.round((size / 1024) * 100) / 100, unit: 'KB' };
+  }
+
+  function uploadLimitBytes(value, unit) {
+    const factor = uploadLimitUnits.find(([name]) => name === unit)?.[1] ?? 1024 ** 2;
+    return Math.max(0, Math.round((Number(value) || 0) * factor));
   }
 
   function wirePaneControls(root) {
@@ -9415,7 +9464,8 @@
     installKeyboardShortcuts();
     try {
       state.config = await api('/api/config');
-      applyTheme(selectedThemeForMode(state.config.custom_theme?.mode || 'dark'));
+      applyTheme(selectedThemeForMode(resolveThemeMode(state.config.custom_theme?.mode)));
+      watchSystemTheme();
       if (state.config.authRequired && !state.token) {
         renderLogin();
         return;
@@ -9609,10 +9659,14 @@
     }
     try {
       const result = force ? await api('/api/usage?refresh=1') : await api('/api/usage');
-      const providers = result.providers || [];
+      // A provider nobody signed in to on this server is left out rather than
+      // shown as an error card.
+      const providers = (result.providers || []).filter((provider) => !provider.notConfigured);
       content.innerHTML = providers.length
         ? providers.map(usageProviderMarkup).join('')
-        : '<div class="usage-loading">Choose at least one provider in Settings → Usage.</div>';
+        : (result.providers || []).length
+          ? '<div class="usage-loading">No provider is signed in on this server. MiniMax needs its API key in Settings → AI &amp; usage.<button class="secondary" type="button" data-usage-settings>Configure</button></div>'
+          : '<div class="usage-loading">Choose at least one provider in Settings → AI &amp; usage → Advanced.</div>';
       content.querySelector('[data-usage-settings]')?.addEventListener('click', openSettings);
       notifyUsageThresholds(providers);
       startUsageCountdownTicker();
@@ -9694,6 +9748,10 @@
     };
   }
 
+  function mobileKeybarValueLabel(action) {
+    return action === 'modifier' ? 'Modifier key' : action === 'text' ? 'Text to type' : 'Shortcut';
+  }
+
   function renderMobileKeybarRow(button) {
     const action = button.action || 'shortcut';
     const isModifier = action === 'modifier';
@@ -9708,7 +9766,7 @@
           <option value="modifier" ${action === 'modifier' ? 'selected' : ''}>Modifier</option>
           <option value="text" ${action === 'text' ? 'selected' : ''}>Type text</option>
         </select></label>
-        <label class="mobile-keybar-value"><span>Shortcut or text</span>
+        <label class="mobile-keybar-value"><span data-mobile-keybar-value-label>${mobileKeybarValueLabel(action)}</span>
           <div class="mobile-keybar-value-field" ${isModifier ? 'hidden' : ''}>
             <input data-mobile-keybar-value maxlength="256" value="${escapeAttr(isModifier ? '' : button.value)}" placeholder="${action === 'text' ? 'claude{Enter}' : 'Ctrl+C, Escape, Home, F5'}">
             <button type="button" class="secondary mobile-keybar-record" data-mobile-keybar-record ${action === 'text' ? 'hidden' : ''} title="Record a key combination">Rec</button>
@@ -9720,7 +9778,6 @@
         <div class="mobile-keybar-order" aria-label="Button order">
           <button type="button" class="icon-button" data-mobile-keybar-up aria-label="Move button up" title="Move up">↑</button>
           <button type="button" class="icon-button" data-mobile-keybar-down aria-label="Move button down" title="Move down">↓</button>
-          <button type="button" class="icon-button" data-mobile-keybar-duplicate aria-label="Duplicate button" title="Duplicate">⧉</button>
           <button type="button" class="icon-button" data-mobile-keybar-remove aria-label="Remove button" title="Remove">×</button>
         </div>
         <div class="mobile-keybar-hint" data-mobile-keybar-hint aria-live="polite"></div>
@@ -9744,7 +9801,7 @@
 
   function refreshMobileKeybarPreview(container) {
     const editor = container.querySelector('[data-mobile-keybar-editor]');
-    const preview = container.querySelector('[data-mobile-keybar-preview]');
+    const previews = container.querySelectorAll('[data-mobile-keybar-preview]');
     if (!editor) {
       return;
     }
@@ -9770,9 +9827,10 @@
         hintEl.textContent = hint;
       }
     });
-    if (preview) {
-      preview.innerHTML = renderKeybarPreviewChips(rows.map(readMobileKeybarRow));
-    }
+    const chips = renderKeybarPreviewChips(rows.map(readMobileKeybarRow));
+    previews.forEach((preview) => {
+      preview.innerHTML = chips;
+    });
   }
 
   function mobileKeybarButtonsFromSettings(form) {
@@ -9805,6 +9863,8 @@
     if (modifier) modifier.hidden = action !== 'modifier';
     if (record) record.hidden = action === 'text';
     if (input) input.placeholder = action === 'text' ? 'claude{Enter}' : 'Ctrl+C, Escape, Home, F5';
+    const valueLabel = row.querySelector('[data-mobile-keybar-value-label]');
+    if (valueLabel) valueLabel.textContent = window.PaneboardI18n?.t(mobileKeybarValueLabel(action)) ?? mobileKeybarValueLabel(action);
   }
 
   function startMobileKeybarRecording(recordButton, row, refresh) {
@@ -9888,13 +9948,18 @@
     });
   }
 
-  function wireMobileKeybarEditor(overlay) {
-    const container = overlay.querySelector('.mobile-keybar-setting');
+  function wireMobileKeybarEditor(overlay, onChange = () => {}) {
     const editor = overlay.querySelector('[data-mobile-keybar-editor]');
-    if (!container || !editor) {
+    if (!editor) {
       return;
     }
-    const refresh = () => refreshMobileKeybarPreview(container);
+    // The Terminal page shows the same preview as the editor page, so the
+    // whole dialog is the container.
+    const refresh = () => refreshMobileKeybarPreview(overlay);
+    const changed = () => {
+      refresh();
+      onChange();
+    };
     const move = (button, direction) => {
       const row = button.closest('[data-mobile-keybar-row]');
       const sibling = direction < 0 ? row.previousElementSibling : row.nextElementSibling;
@@ -9902,7 +9967,7 @@
         return;
       }
       editor.insertBefore(row, direction < 0 ? sibling : sibling.nextElementSibling);
-      refresh();
+      changed();
     };
     editor.addEventListener('input', refresh);
     editor.addEventListener('change', (event) => {
@@ -9922,26 +9987,22 @@
         move(event.target, 1);
       } else if (event.target.closest('[data-mobile-keybar-remove]')) {
         row.remove();
-        refresh();
-      } else if (event.target.closest('[data-mobile-keybar-duplicate]')) {
-        row.insertAdjacentHTML('afterend', renderMobileKeybarRow(readMobileKeybarRow(row)));
-        syncMobileKeybarRowAction(row.nextElementSibling);
-        refresh();
+        changed();
       } else if (event.target.closest('[data-mobile-keybar-record]')) {
         startMobileKeybarRecording(event.target.closest('[data-mobile-keybar-record]'), row, refresh);
       }
     });
-    wireMobileKeybarDrag(editor, refresh);
+    wireMobileKeybarDrag(editor, changed);
     overlay.querySelector('[data-mobile-keybar-add]').onclick = () => {
       editor.insertAdjacentHTML('beforeend', renderMobileKeybarRow({ label: 'Custom', action: 'shortcut', value: 'Ctrl+Shift+C', enabled: true }));
       syncMobileKeybarRowAction(editor.lastElementChild);
       editor.lastElementChild.querySelector('[data-mobile-keybar-label]').focus();
-      refresh();
+      changed();
     };
     overlay.querySelector('[data-mobile-keybar-reset]').onclick = () => {
       editor.innerHTML = defaultMobileKeybarButtons.map(renderMobileKeybarRow).join('');
       editor.querySelectorAll('[data-mobile-keybar-row]').forEach(syncMobileKeybarRowAction);
-      refresh();
+      changed();
     };
     editor.querySelectorAll('[data-mobile-keybar-row]').forEach(syncMobileKeybarRowAction);
     refresh();
@@ -9965,6 +10026,12 @@
     const selectedLight = selectedThemeForMode('light');
     const selectedDark = selectedThemeForMode('dark');
     const notificationCapability = browserNotificationCapability();
+    const themePreference = themePreferenceOf(state.customThemeDraft.mode);
+    const uploadLimit = uploadLimitParts(settings.file_manager?.max_upload_bytes ?? 0);
+    // A stored value the list does not know is kept as an option, so opening
+    // and saving Settings never silently changes it.
+    const effortOptions = (levels, current = '') => [...levels, ...(current && !levels.includes(current) ? [current] : [])]
+      .map((level) => `<option value="${escapeAttr(level)}" ${(current || '') === level ? 'selected' : ''}>${escapeHtml(level || 'CLI default')}</option>`).join('');
     const overlay = document.createElement('div');
     overlay.className = 'settings-overlay';
     const fontOptions = [
@@ -9979,6 +10046,7 @@
       <form class="settings-panel">
         <header class="settings-header">
           <div class="product-mark"><span class="brand-mark">${brandIcon()}</span><div><div class="settings-title" id="settings-dialog-title">Paneboard Settings</div><small>Workspace preferences</small></div></div>
+          <label class="settings-search"><span class="settings-search-icon" aria-hidden="true">${fileActionIcon('search')}</span><input type="search" data-settings-search aria-label="Search settings" placeholder="Search settings" autocomplete="off" spellcheck="false"></label>
           <button class="icon-button" type="button" data-settings-close aria-label="Close settings" title="Close">×</button>
         </header>
         <div class="settings-shell">
@@ -9992,33 +10060,36 @@
             <a aria-label="Workspace" href="#settings-workspace">
               <span class="settings-nav-icon" aria-hidden="true">${fileActionIcon('workspace')}</span><span class="settings-nav-label">Workspace</span>
             </a>
-            <a aria-label="Shell" href="#settings-shell">
-              <span class="settings-nav-icon" aria-hidden="true">${fileActionIcon('shell')}</span><span class="settings-nav-label">Shell</span>
+            <a aria-label="Files &amp; notepad" href="#settings-files">
+              <span class="settings-nav-icon" aria-hidden="true">${fileActionIcon('file')}</span><span class="settings-nav-label">Files &amp; notepad</span>
             </a>
-            <a aria-label="Files" href="#settings-files">
-              <span class="settings-nav-icon" aria-hidden="true">${fileActionIcon('file')}</span><span class="settings-nav-label">Files</span>
-            </a>
-            <a aria-label="Notepad" href="#settings-notepad">
-              <span class="settings-nav-icon" aria-hidden="true">${fileActionIcon('notepad')}</span><span class="settings-nav-label">Notepad</span>
-            </a>
-            <a aria-label="Usage" href="#settings-usage">
-              <span class="settings-nav-icon" aria-hidden="true">${fileActionIcon('usage')}</span><span class="settings-nav-label">Usage</span>
-            </a>
-            <a aria-label="AI" href="#settings-ai">
-              <span class="settings-nav-icon" aria-hidden="true">${fileActionIcon('ai')}</span><span class="settings-nav-label">AI</span>
+            <a aria-label="AI &amp; usage" href="#settings-ai">
+              <span class="settings-nav-icon" aria-hidden="true">${fileActionIcon('ai')}</span><span class="settings-nav-label">AI &amp; usage</span>
             </a>
             <a aria-label="Server and security" href="#settings-server">
               <span class="settings-nav-icon" aria-hidden="true">${fileActionIcon('server')}</span><span class="settings-nav-label">Server</span>
             </a>
           </nav>
           <div class="settings-body">
-            <section class="settings-section appearance-section" id="settings-appearance">
-              <div class="section-heading"><div><h2>Appearance</h2><p>Previewed live — Cancel reverts, Save keeps it.</p></div><span class="live-badge">● Live preview</span></div>
+            <p class="settings-search-empty" data-settings-search-empty hidden>No settings match your search.</p>
+            <section class="settings-section appearance-section" id="settings-appearance" data-settings-page>
+              <div class="section-heading"><div><h2>Appearance</h2><p>Changes here preview live. Cancel reverts them; Save keeps them.</p></div><span class="live-badge">● Live preview</span></div>
               <input type="hidden" name="custom_theme.mode" value="${escapeAttr(state.customThemeDraft.mode)}">
               <input type="hidden" name="custom_theme.selected_light" value="${escapeAttr(selectedLight)}">
               <input type="hidden" name="custom_theme.selected_dark" value="${escapeAttr(selectedDark)}">
-              <div class="theme-mode-setting" data-theme-mode="light">
-                <div class="theme-mode-heading"><span>Light mode</span><small>Used whenever Paneboard is in light mode.</small></div>
+              <div class="settings-grid">
+                <div class="settings-row settings-row-segmented" data-settings-item>
+                  <span class="settings-row-label">Theme</span>
+                  <div class="segmented" role="group" aria-label="Theme">
+                    ${[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']].map(([mode, label]) => `
+                      <button type="button" class="segmented-option ${themePreference === mode ? 'active' : ''}" data-theme-preference="${mode}" aria-pressed="${themePreference === mode}">${label}</button>
+                    `).join('')}
+                  </div>
+                  <small class="field-hint">System follows the light or dark setting of this device.</small>
+                </div>
+              </div>
+              <div class="theme-mode-setting" data-theme-mode="light" data-settings-item>
+                <div class="theme-mode-heading"><span>Light theme</span><small>Used whenever Paneboard is in light mode.</small></div>
                 <div class="theme-preset-grid" role="group" aria-label="Light theme">
                   ${Object.entries(themePresets).filter(([, theme]) => theme.mode === 'light').map(([id, theme]) => `
                     <button type="button" class="theme-preset ${selectedLight === id ? 'active' : ''}" data-theme-choice="${id}" data-theme-choice-mode="light" aria-pressed="${selectedLight === id}">
@@ -10028,7 +10099,7 @@
                   <button type="button" class="theme-preset ${selectedLight === 'custom-light' ? 'active' : ''}" data-theme-choice="custom-light" data-theme-choice-mode="light" aria-pressed="${selectedLight === 'custom-light'}"><span class="theme-swatches custom" aria-hidden="true"><i></i><i></i><i></i></span><span>Custom Light</span></button>
                 </div>
               </div>
-              <div class="custom-theme-editor ${selectedLight === 'custom-light' ? '' : 'hidden'}" data-custom-theme-editor="light">
+              <div class="custom-theme-editor ${selectedLight === 'custom-light' ? '' : 'hidden'}" data-custom-theme-editor="light" data-search-hide>
                 <div class="custom-theme-heading"><div><h3>Custom Light palette</h3><p>Saved on the Paneboard server and shared across devices.</p></div><button class="secondary custom-theme-reset" type="button" data-custom-theme-reset="light" aria-label="Reset custom light palette" title="Reset to default custom light palette">${fileActionIcon('refresh')}<span>Reset</span></button></div>
                 <div class="custom-theme-grid">
                   <label>App background<input name="custom_theme.light_ink" type="color" value="${escapeAttr(state.customThemeDraft.light_ink)}"></label>
@@ -10045,8 +10116,8 @@
                   <label>Terminal text<input name="custom_theme.light_terminal_fg" type="color" value="${escapeAttr(state.customThemeDraft.light_terminal_fg)}"></label>
                 </div>
               </div>
-              <div class="theme-mode-setting" data-theme-mode="dark">
-                <div class="theme-mode-heading"><span>Dark mode</span><small>Used whenever Paneboard is in dark mode.</small></div>
+              <div class="theme-mode-setting" data-theme-mode="dark" data-settings-item>
+                <div class="theme-mode-heading"><span>Dark theme</span><small>Used whenever Paneboard is in dark mode.</small></div>
                 <div class="theme-preset-grid" role="group" aria-label="Dark theme">
                   ${Object.entries(themePresets).filter(([, theme]) => theme.mode === 'dark').map(([id, theme]) => `
                     <button type="button" class="theme-preset ${selectedDark === id ? 'active' : ''}" data-theme-choice="${id}" data-theme-choice-mode="dark" aria-pressed="${selectedDark === id}">
@@ -10056,7 +10127,7 @@
                   <button type="button" class="theme-preset ${selectedDark === 'custom-dark' ? 'active' : ''}" data-theme-choice="custom-dark" data-theme-choice-mode="dark" aria-pressed="${selectedDark === 'custom-dark'}"><span class="theme-swatches custom" aria-hidden="true"><i></i><i></i><i></i></span><span>Custom Dark</span></button>
                 </div>
               </div>
-              <div class="custom-theme-editor ${selectedDark === 'custom-dark' ? '' : 'hidden'}" data-custom-theme-editor="dark">
+              <div class="custom-theme-editor ${selectedDark === 'custom-dark' ? '' : 'hidden'}" data-custom-theme-editor="dark" data-search-hide>
                 <div class="custom-theme-heading"><div><h3>Custom Dark palette</h3><p>Saved on the Paneboard server and shared across devices.</p></div><button class="secondary custom-theme-reset" type="button" data-custom-theme-reset="dark" aria-label="Reset custom dark palette" title="Reset to default custom dark palette">${fileActionIcon('refresh')}<span>Reset</span></button></div>
                 <div class="custom-theme-grid">
                   <label>App background<input name="custom_theme.ink" type="color" value="${escapeAttr(state.customThemeDraft.ink)}"></label>
@@ -10073,30 +10144,26 @@
                   <label>Terminal text<input name="custom_theme.terminal_fg" type="color" value="${escapeAttr(state.customThemeDraft.terminal_fg)}"></label>
                 </div>
               </div>
-              <div class="display-mode-setting">
-                <div class="theme-mode-heading"><span>Layout</span><small>Mobile shows one pane at a time. Auto follows the window width.</small></div>
-                <div class="segmented" role="group" aria-label="Display mode">
-                  ${['auto', 'mobile', 'desktop'].map((mode) => `
-                    <button type="button" class="segmented-option ${state.displayMode === mode ? 'active' : ''}" data-display-mode="${mode}" aria-pressed="${state.displayMode === mode}">${mode[0].toUpperCase()}${mode.slice(1)}</button>
-                  `).join('')}
+              <h3 class="settings-subhead">Interface</h3>
+              <div class="settings-grid">
+                <div class="settings-row settings-row-segmented" data-settings-item>
+                  <span class="settings-row-label">Layout</span>
+                  <div class="segmented" role="group" aria-label="Display mode">
+                    ${['auto', 'mobile', 'desktop'].map((mode) => `
+                      <button type="button" class="segmented-option ${state.displayMode === mode ? 'active' : ''}" data-display-mode="${mode}" aria-pressed="${state.displayMode === mode}">${mode[0].toUpperCase()}${mode.slice(1)}</button>
+                    `).join('')}
+                  </div>
+                  <small class="field-hint">Mobile shows one pane at a time. Auto follows the window width.</small>
                 </div>
-                <div class="theme-mode-heading"><span>Terminal density</span><small>Dense fits more rows on small screens.</small></div>
-                <div class="segmented" role="group" aria-label="Terminal density">
-                  ${['readable', 'dense'].map((density) => `
-                    <button type="button" class="segmented-option ${state.mobileTerminalDensity === density ? 'active' : ''}" data-terminal-density="${density}" aria-pressed="${state.mobileTerminalDensity === density}">${density === 'dense' ? 'Dense' : 'Readable'}</button>
-                  `).join('')}
-                </div>
-              </div>
-              <div class="settings-grid appearance-font-setting">
                 <label>System font size<input name="ui.system_font_size" type="number" min="10" max="24" value="${escapeAttr(settings.ui.system_font_size ?? 13)}"><small class="field-hint">${serverOnWindows() ? 'Pixels. Menus, tabs and dialogs. PowerShell and file panes have their own sizes.' : 'Pixels. Menus, tabs and dialogs. Terminal and file panes have their own sizes.'}</small></label>
                 <label>Language<select data-language-select>
                   <option value="en" ${window.PaneboardI18n.getLocale() === 'en' ? 'selected' : ''}>English</option>
                   <option value="zh-HK" ${window.PaneboardI18n.getLocale() === 'zh-HK' ? 'selected' : ''}>繁體中文（香港）</option>
-                </select></label>
+                </select><small class="field-hint">Switching reloads the page, so save other changes first.</small></label>
               </div>
             </section>
-            <section class="settings-section" id="settings-terminal">
-              <div class="section-heading"><div><h2>Terminal</h2><p>${serverOnWindows() ? 'Type, cursor and alerts for every PowerShell pane.' : 'Type, cursor and alerts for every terminal pane.'}</p></div></div>
+            <section class="settings-section" id="settings-terminal" data-settings-page hidden>
+              <div class="section-heading"><div><h2>Terminal</h2><p>${serverOnWindows() ? 'Type, behavior, shell and shortcut buttons for every PowerShell pane.' : 'Type, behavior, shell and shortcut buttons for every terminal pane.'}</p></div></div>
               <h3 class="settings-subhead">Type</h3>
               <div class="settings-grid">
                 <label>Terminal font<select name="ui.terminal_font_family">
@@ -10104,79 +10171,106 @@
                 </select><small class="field-hint">Falls back to Consolas when the font is not installed.</small></label>
                 <label>${serverOnWindows() ? 'PowerShell font size' : 'Terminal font size'}<input name="ui.terminal_font_size" type="number" min="8" max="32" value="${escapeAttr(settings.ui.terminal_font_size)}"><small class="field-hint">Pixels, used on desktop.</small></label>
                 <label>${serverOnWindows() ? 'PowerShell mobile font size' : 'Terminal mobile font size'}<input name="ui.mobile_terminal_font_size" type="number" min="8" max="24" value="${escapeAttr(settings.ui.mobile_terminal_font_size ?? 12)}"><small class="field-hint">Pixels, used in mobile layout.</small></label>
+                <div class="settings-row settings-row-segmented" data-settings-item>
+                  <span class="settings-row-label">Mobile density</span>
+                  <div class="segmented" role="group" aria-label="Terminal density">
+                    ${['readable', 'dense'].map((density) => `
+                      <button type="button" class="segmented-option ${state.mobileTerminalDensity === density ? 'active' : ''}" data-terminal-density="${density}" aria-pressed="${state.mobileTerminalDensity === density}">${density === 'dense' ? 'Dense' : 'Readable'}</button>
+                    `).join('')}
+                  </div>
+                  <small class="field-hint">Mobile layout only. Dense makes the text 2px smaller so more rows fit. Saved on this device.</small>
+                </div>
               </div>
               <h3 class="settings-subhead">Behavior</h3>
               <div class="settings-grid">
                 <label class="settings-check"><input name="terminal.cursor_blink" type="checkbox" ${settings.terminal?.cursor_blink !== false ? 'checked' : ''}> Cursor blink<small class="field-hint">Blink the cursor instead of leaving it solid.</small></label>
                 <label class="settings-check"><input name="terminal.auto_scroll_on_resize" type="checkbox" ${settings.terminal?.auto_scroll_on_resize ? 'checked' : ''}> Auto scroll on resize<small class="field-hint">Jump back to the newest line after a pane changes size.</small></label>
-                <div class="notification-setting settings-wide">
+                <div class="notification-setting settings-wide" data-settings-item>
                   <label class="settings-check"><input name="terminal.browser_notifications" type="checkbox" ${settings.terminal?.browser_notifications ? 'checked' : ''} ${notificationCapability.available ? '' : 'disabled'}> Browser notifications for terminal bells<small class="field-hint">Notify when a command rings the bell, for example when it finishes.</small></label>
                   <small class="notification-capability ${notificationCapability.available ? '' : 'blocked'}" data-browser-notification-status>${escapeHtml(notificationCapability.message)}</small>
                 </div>
               </div>
-              <div class="mobile-keybar-setting">
-                <div class="mobile-keybar-setting-heading"><div><h3>${serverOnWindows() ? 'PowerShell shortcut buttons' : 'Terminal shortcut buttons'}</h3><p>${serverOnWindows() ? 'The key row shown under every PowerShell pane, on desktop and mobile. Untick a button to hide it, drag to reorder, or add your own.' : 'The key row shown under every terminal pane, on desktop and mobile. Untick a button to hide it, drag to reorder, or add your own.'}</p></div><div class="mobile-keybar-setting-actions"><button class="secondary" type="button" data-mobile-keybar-reset>Reset to defaults</button><button class="secondary" type="button" data-mobile-keybar-add>${fileActionIcon('add')}<span>Add button</span></button></div></div>
-                <ul class="field-hint mobile-keybar-rules"><li>A modifier stays armed for the next key. Double-click it on the toolbar to lock it on.</li><li>Typed text can chain keys with braces, so <code>claude{Enter}</code> types the word and runs it.</li><li>Only a key name counts, so braces in a command such as <code>\${env:PATH}</code> are typed as written. Write <code>{{</code> for text that has to read like a key name.</li></ul>
-                ${renderMobileKeybarEditor(settings.terminal?.mobile_keybar_buttons)}
-              </div>
-            </section>
-            <section class="settings-section" id="settings-workspace">
-              <div class="section-heading"><div><h2>Workspace</h2><p>Panes snap to a grid of cells. These set the cell size, the size of a new pane, and how often the layout is saved.</p></div></div>
-              <h3 class="settings-subhead">Board grid</h3>
-              <div class="settings-grid">
-                <label>Grid cell width (px)<input name="ui.grid_size" type="number" min="20" max="400" step="10" value="${escapeAttr(settings.ui.grid_size)}"><small class="field-hint">A smaller cell lets panes be sized and moved more finely.</small></label>
-                <label>Rows per screen<input name="ui.vertical_slots" type="number" min="1" max="24" value="${escapeAttr(settings.ui.vertical_slots)}"><small class="field-hint">The screen height is split into this many cells. Changing it rescales every open pane.</small></label>
-              </div>
-              <h3 class="settings-subhead">New panes</h3>
-              <div class="settings-grid">
-                <label>New pane width (cells)<input name="ui.default_pane_width" type="number" min="1" max="48" value="${escapeAttr(settings.ui.default_pane_width ?? 6)}"><small class="field-hint">Existing panes keep their size.</small></label>
-                <label>New pane height (cells)<input name="ui.default_pane_height" type="number" min="1" max="${escapeAttr(settings.ui.vertical_slots)}" value="${escapeAttr(settings.ui.default_pane_height ?? 2)}"><small class="field-hint">Capped at rows per screen, so a new pane never overflows.</small></label>
-              </div>
-              <h3 class="settings-subhead">Saving</h3>
-              <div class="settings-grid">
-                <label>Autosave minutes<input name="persistence.autosave_minutes" type="number" min="1" value="${escapeAttr(settings.persistence.autosave_minutes)}"><small class="field-hint">How often the layout is written to disk. It is also saved whenever Paneboard shuts down.</small></label>
-              </div>
-            </section>
-            <section class="settings-section" id="settings-shell">
-              <div class="section-heading"><div><h2>Shell</h2><p>${serverOnWindows() ? 'Which PowerShell a new pane starts, and how. Panes already open keep what they started with.' : 'Which shell a new pane starts, and how. Panes already open keep what they started with.'}</p></div></div>
+              <h3 class="settings-subhead">Shell<small>${serverOnWindows() ? 'Which PowerShell a new pane starts, and how. Panes already open keep what they started with.' : 'Which shell a new pane starts, and how. Panes already open keep what they started with.'}</small></h3>
               <div class="settings-grid">
                 ${serverOnWindows() ? `<label>PowerShell preferred<input name="shell.preferred" value="${escapeAttr(settings.shell.preferred)}"><small class="field-hint">Tried first. <code>pwsh.exe</code> is PowerShell 7.</small></label>
                 <label>PowerShell fallback<input name="shell.fallback" value="${escapeAttr(settings.shell.fallback)}"><small class="field-hint">Used when the preferred one is not installed. <code>powershell.exe</code> ships with Windows.</small></label>` : `<label>Preferred shell<input name="shell.preferred" value="${escapeAttr(settings.shell.preferred)}"><small class="field-hint">Tried first. A name on PATH, such as <code>bash</code>, or a full path.</small></label>
                 <label>Fallback shell<input name="shell.fallback" value="${escapeAttr(settings.shell.fallback)}"><small class="field-hint">Used when the preferred one is not installed.</small></label>`}
                 <label class="settings-wide">Startup arguments<textarea name="shell.args" rows="3">${escapeHtml((settings.shell.args || []).join('\n'))}</textarea><small class="field-hint">One argument per line, passed on the command line. Clearing this restores the defaults.</small></label>
               </div>
-            </section>
-            <section class="settings-section" id="settings-files">
-              <div class="section-heading"><div><h2>Files</h2><p>Upload limit and text size for file panes.</p></div></div>
+              <h3 class="settings-subhead">Shortcut buttons</h3>
               <div class="settings-grid">
-                <label>Upload limit (bytes)<input name="file_manager.max_upload_bytes" type="number" min="0" value="${escapeAttr(settings.file_manager?.max_upload_bytes ?? 0)}"><small class="field-hint" data-upload-limit-hint>${escapeHtml(uploadLimitHint(settings.file_manager?.max_upload_bytes ?? 0))}</small></label>
-                <label>File pane font size<input name="ui.file_pane_font_size" type="number" min="10" max="24" value="${escapeAttr(settings.ui.file_pane_font_size ?? 13)}"><small class="field-hint">Pixels, used by the file browser and its preview.</small></label>
+                <div class="settings-row keybar-summary-row" data-settings-item>
+                  <span class="settings-row-label">${serverOnWindows() ? 'PowerShell shortcut buttons' : 'Terminal shortcut buttons'}</span>
+                  <button class="secondary" type="button" data-settings-open-page="settings-keybar">Edit buttons…</button>
+                  <small class="field-hint">The key row under every terminal pane, on desktop and mobile.</small>
+                  <div class="mobile-keybar-preview" data-mobile-keybar-preview aria-label="Toolbar preview"></div>
+                </div>
               </div>
             </section>
-            <section class="settings-section" id="settings-notepad">
-              <div class="section-heading"><div><h2>Notepad</h2><p>Starting state for newly opened Notepad tabs. Tabs already open keep their own switches.</p></div></div>
+            <section class="settings-section mobile-keybar-setting" id="settings-keybar" data-settings-page data-settings-parent="settings-terminal" hidden>
+              <button type="button" class="secondary settings-back" data-settings-open-page="settings-terminal">‹ <span>Terminal</span></button>
+              <div class="section-heading"><div><h2>${serverOnWindows() ? 'PowerShell shortcut buttons' : 'Terminal shortcut buttons'}</h2><p>Untick a button to hide it, drag or use the arrows to reorder it, or add your own.</p></div></div>
+              <div class="mobile-keybar-setting-actions"><button class="secondary" type="button" data-mobile-keybar-reset>Reset to defaults</button><button class="secondary" type="button" data-mobile-keybar-add>${fileActionIcon('add')}<span>Add button</span></button></div>
+              <details class="settings-advanced mobile-keybar-help">
+                <summary>How buttons work</summary>
+                <ul class="field-hint mobile-keybar-rules"><li>A modifier stays armed for the next key. Double-click it on the toolbar to lock it on.</li><li>Typed text can chain keys with braces, so <code>claude{Enter}</code> types the word and runs it.</li><li>Only a key name counts, so braces in a command such as <code>\${env:PATH}</code> are typed as written. Write <code>{{</code> for text that has to read like a key name.</li></ul>
+              </details>
+              ${renderMobileKeybarEditor(settings.terminal?.mobile_keybar_buttons)}
+            </section>
+            <section class="settings-section" id="settings-workspace" data-settings-page hidden>
+              <div class="section-heading"><div><h2>Workspace</h2><p>Panes snap to a grid of cells. These set the cell size, the size of a new pane, and how often the layout is saved.</p></div></div>
+              <h3 class="settings-subhead">Board grid</h3>
+              <div class="settings-grid">
+                <label>Cell width (px)<input name="ui.grid_size" type="number" min="20" max="400" step="10" value="${escapeAttr(settings.ui.grid_size)}"><small class="field-hint" data-grid-width-hint>A smaller cell lets panes be sized and moved more finely.</small></label>
+                <label>Rows per screen<input name="ui.vertical_slots" type="number" min="1" max="24" value="${escapeAttr(settings.ui.vertical_slots)}"><small class="field-hint" data-grid-rows-hint>The screen height is split into this many rows. Changing it rescales every open pane.</small></label>
+              </div>
+              <h3 class="settings-subhead">New panes</h3>
+              <div class="settings-grid">
+                <label>New pane width (cells)<input name="ui.default_pane_width" type="number" min="1" max="48" value="${escapeAttr(settings.ui.default_pane_width ?? 6)}"><small class="field-hint" data-pane-width-hint>Existing panes keep their size.</small></label>
+                <label>New pane height (rows)<input name="ui.default_pane_height" type="number" min="1" max="${escapeAttr(settings.ui.vertical_slots)}" value="${escapeAttr(settings.ui.default_pane_height ?? 2)}"><small class="field-hint">Capped at rows per screen, so a new pane never overflows.</small></label>
+              </div>
+              <h3 class="settings-subhead">Saving</h3>
+              <div class="settings-grid">
+                <label>Autosave minutes<input name="persistence.autosave_minutes" type="number" min="1" max="1440" value="${escapeAttr(settings.persistence.autosave_minutes)}"><small class="field-hint">How often the layout is written to disk. It is also saved whenever Paneboard shuts down.</small></label>
+              </div>
+            </section>
+            <section class="settings-section" id="settings-files" data-settings-page hidden>
+              <div class="section-heading"><div><h2>Files &amp; notepad</h2><p>File panes, uploads, and the starting state of new Notepad tabs.</p></div></div>
+              <h3 class="settings-subhead">Files</h3>
+              <div class="settings-grid">
+                <label>Upload limit<span class="settings-control-group"><input name="file_manager.max_upload_value" type="number" min="0" step="any" value="${escapeAttr(uploadLimit.value)}" aria-label="Upload limit"><select name="file_manager.max_upload_unit" aria-label="Upload limit unit">${uploadLimitUnits.map(([unit]) => `<option value="${unit}" ${uploadLimit.unit === unit ? 'selected' : ''}>${unit}</option>`).join('')}</select></span><small class="field-hint">Largest single upload. 0 means no limit.</small></label>
+                <label>File pane font size<input name="ui.file_pane_font_size" type="number" min="10" max="24" value="${escapeAttr(settings.ui.file_pane_font_size ?? 13)}"><small class="field-hint">Pixels, used by the file browser and its preview.</small></label>
+              </div>
+              <h3 class="settings-subhead" id="settings-notepad">Notepad<small>Starting state for newly opened Notepad tabs. Tabs already open keep their own switches.</small></h3>
               <div class="settings-grid">
                 <label class="settings-check"><input name="ui.notepad_word_wrap" type="checkbox" ${settings.ui.notepad_word_wrap ? 'checked' : ''}> Word wrap<small class="field-hint">Wrap long lines instead of scrolling sideways.</small></label>
                 <label class="settings-check"><input name="ui.notepad_indent_guides" type="checkbox" ${settings.ui.notepad_indent_guides ? 'checked' : ''}> Indent guides<small class="field-hint">Draw a faint line at each indent level.</small></label>
                 <label class="settings-check"><input name="ui.notepad_autosave" type="checkbox" ${settings.ui.notepad_autosave ? 'checked' : ''}> Auto save<small class="field-hint">Write changes back to the file without pressing save.</small></label>
               </div>
             </section>
-            <section class="settings-section" id="settings-usage">
-              <div class="section-heading"><div><h2>Usage</h2><p>What a Usage pane shows: which provider cards, which quota windows on each card, and when a window changes color.</p></div></div>
-              <h3 class="settings-subhead">Provider cards<small>Untick a provider to leave its card out of every Usage pane.</small></h3>
+            <section class="settings-section" id="settings-ai" data-settings-page hidden>
+              <div class="section-heading"><div><h2>AI &amp; usage</h2><p>Defaults for new AI tabs, and what the Usage pane shows. Each AI tab is its own conversation with the Claude Code or Codex CLI signed in on this server.</p></div></div>
+              <h3 class="settings-subhead">AI panes</h3>
               <div class="settings-grid">
-                <label class="settings-check"><input name="usage.show_codex" type="checkbox" ${settings.usage?.show_codex !== false ? 'checked' : ''}> Codex<small class="field-hint">Reads the Codex CLI account signed in on this machine.</small></label>
-                <label class="settings-check"><input name="usage.show_claude" type="checkbox" ${settings.usage?.show_claude !== false ? 'checked' : ''}> Claude Code<small class="field-hint">Reads the Claude Code CLI account signed in on this machine.</small></label>
-                <label class="settings-check"><input name="usage.show_minimax" type="checkbox" ${settings.usage?.show_minimax !== false ? 'checked' : ''}> MiniMax<small class="field-hint">Needs a Coding Plan API key, entered below.</small></label>
+                <label>Default CLI<select name="ai.default_provider"><option value="claude" ${settings.ai?.default_provider !== 'codex' ? 'selected' : ''}>Claude Code</option><option value="codex" ${settings.ai?.default_provider === 'codex' ? 'selected' : ''}>Codex</option></select><small class="field-hint">Which CLI a new AI pane or tab starts.</small></label>
+                <label class="settings-check"><input name="ai.show_thinking" type="checkbox" ${settings.ai?.show_thinking !== false ? 'checked' : ''}> Show thinking<small class="field-hint">New tabs start with the agent's reasoning visible. Each tab can be toggled on its own.</small></label>
+                <label class="settings-check"><input name="ai.show_tools" type="checkbox" ${settings.ai?.show_tools !== false ? 'checked' : ''}> Show tool calls<small class="field-hint">New tabs start with the commands and file edits visible.</small></label>
               </div>
-              <h3 class="settings-subhead">Quota windows<small>Rows shown on every provider card. A provider that has no such window simply omits it.</small></h3>
-              <div class="settings-grid">
-                <label class="settings-check"><input name="usage.show_five_hour" type="checkbox" ${settings.usage?.show_five_hour !== false ? 'checked' : ''}> 5-hour window<small class="field-hint">The short rolling limit that resets a few times a day.</small></label>
-                <label class="settings-check"><input name="usage.show_weekly" type="checkbox" ${settings.usage?.show_weekly !== false ? 'checked' : ''}> Weekly window<small class="field-hint">The account's overall weekly allowance.</small></label>
-                <label class="settings-check"><input name="usage.show_model_weekly" type="checkbox" ${settings.usage?.show_model_weekly !== false ? 'checked' : ''}> Per-model weekly windows<small class="field-hint">One extra row per model that has its own weekly cap.</small></label>
-                <label class="settings-check"><input name="usage.show_credits" type="checkbox" ${settings.usage?.show_credits !== false ? 'checked' : ''}> Credit balance<small class="field-hint">Money left on the account, for plans that bill by credit.</small></label>
-              </div>
-              <h3 class="settings-subhead">Refresh and warnings</h3>
+              <details class="settings-advanced settings-models" ${settings.ai?.claude_model || settings.ai?.claude_effort || settings.ai?.codex_model || settings.ai?.codex_effort ? 'open' : ''}>
+                <summary>Models and effort</summary>
+                <p class="field-hint settings-advanced-note">Blank uses whatever the CLI already defaults to. Use the CLI's own /model command to change a conversation in progress.</p>
+                <h3 class="settings-subhead">Claude Code</h3>
+                <div class="settings-grid">
+                  <label>Model<input name="ai.claude_model" type="text" autocomplete="off" placeholder="CLI default" value="${escapeAttr(settings.ai?.claude_model || '')}"><small class="field-hint">An alias such as opus or sonnet, or a full model name.</small></label>
+                  <label>Effort<select name="ai.claude_effort">${effortOptions(['', 'low', 'medium', 'high', 'xhigh', 'max'], settings.ai?.claude_effort)}</select><small class="field-hint">How much thinking the model does per turn.</small></label>
+                </div>
+                <h3 class="settings-subhead">Codex</h3>
+                <div class="settings-grid">
+                  <label>Model<input name="ai.codex_model" type="text" autocomplete="off" placeholder="CLI default" value="${escapeAttr(settings.ai?.codex_model || '')}"><small class="field-hint">A model name the Codex CLI accepts.</small></label>
+                  <label>Effort<select name="ai.codex_effort">${effortOptions(['', 'minimal', 'low', 'medium', 'high', 'xhigh'], settings.ai?.codex_effort)}</select><small class="field-hint">How much reasoning the model does per turn.</small></label>
+                </div>
+              </details>
+              <h3 class="settings-subhead">Usage pane<small>Providers not signed in on this server are hidden automatically.</small></h3>
               <div class="settings-grid">
                 <label>Auto-refresh minutes<input name="usage.refresh_minutes" type="number" min="0" max="999" step="1" value="${escapeAttr(settings.usage?.refresh_minutes ?? 10)}"><small class="field-hint">0 refreshes only when you ask.</small></label>
                 <label>Amber at (%)<input name="usage.warn_percent" type="number" min="0" max="100" step="1" value="${escapeAttr(settings.usage?.warn_percent ?? 75)}"><small class="field-hint">Percent used at which a quota window turns amber.</small></label>
@@ -10193,46 +10287,41 @@
               </div>
               <details class="settings-advanced">
                 <summary>Advanced</summary>
+                <h3 class="settings-subhead">CLI arguments</h3>
+                <div class="settings-grid">
+                  <label class="settings-wide">Claude Code arguments<input name="ai.claude_args" type="text" autocomplete="off" value="${escapeAttr(settings.ai?.claude_args || '')}" data-cli-args><small class="field-hint">Appended to Claude Code when a new tab starts. Shell operators and quoted arguments are not accepted.</small><small class="field-hint blocked" data-cli-args-warning hidden>These arguments let the agent run commands and edit files without asking first.</small></label>
+                  <label class="settings-wide">Codex arguments<input name="ai.codex_args" type="text" autocomplete="off" value="${escapeAttr(settings.ai?.codex_args || '')}" data-cli-args><small class="field-hint">Placed before app-server when a new tab starts. For example, --yolo runs codex --yolo app-server.</small><small class="field-hint blocked" data-cli-args-warning hidden>These arguments let the agent run commands and edit files without asking first.</small></label>
+                </div>
+                <h3 class="settings-subhead">Usage cards<small>Untick a provider or a quota window to leave it out of every Usage pane.</small></h3>
+                <div class="settings-grid">
+                  <label class="settings-check"><input name="usage.show_codex" type="checkbox" ${settings.usage?.show_codex !== false ? 'checked' : ''}> Codex<small class="field-hint">Reads the Codex CLI account signed in on this machine.</small></label>
+                  <label class="settings-check"><input name="usage.show_claude" type="checkbox" ${settings.usage?.show_claude !== false ? 'checked' : ''}> Claude Code<small class="field-hint">Reads the Claude Code CLI account signed in on this machine.</small></label>
+                  <label class="settings-check"><input name="usage.show_minimax" type="checkbox" ${settings.usage?.show_minimax !== false ? 'checked' : ''}> MiniMax<small class="field-hint">Needs a Coding Plan API key.</small></label>
+                  <label class="settings-check"><input name="usage.show_five_hour" type="checkbox" ${settings.usage?.show_five_hour !== false ? 'checked' : ''}> 5-hour window<small class="field-hint">The short rolling limit that resets a few times a day.</small></label>
+                  <label class="settings-check"><input name="usage.show_weekly" type="checkbox" ${settings.usage?.show_weekly !== false ? 'checked' : ''}> Weekly window<small class="field-hint">The account's overall weekly allowance.</small></label>
+                  <label class="settings-check"><input name="usage.show_model_weekly" type="checkbox" ${settings.usage?.show_model_weekly !== false ? 'checked' : ''}> Per-model weekly windows<small class="field-hint">One extra row per model that has its own weekly cap.</small></label>
+                  <label class="settings-check"><input name="usage.show_credits" type="checkbox" ${settings.usage?.show_credits !== false ? 'checked' : ''}> Credit balance<small class="field-hint">Money left on the account, for plans that bill by credit.</small></label>
+                </div>
+                <h3 class="settings-subhead">Credential folders</h3>
                 <div class="settings-grid">
                   <label class="settings-wide">Codex home folder<input name="usage.codex_home" type="text" autocomplete="off" placeholder="Blank = search this account's home" value="${escapeAttr(settings.usage?.codex_home || '')}"><small class="field-hint">Where the signed-in Codex CLI credentials (auth.json) are read from. Set it only to pin one profile.</small></label>
                   <label class="settings-wide">Claude Code home folder<input name="usage.claude_home" type="text" autocomplete="off" placeholder="Blank = search this account's home" value="${escapeAttr(settings.usage?.claude_home || '')}"><small class="field-hint">Same for the Claude Code CLI credentials (.credentials.json).</small></label>
                 </div>
-              </details>
-            </section>
-            <section class="settings-section" id="settings-ai">
-              <div class="section-heading"><div><h2>AI</h2><p>Defaults for new AI tabs. Each tab is its own conversation with the Claude Code or Codex CLI signed in on this server.</p></div></div>
-              <div class="settings-grid">
-                <label>Default CLI<select name="ai.default_provider"><option value="claude" ${settings.ai?.default_provider !== 'codex' ? 'selected' : ''}>Claude Code</option><option value="codex" ${settings.ai?.default_provider === 'codex' ? 'selected' : ''}>Codex</option></select><small class="field-hint">Which CLI a new AI pane or tab starts.</small></label>
-                <label class="settings-check"><input name="ai.show_thinking" type="checkbox" ${settings.ai?.show_thinking !== false ? 'checked' : ''}> Show thinking<small class="field-hint">New tabs start with the agent's reasoning visible. Each tab can be toggled on its own.</small></label>
-                <label class="settings-check"><input name="ai.show_tools" type="checkbox" ${settings.ai?.show_tools !== false ? 'checked' : ''}> Show tool calls<small class="field-hint">New tabs start with the commands and file edits visible.</small></label>
-              </div>
-              <h3 class="settings-subhead">Claude Code<small>Blank model or effort uses whatever the CLI already defaults to. Use the CLI's own /model command to change a conversation in progress.</small></h3>
-              <div class="settings-grid">
-                <label>Model<input name="ai.claude_model" type="text" autocomplete="off" placeholder="CLI default" value="${escapeAttr(settings.ai?.claude_model || '')}"><small class="field-hint">An alias such as opus or sonnet, or a full model name.</small></label>
-                <label>Effort<select name="ai.claude_effort">${['', 'low', 'medium', 'high', 'xhigh', 'max'].map((level) => `<option value="${level}" ${(settings.ai?.claude_effort || '') === level ? 'selected' : ''}>${level || 'CLI default'}</option>`).join('')}</select><small class="field-hint">How much thinking the model does per turn.</small></label>
-                <label class="settings-wide">Extra CLI arguments<input name="ai.claude_args" type="text" autocomplete="off" value="${escapeAttr(settings.ai?.claude_args || '')}"><small class="field-hint">Appended to Claude Code when a new tab starts. Shell operators and quoted arguments are not accepted.</small></label>
-              </div>
-              <h3 class="settings-subhead">Codex</h3>
-              <div class="settings-grid">
-                <label>Model<input name="ai.codex_model" type="text" autocomplete="off" placeholder="CLI default" value="${escapeAttr(settings.ai?.codex_model || '')}"><small class="field-hint">A model name the Codex CLI accepts.</small></label>
-                <label>Effort<input name="ai.codex_effort" type="text" autocomplete="off" placeholder="CLI default" value="${escapeAttr(settings.ai?.codex_effort || '')}"><small class="field-hint">The reasoning effort the Codex CLI accepts.</small></label>
-                <label class="settings-wide">Extra CLI arguments<input name="ai.codex_args" type="text" autocomplete="off" value="${escapeAttr(settings.ai?.codex_args || '')}"><small class="field-hint">Placed before app-server when a new tab starts. For example, --yolo runs codex --yolo app-server.</small></label>
-              </div>
-              <details class="settings-advanced">
-                <summary>Advanced</summary>
+                <h3 class="settings-subhead">Diagnostics</h3>
                 <div class="settings-grid">
                   <label class="settings-check"><input name="ai.debug_log" type="checkbox" ${settings.ai?.debug_log ? 'checked' : ''}> Log the raw CLI protocol<small class="field-hint">Writes every frame to data/ai-debug.log, whole conversations included. For diagnosing a pane that misreads its CLI.</small></label>
                 </div>
               </details>
             </section>
-            <section class="settings-section restart" id="settings-server">
-              <div class="section-heading"><div><h2>Server &amp; security</h2><p>Who can reach this workspace, and the password they need. Switching to LAN saves and restarts Paneboard for you.</p></div><span class="restart-badge">△ Restart required</span></div>
+            <section class="settings-section" id="settings-server" data-settings-page hidden>
+              <div class="section-heading"><div><h2>Server &amp; security</h2><p>Who can reach this workspace, and the password they need. Switching to LAN saves and restarts Paneboard for you.</p></div></div>
+              <div class="settings-notices" data-server-notices aria-live="polite"></div>
               <div class="settings-grid">
                 <label>Access<select name="server.host"><option value="127.0.0.1" ${settings.server.host === '127.0.0.1' ? 'selected' : ''}>Local</option><option value="0.0.0.0" ${settings.server.host === '0.0.0.0' ? 'selected' : ''}>LAN</option></select><small class="field-hint">Local: this machine only. LAN: any device on your network, which requires a password.</small></label>
-                <label>Port<input name="server.port" type="number" min="1" max="65535" value="${escapeAttr(settings.server.port)}"><small class="field-hint">The address becomes ${settings.server.protocol === 'https' ? 'https' : 'http'}://127.0.0.1:&lt;port&gt;/. Takes effect after a restart.</small></label>
-                <label>Protocol<select name="server.protocol"><option value="http" ${settings.server.protocol !== 'https' ? 'selected' : ''}>HTTP</option><option value="https" ${settings.server.protocol === 'https' ? 'selected' : ''}>HTTPS</option></select><small class="field-hint">HTTPS serves a self-signed certificate generated on first use; browsers warn until you trust it. Takes effect after a restart.</small></label>
+                <label class="settings-wide">${settings.auth?.password_set ? 'New password' : 'Password'}<input name="auth.password" type="password" autocomplete="new-password" aria-describedby="settings-password-rule" placeholder="${settings.auth?.password_set ? 'Leave blank to keep the current password' : 'Not set'}"><small class="field-hint" id="settings-password-rule">At least 12 characters, including an upper case letter, a lower case letter, a number and a symbol. Saving a new one signs every device out.</small></label>
+                <label><span class="settings-row-label">Protocol <span class="restart-tag">Restart required</span></span><select name="server.protocol"><option value="http" ${settings.server.protocol !== 'https' ? 'selected' : ''}>HTTP</option><option value="https" ${settings.server.protocol === 'https' ? 'selected' : ''}>HTTPS</option></select><small class="field-hint">HTTPS serves a self-signed certificate generated on first use; browsers warn until you trust it.</small></label>
+                <label><span class="settings-row-label">Port <span class="restart-tag">Restart required</span></span><input name="server.port" type="number" min="1" max="65535" value="${escapeAttr(settings.server.port)}"><small class="field-hint">The address becomes ${settings.server.protocol === 'https' ? 'https' : 'http'}://127.0.0.1:&lt;port&gt;/.</small></label>
                 <label class="settings-check"><input name="server.open_browser" type="checkbox" ${settings.server.open_browser ? 'checked' : ''}> Open browser on start<small class="field-hint">Open the workspace automatically when Paneboard launches.</small></label>
-                <label class="settings-wide">${settings.auth?.password_set ? 'New password' : 'Password'}<input name="auth.password" type="password" autocomplete="new-password" aria-describedby="settings-password-rule" placeholder="${settings.auth?.password_set ? 'Leave blank to keep the current password' : 'Not set — anyone reaching this port can sign in'}"><small class="field-hint" id="settings-password-rule">At least 12 characters, including an upper case letter, a lower case letter, a number and a symbol. Saving a new one signs every device out.</small></label>
               </div>
               <details class="settings-advanced">
                 <summary>Advanced</summary>
@@ -10240,13 +10329,16 @@
                   <label class="settings-wide">Allowed hosts<textarea name="server.allowed_hosts" rows="3" spellcheck="false" aria-describedby="settings-allowed-hosts-rule">${escapeHtml((settings.server.allowed_hosts || []).join('\n'))}</textarea><small class="field-hint" id="settings-allowed-hosts-rule">One hostname per line, for a reverse proxy that forwards its own name. Addresses and localhost are always accepted. Use * to accept every name, which turns off DNS rebinding protection. This list applies without a restart.</small></label>
                 </div>
               </details>
+              <h3 class="settings-subhead">About</h3>
+              <div class="settings-grid">
+                <div class="settings-row" data-settings-item><span class="settings-row-label">Version</span><span class="settings-value" data-paneboard-version>${escapeHtml(settings.version || '—')}</span><small class="field-hint">Include this when reporting a problem.</small></div>
+              </div>
             </section>
           </div>
         </div>
         <footer class="settings-footer">
-          <span class="settings-status" data-settings-status></span>
+          <span class="settings-status" data-settings-status aria-live="polite"></span>
           <button type="button" class="secondary" data-settings-cancel title="Discard changes and close">Cancel</button>
-          <button type="submit" class="secondary" data-settings-apply title="Save and keep this dialog open">Apply</button>
           <button type="submit" class="primary" data-settings-save title="Save and close">Save</button>
         </footer>
       </form>
@@ -10254,8 +10346,13 @@
 
     document.body.appendChild(overlay);
     const settingsBody = overlay.querySelector('.settings-body');
+    const settingsForm = overlay.querySelector('form');
     const settingsLinks = [...overlay.querySelectorAll('.settings-nav a')];
-    const settingsSections = settingsLinks.map((link) => overlay.querySelector(link.getAttribute('href'))).filter(Boolean);
+    const settingsPages = [...overlay.querySelectorAll('[data-settings-page]')];
+    const settingsStatus = overlay.querySelector('[data-settings-status]');
+    const searchInput = overlay.querySelector('[data-settings-search]');
+    const t = (key, values) => window.PaneboardI18n?.t(key, values) ?? key;
+    let currentPageId = settingsPages[0].id;
 
     function setActiveSettingsSection(sectionId) {
       settingsLinks.forEach((link) => {
@@ -10265,52 +10362,108 @@
       });
     }
 
-    function syncSettingsNav() {
-      const atBottom = settingsBody.scrollTop + settingsBody.clientHeight >= settingsBody.scrollHeight - 2;
-      let current = atBottom ? settingsSections[settingsSections.length - 1] : settingsSections[0];
-      if (!atBottom) {
-        const bodyTop = settingsBody.getBoundingClientRect().top + 18;
-        for (const section of settingsSections) {
-          if (section.getBoundingClientRect().top <= bodyTop) {
-            current = section;
-          }
-        }
-      }
-      setActiveSettingsSection(current.id);
+    // One category at a time: a single long scroll made every page 6000px
+    // tall and left the nav highlight guessing which section was in view.
+    function showSettingsPage(pageId) {
+      const page = settingsPages.find((candidate) => candidate.id === pageId) || settingsPages[0];
+      currentPageId = page.id;
+      settingsPages.forEach((candidate) => {
+        candidate.hidden = candidate !== page;
+      });
+      setActiveSettingsSection(page.dataset.settingsParent || page.id);
+      settingsBody.scrollTop = 0;
     }
 
-    // The last section is shorter than the viewport, so without trailing room it
-    // can never scroll to the top and clicking its nav entry looks like a no-op.
-    function syncSettingsScrollPadding() {
-      const last = settingsSections[settingsSections.length - 1];
-      if (!last) {
+    // Search shows every page at once and keeps only the rows whose text, in
+    // the current language, contains the query.
+    function applySettingsSearch() {
+      const query = searchInput.value.trim().toLocaleLowerCase();
+      overlay.classList.toggle('settings-searching', Boolean(query));
+      const items = [...overlay.querySelectorAll('.settings-grid > *, [data-settings-item]')];
+      if (!query) {
+        items.forEach((item) => { item.hidden = false; });
+        overlay.querySelectorAll('.settings-grid, .settings-subhead, .minimax-setting, .settings-advanced').forEach((element) => { element.hidden = false; });
+        overlay.querySelector('[data-settings-search-empty]').hidden = true;
+        showSettingsPage(currentPageId);
         return;
       }
-      const slack = settingsBody.clientHeight - last.offsetHeight - 24;
-      const next = `${Math.max(24, Math.round(slack))}px`;
-      if (settingsBody.style.paddingBottom !== next) {
-        settingsBody.style.paddingBottom = next;
-      }
+      items.forEach((item) => {
+        item.hidden = !item.textContent.toLocaleLowerCase().includes(query);
+      });
+      overlay.querySelectorAll('.settings-grid').forEach((grid) => {
+        grid.hidden = ![...grid.children].some((row) => !row.hidden);
+      });
+      overlay.querySelectorAll('.settings-subhead').forEach((subhead) => {
+        const grid = subhead.nextElementSibling;
+        subhead.hidden = !grid?.matches('.settings-grid') || grid.hidden;
+      });
+      overlay.querySelectorAll('.settings-advanced').forEach((details) => {
+        const hit = [...details.querySelectorAll('.settings-grid')].some((grid) => !grid.hidden);
+        details.hidden = !hit;
+        if (hit) details.open = true;
+      });
+      overlay.querySelectorAll('.minimax-setting').forEach((block) => {
+        block.hidden = ![...block.querySelectorAll('.settings-grid')].some((grid) => !grid.hidden);
+      });
+      let anyHit = false;
+      // Pages start hidden by paging, so they are revealed before asking
+      // whether anything inside them is still visible.
+      settingsPages.forEach((page) => { page.hidden = false; });
+      settingsPages.forEach((page) => {
+        const hit = page.id !== 'settings-keybar' && [...page.querySelectorAll('.settings-grid > *, [data-settings-item]')].some((item) => !item.hidden && !item.closest('[hidden]'));
+        page.hidden = !hit;
+        anyHit ||= hit;
+      });
+      setActiveSettingsSection('');
+      overlay.querySelector('[data-settings-search-empty]').hidden = anyHit;
+      settingsBody.scrollTop = 0;
     }
 
     settingsLinks.forEach((link) => {
       link.onclick = (event) => {
         event.preventDefault();
-        const section = overlay.querySelector(link.getAttribute('href'));
-        section.scrollIntoView({ block: 'start' });
-        setActiveSettingsSection(section.id);
-        requestAnimationFrame(() => setActiveSettingsSection(section.id));
+        if (searchInput.value) {
+          searchInput.value = '';
+          applySettingsSearch();
+        }
+        showSettingsPage(link.getAttribute('href').slice(1));
       };
     });
-    settingsBody.addEventListener('scroll', syncSettingsNav, { passive: true });
-    const settingsResizeObserver = new ResizeObserver(() => {
-      syncSettingsScrollPadding();
-      syncSettingsNav();
+    overlay.querySelectorAll('[data-settings-open-page]').forEach((button) => {
+      button.onclick = () => showSettingsPage(button.dataset.settingsOpenPage);
     });
-    settingsResizeObserver.observe(settingsBody);
+    searchInput.addEventListener('input', applySettingsSearch);
+    // Escape clears the query first; only an empty box lets it close the
+    // dialog. The modal listens on document in the capture phase, so this
+    // listens on window to run before it.
+    const onSearchEscape = (event) => {
+      if (event.key === 'Escape' && document.activeElement === searchInput && searchInput.value) {
+        event.preventDefault();
+        event.stopPropagation();
+        searchInput.value = '';
+        applySettingsSearch();
+      }
+    };
+    window.addEventListener('keydown', onSearchEscape, true);
+
+    // Changes to the server config only land on Save, while Appearance
+    // previews live, so the footer says when something is still unsaved.
+    let settingsDirty = false;
+    const markSettingsDirty = () => {
+      settingsDirty = true;
+      settingsStatus.textContent = t('Unsaved changes');
+      settingsStatus.classList.add('dirty');
+    };
+    settingsForm.addEventListener('input', (event) => {
+      if (!event.target.matches('[data-settings-search], [data-language-select]')) markSettingsDirty();
+    });
+    settingsForm.addEventListener('change', (event) => {
+      if (!event.target.matches('[data-settings-search], [data-language-select]')) markSettingsDirty();
+    });
+
     const closeSettings = (restoreTheme = true) => {
       disposeModal();
-      settingsResizeObserver.disconnect();
+      window.removeEventListener('keydown', onSearchEscape, true);
       overlay.remove();
       if (restoreTheme) {
         state.customThemeDraft = null;
@@ -10324,17 +10477,21 @@
       }
     };
     const disposeModal = wireModal(overlay.querySelector('.settings-panel'), () => closeSettings(), 'settings-dialog-title');
-    overlay._disposeModal = disposeModal;
-    const initialSection = settingsSections[0];
-    setActiveSettingsSection(initialSection.id);
-    requestAnimationFrame(() => {
-      syncSettingsScrollPadding();
-      initialSection.scrollIntoView({ block: 'start' });
-      syncSettingsNav();
-    });
+    overlay._disposeModal = () => {
+      disposeModal();
+      window.removeEventListener('keydown', onSearchEscape, true);
+    };
+    showSettingsPage(settingsPages[0].id);
+    // The search box comes first in the header, but focusing it would raise
+    // the on-screen keyboard on a phone, so the dialog opens on Close as before.
+    requestAnimationFrame(() => requestAnimationFrame(() => overlay.querySelector('[data-settings-close]')?.focus()));
     overlay.querySelector('[data-settings-close]').onclick = closeSettings;
     overlay.querySelector('[data-settings-cancel]').onclick = closeSettings;
     overlay.querySelector('[data-language-select]').onchange = (event) => {
+      if (settingsDirty && !window.confirm(t('Switching language reloads the page and discards unsaved changes. Continue?'))) {
+        event.currentTarget.value = window.PaneboardI18n.getLocale();
+        return;
+      }
       window.PaneboardI18n.setLocale(event.currentTarget.value);
       window.location.reload();
     };
@@ -10349,12 +10506,31 @@
       button.onclick = () => {
         setDisplayMode(button.dataset.displayMode, false);
         syncSegmented(button.closest('.segmented'), button);
+        markSettingsDirty();
       };
     });
     overlay.querySelectorAll('[data-terminal-density]').forEach((button) => {
       button.onclick = () => {
         setTerminalDensity(button.dataset.terminalDensity, false);
         syncSegmented(button.closest('.segmented'), button);
+        markSettingsDirty();
+      };
+    });
+    const themeModeInput = overlay.querySelector('[name="custom_theme.mode"]');
+    const previewTheme = (theme) => {
+      applyTheme(theme);
+      for (const item of state.terminals.values()) {
+        item.term.options.theme = terminalTheme();
+      }
+    };
+    overlay.querySelectorAll('[data-theme-preference]').forEach((button) => {
+      button.onclick = () => {
+        const preference = button.dataset.themePreference;
+        themeModeInput.value = preference;
+        state.customThemeDraft.mode = preference;
+        syncSegmented(button.closest('.segmented'), button);
+        previewTheme(selectedThemeForMode(resolveThemeMode(preference)));
+        markSettingsDirty();
       };
     });
     overlay.querySelectorAll('[data-theme-choice]').forEach((button) => {
@@ -10362,19 +10538,23 @@
         const mode = button.dataset.themeChoiceMode;
         const selectedInput = overlay.querySelector(`[name="custom_theme.selected_${mode}"]`);
         selectedInput.value = button.dataset.themeChoice;
-        overlay.querySelector('[name="custom_theme.mode"]').value = mode;
         state.customThemeDraft[`selected_${mode}`] = button.dataset.themeChoice;
-        state.customThemeDraft.mode = mode;
-        applyTheme(button.dataset.themeChoice);
+        // Picking a light or dark preset under an explicit preference switches
+        // to that mode; under System the device still decides which one shows.
+        if (themeModeInput.value !== 'system') {
+          themeModeInput.value = mode;
+          state.customThemeDraft.mode = mode;
+          const preferenceButton = overlay.querySelector(`[data-theme-preference="${mode}"]`);
+          syncSegmented(preferenceButton.closest('.segmented'), preferenceButton);
+        }
+        previewTheme(button.dataset.themeChoice);
         overlay.querySelector(`[data-custom-theme-editor="${mode}"]`).classList.toggle('hidden', button.dataset.themeChoice !== `custom-${mode}`);
         button.closest('[data-theme-mode]').querySelectorAll('[data-theme-choice]').forEach((choice) => {
           const active = choice === button;
           choice.classList.toggle('active', active);
           choice.setAttribute('aria-pressed', String(active));
         });
-        for (const item of state.terminals.values()) {
-          item.term.options.theme = terminalTheme();
-        }
+        markSettingsDirty();
       };
     });
     overlay.querySelectorAll('[name^="custom_theme."][type="color"]').forEach((input) => {
@@ -10386,18 +10566,86 @@
       };
     });
     overlay.querySelectorAll('[data-custom-theme-reset]').forEach((button) => {
-      button.onclick = () => resetCustomThemePalette(button.dataset.customThemeReset, overlay);
+      button.onclick = () => {
+        resetCustomThemePalette(button.dataset.customThemeReset, overlay);
+        markSettingsDirty();
+      };
     });
-    wireMobileKeybarEditor(overlay);
-    const uploadLimitInput = overlay.querySelector('[name="file_manager.max_upload_bytes"]');
-    uploadLimitInput.oninput = () => {
-      overlay.querySelector('[data-upload-limit-hint]').textContent = uploadLimitHint(uploadLimitInput.value);
+    wireMobileKeybarEditor(overlay, markSettingsDirty);
+
+    // Cell width is in pixels and height in rows, so each hint translates the
+    // number into what it means on this window.
+    const gridInputs = {
+      size: settingsForm.elements['ui.grid_size'],
+      rows: settingsForm.elements['ui.vertical_slots'],
+      width: settingsForm.elements['ui.default_pane_width'],
+      height: settingsForm.elements['ui.default_pane_height']
     };
+    const syncGridHints = () => {
+      const board = document.querySelector('.pane-grid');
+      const boardWidth = board?.clientWidth || window.innerWidth;
+      const boardHeight = board?.clientHeight || window.innerHeight;
+      const size = Math.min(400, Math.max(20, Math.round(Number(gridInputs.size.value)) || gridSize()));
+      const rows = Math.min(24, Math.max(1, Math.round(Number(gridInputs.rows.value)) || verticalSlots()));
+      const width = Math.max(1, Math.round(Number(gridInputs.width.value)) || 1);
+      overlay.querySelector('[data-grid-width-hint]').textContent = t('About {count} cells fit across this window. A smaller cell lets panes be sized and moved more finely.', { count: Math.max(1, Math.floor(boardWidth / size)) });
+      overlay.querySelector('[data-grid-rows-hint]').textContent = t('Each row is about {height}px tall on this window. Changing it rescales every open pane.', { height: Math.round(boardHeight / rows) });
+      overlay.querySelector('[data-pane-width-hint]').textContent = t('{width}px wide at the current cell width. Existing panes keep their size.', { width: width * size });
+      gridInputs.height.max = String(rows);
+      if (Number(gridInputs.height.value) > rows) {
+        gridInputs.height.value = String(rows);
+      }
+    };
+    Object.values(gridInputs).forEach((input) => input.addEventListener('input', syncGridHints));
+    syncGridHints();
+
     // The MiniMax key and region only matter while its card is shown.
     const minimaxToggle = overlay.querySelector('[name="usage.show_minimax"]');
     minimaxToggle.onchange = () => {
       overlay.querySelector('[data-minimax-setting]').classList.toggle('hidden', !minimaxToggle.checked);
     };
+
+    const syncCliArgsWarnings = () => {
+      overlay.querySelectorAll('[data-cli-args]').forEach((input) => {
+        input.closest('label').querySelector('[data-cli-args-warning]').hidden = !permissionBypassArgs(input.value);
+      });
+    };
+    overlay.querySelectorAll('[data-cli-args]').forEach((input) => input.addEventListener('input', syncCliArgsWarnings));
+    syncCliArgsWarnings();
+
+    // Access, password and protocol depend on each other: LAN needs a password,
+    // and a password over plain HTTP on a LAN travels unencrypted.
+    const serverInputs = {
+      host: settingsForm.elements['server.host'],
+      protocol: settingsForm.elements['server.protocol'],
+      password: settingsForm.elements['auth.password']
+    };
+    const syncServerNotices = () => {
+      const lan = serverInputs.host.value === '0.0.0.0';
+      const hasPassword = settings.auth?.password_set || Boolean(serverInputs.password.value);
+      const notices = [];
+      if (!hasPassword) {
+        notices.push(lan
+          ? `<p class="settings-notice danger">${escapeHtml(t('LAN access needs a password. Set one below before saving.'))}</p>`
+          : `<p class="settings-notice warn">${escapeHtml(t('No password is set. Anyone who can reach this port can sign in, which is only safe while access stays Local.'))}</p>`);
+      }
+      if (lan && serverInputs.protocol.value !== 'https') {
+        notices.push(`<p class="settings-notice warn"><span>${escapeHtml(t('On a LAN, HTTP sends the password and terminal output unencrypted.'))}</span><button type="button" class="secondary" data-use-https>${escapeHtml(t('Use HTTPS'))}</button></p>`);
+      }
+      const container = overlay.querySelector('[data-server-notices]');
+      container.innerHTML = notices.join('');
+      container.querySelector('[data-use-https]')?.addEventListener('click', () => {
+        serverInputs.protocol.value = 'https';
+        markSettingsDirty();
+        syncServerNotices();
+      });
+    };
+    Object.values(serverInputs).forEach((input) => {
+      input.addEventListener('input', syncServerNotices);
+      input.addEventListener('change', syncServerNotices);
+    });
+    syncServerNotices();
+
     overlay.addEventListener('click', (event) => {
       if (event.target === overlay) {
         closeSettings();
@@ -10405,9 +10653,8 @@
     });
     overlay.querySelector('form').addEventListener('submit', async (event) => {
       event.preventDefault();
-      const settingsForm = event.currentTarget;
-      const keepSettingsOpen = event.submitter?.hasAttribute('data-settings-apply') === true;
-      const status = overlay.querySelector('[data-settings-status]');
+      const status = settingsStatus;
+      status.classList.remove('dirty');
       status.textContent = 'Saving...';
       try {
         for (const name of ['terminal.browser_notifications', 'usage.notify_quota']) {
@@ -10430,6 +10677,9 @@
         if (payload.server.host === '0.0.0.0' && !hasPassword) {
           status.textContent = 'Set a password before enabling LAN access.';
           const passwordInput = settingsForm.elements['auth.password'];
+          searchInput.value = '';
+          applySettingsSearch();
+          showSettingsPage('settings-server');
           passwordInput.scrollIntoView({ block: 'center' });
           passwordInput.focus();
           showToast(status.textContent);
@@ -10440,7 +10690,7 @@
           method: 'POST',
           body: JSON.stringify(payload)
         });
-        savedTheme = selectedThemeForMode(state.config.custom_theme?.mode || themeMode());
+        savedTheme = selectedThemeForMode(resolveThemeMode(state.config.custom_theme?.mode || themeMode()));
         state.customThemeDraft = { ...customThemeDefaults, ...(state.config.custom_theme || {}) };
         applyTheme(savedTheme);
         // Display mode and density live in localStorage, not the server config.
@@ -10482,10 +10732,8 @@
         }
         status.textContent = state.config.restartRequired ? 'Saved. Restart paneboard.exe for host/port changes.' : 'Saved.';
         showToast(status.textContent, 'success');
-        if (!keepSettingsOpen) {
-          state.customThemeDraft = null;
-          closeSettings(false);
-        }
+        state.customThemeDraft = null;
+        closeSettings(false);
       } catch (error) {
         status.textContent = error.message || 'Save failed.';
         showToast(status.textContent);
@@ -10539,7 +10787,7 @@
       },
       file_manager: {
         root_mode: 'drives',
-        max_upload_bytes: numberOrUndefined(form.get('file_manager.max_upload_bytes')) || 0
+        max_upload_bytes: uploadLimitBytes(form.get('file_manager.max_upload_value'), form.get('file_manager.max_upload_unit'))
       },
       usage: {
         minimax_region: form.get('usage.minimax_region'),
