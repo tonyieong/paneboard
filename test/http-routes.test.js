@@ -537,6 +537,19 @@ test('saved notepad pane settings survive a reopen of the settings dialog', asyn
   assert.equal(reopened.json.ui.notepad_autosave, true);
 });
 
+test('settings report the running version and accept a system theme preference', async () => {
+  const auth = { Authorization: `Bearer ${sessionToken}` };
+  const reopened = await request('/api/settings', { headers: auth });
+  assert.equal(reopened.json.version, require('../package.json').version);
+
+  const system = await request('/api/settings', { method: 'POST', headers: auth, body: { custom_theme: { mode: 'system' } } });
+  assert.equal(system.status, 200);
+  assert.equal(system.json.custom_theme.mode, 'system');
+
+  const invalid = await request('/api/settings', { method: 'POST', headers: auth, body: { custom_theme: { mode: 'sepia' } } });
+  assert.equal(invalid.status, 400);
+});
+
 test('a full create/list/delete round trip through the file manager routes', async () => {
   const auth = { Authorization: `Bearer ${sessionToken}` };
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'paneboard-http-route-test-'));

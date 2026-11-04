@@ -417,7 +417,9 @@ test('settings separate PowerShell, file pane, and system font sizes', () => {
 });
 
 test('a new pane\'s default height is configurable and capped at rows per screen', () => {
-  assert.match(appSource, /New pane height \(cells\)<input name="ui\.default_pane_height" type="number" min="1" max="\$\{escapeAttr\(settings\.ui\.vertical_slots\)\}"/);
+  assert.match(appSource, /New pane height \(rows\)<input name="ui\.default_pane_height" type="number" min="1" max="\$\{escapeAttr\(settings\.ui\.vertical_slots\)\}"/);
+  // The cap follows an edit to rows per screen before anything is saved.
+  assert.match(appSource, /gridInputs\.height\.max = String\(rows\);\s*if \(Number\(gridInputs\.height\.value\) > rows\)/);
   assert.match(appSource, /default_pane_height:\s*numberOrUndefined\(form\.get\('ui\.default_pane_height'\)\)/);
 });
 
@@ -425,8 +427,8 @@ test('settings hide internal sidebar and file-manager switches and use clear sha
   assert.doesNotMatch(appSource, /Sidebar width<input/);
   assert.doesNotMatch(appSource, /File manager enabled<\/label>/);
   assert.match(appSource, /aria-label="Terminal"[^>]*>\s*<span class="settings-nav-icon"[^>]*>\$\{fileActionIcon\('terminal'\)\}/);
-  assert.match(appSource, /aria-label="Files"[^>]*>\s*<span class="settings-nav-icon"[^>]*>\$\{fileActionIcon\('file'\)\}/);
-  for (const icon of ['appearance', 'workspace', 'shell', 'server']) {
+  assert.match(appSource, /aria-label="Files &amp; notepad"[^>]*>\s*<span class="settings-nav-icon"[^>]*>\$\{fileActionIcon\('file'\)\}/);
+  for (const icon of ['appearance', 'workspace', 'ai', 'server']) {
     assert.match(appSource, new RegExp(`fileActionIcon\\('${icon}'\\)`));
   }
   assert.match(styles, /\.settings-nav-icon \.file-action-icon\s*\{/);
@@ -818,7 +820,12 @@ test('display mode and terminal density live in settings with preview semantics'
 });
 
 test('settings explain preview semantics and state password rules outside the placeholder', () => {
-  assert.match(appSource, /Previewed live — Cancel reverts, Save keeps it\./);
+  assert.match(appSource, /Changes here preview live\. Cancel reverts them; Save keeps them\./);
+  // Unsaved server-side changes are announced in the footer.
+  assert.match(appSource, /settingsStatus\.textContent = t\('Unsaved changes'\)/);
+  // The missing-password risk is a notice on the page, not placeholder text.
+  assert.doesNotMatch(appSource, /placeholder="[^"]*anyone reaching this port can sign in/);
+  assert.match(appSource, /No password is set\. Anyone who can reach this port can sign in/);
   assert.match(appSource, /class="live-badge">● Live preview</);
   assert.doesNotMatch(appSource, /placeholder="12\+ chars/);
   assert.match(appSource, /aria-describedby="settings-password-rule"/);
@@ -1209,11 +1216,13 @@ test('keybar editor switches input by action and offers a modifier select', () =
   assert.match(appSource, /\{ Control: 'Ctrl', Alt: 'Alt', Shift: 'Shift' \}/);
 });
 
-test('keybar editor supports recording, duplicating, resetting and drag reordering', () => {
+test('keybar editor supports recording, resetting and drag reordering', () => {
   assert.match(appSource, /data-mobile-keybar-record/);
   assert.match(appSource, /function startMobileKeybarRecording\(recordButton, row, refresh\)/);
-  assert.match(appSource, /data-mobile-keybar-duplicate/);
-  assert.match(appSource, /renderMobileKeybarRow\(readMobileKeybarRow\(row\)\)/);
+  // Duplicate was dropped to thin each row; the arrows stay because dragging
+  // works neither on a phone nor from the keyboard.
+  assert.doesNotMatch(appSource, /data-mobile-keybar-duplicate/);
+  assert.match(appSource, /data-mobile-keybar-up[\s\S]*data-mobile-keybar-down/);
   assert.match(appSource, /data-mobile-keybar-reset/);
   assert.match(appSource, /editor\.innerHTML = defaultMobileKeybarButtons\.map\(renderMobileKeybarRow\)\.join\(''\)/);
   assert.match(appSource, /function wireMobileKeybarDrag\(editor, refresh\)/);
@@ -1681,7 +1690,7 @@ test('opening a file that is already open focuses its existing notepad tab', () 
 });
 
 test('notepad word wrap, indent guides, and auto save defaults come from settings', () => {
-  assert.match(appSource, /<section class="settings-section" id="settings-notepad">/);
+  assert.match(appSource, /<h3 class="settings-subhead" id="settings-notepad">Notepad/);
   assert.match(appSource, /name="ui\.notepad_word_wrap" type="checkbox"/);
   assert.match(appSource, /name="ui\.notepad_indent_guides" type="checkbox"/);
   assert.match(appSource, /name="ui\.notepad_autosave" type="checkbox"/);
@@ -1928,26 +1937,40 @@ test('mobile tabs and settings remain usable above the sidebar', () => {
   assert.match(styles, /\.tab\.tab-add\s*\{[^}]*min-width:\s*42px[^}]*flex:\s*0 0 42px/s);
   assert.match(styles, /\.settings-overlay\s*\{[^}]*z-index:\s*var\(--z-settings\)/s);
   assert.match(appSource, /data-settings-close aria-label="Close settings"/);
-  for (const label of ['Appearance', 'Terminal', 'Workspace', 'Shell', 'Files', 'Server and security']) {
+  for (const label of ['Appearance', 'Terminal', 'Workspace', 'Files &amp; notepad', 'AI &amp; usage', 'Server and security']) {
     assert.match(appSource, new RegExp(`aria-label="${label}"[^>]+href="#settings-`));
   }
 });
 
-test('settings navigation maps to real sections and follows the visible section', () => {
-  for (const section of ['appearance', 'terminal', 'workspace', 'shell', 'files', 'notepad', 'usage', 'server']) {
-    assert.match(appSource, new RegExp(`<section class="settings-section[^"]*" id="settings-${section}"`));
+test('settings navigation shows one category page at a time', () => {
+  for (const section of ['appearance', 'terminal', 'workspace', 'files', 'ai', 'server']) {
+    assert.match(appSource, new RegExp(`<section class="settings-section[^"]*" id="settings-${section}" data-settings-page`));
   }
-  // Every nav entry must point at a section that exists, and every section must
-  // be reachable from the nav.
+  // Every nav entry must point at a page that exists, and every page must be
+  // reachable from the nav, apart from the shortcut editor, which opens from
+  // the Terminal page and keeps Terminal highlighted.
   const navTargets = [...appSource.matchAll(/<a aria-label="[^"]+" href="#(settings-[a-z-]+)">/g)].map((match) => match[1]);
   const sectionIds = [...appSource.matchAll(/<section class="settings-section[^"]*" id="(settings-[a-z-]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(navTargets, sectionIds);
+  assert.deepEqual(navTargets, sectionIds.filter((id) => id !== 'settings-keybar'));
+  assert.match(appSource, /id="settings-keybar" data-settings-page data-settings-parent="settings-terminal" hidden/);
+  assert.match(appSource, /data-settings-open-page="settings-keybar"/);
   assert.match(appSource, /function setActiveSettingsSection\(sectionId\)/);
-  assert.match(appSource, /settingsBody\.addEventListener\('scroll', syncSettingsNav/);
-  assert.match(appSource, /new ResizeObserver\(\(\) => \{\s*syncSettingsScrollPadding\(\);\s*syncSettingsNav\(\);\s*\}\)/);
-  assert.match(appSource, /settingsResizeObserver\.disconnect\(\)/);
+  assert.match(appSource, /function showSettingsPage\(pageId\)/);
+  assert.match(appSource, /setActiveSettingsSection\(page\.dataset\.settingsParent \|\| page\.id\)/);
   assert.match(appSource, /link\.onclick = \(event\) =>/);
-  assert.match(appSource, /requestAnimationFrame\(\(\) => setActiveSettingsSection\(section\.id\)\)/);
+  assert.doesNotMatch(appSource, /syncSettingsNav|syncSettingsScrollPadding/);
+  // [hidden] must win over the display rules that lay out rows and pages.
+  assert.match(styles, /\.settings-panel \[hidden\]\s*\{\s*display:\s*none !important/);
+});
+
+test('settings search filters rows across every page', () => {
+  assert.match(appSource, /data-settings-search aria-label="Search settings"/);
+  assert.match(appSource, /function applySettingsSearch\(\)/);
+  assert.match(appSource, /item\.hidden = !item\.textContent\.toLocaleLowerCase\(\)\.includes\(query\)/);
+  assert.match(appSource, /data-settings-search-empty/);
+  // Escape clears the query before the modal's own Escape handler closes it.
+  assert.match(appSource, /window\.addEventListener\('keydown', onSearchEscape, true\)/);
+  assert.match(appSource, /window\.removeEventListener\('keydown', onSearchEscape, true\)/);
 });
 
 test('settings dialog has a fixed shell with a sidebar and roomy content column', () => {
@@ -1956,11 +1979,6 @@ test('settings dialog has a fixed shell with a sidebar and roomy content column'
   assert.match(styles, /\.settings-nav a\s*\{[^}]*min-height:\s*34px/s);
   assert.match(styles, /\.settings-body\s*\{[^}]*padding:\s*16px 28px 24px/s);
   assert.match(styles, /\.settings-footer\s*\{[^}]*min-height:\s*44px/s);
-  // A nav jump must leave the heading below the header but inside the 18px
-  // band syncSettingsNav treats as the current section.
-  const margin = Number(styles.match(/\.settings-section\s*\{[^}]*scroll-margin-top:\s*(\d+)px/s)?.[1]);
-  const band = Number(appSource.match(/settingsBody\.getBoundingClientRect\(\)\.top \+ (\d+)/)?.[1]);
-  assert.ok(margin > 0 && margin <= band, `scroll-margin-top ${margin}px must be within the ${band}px nav band`);
 });
 
 test('settings sizes against the visual viewport so the footer stays on screen', () => {
@@ -1989,10 +2007,12 @@ test('settings read as grouped rows with the control right aligned against a sha
 });
 
 test('settings checkboxes render as theme-coloured switches', () => {
-  assert.match(styles, /\.settings-check input\[type="checkbox"\]\s*\{[^}]*appearance:\s*none[^}]*border-radius:\s*999px/s);
-  assert.match(styles, /\.settings-check input\[type="checkbox"\]:checked\s*\{[^}]*background:\s*var\(--accent\)/s);
-  assert.match(styles, /\.settings-check input\[type="checkbox"\]:checked::before\s*\{[^}]*transform:\s*translateX/s);
-  assert.match(styles, /\.settings-check input\[type="checkbox"\]:disabled\s*\{[^}]*opacity/s);
+  // The shortcut editor's Show box is a switch too, not a bare native checkbox.
+  assert.match(styles, /\.settings-grid \.settings-check input\[type="checkbox"\],\s*\.mobile-keybar-visible input\[type="checkbox"\]\s*\{[^}]*appearance:\s*none/s);
+  assert.match(styles, /\.settings-check input\[type="checkbox"\][^{]*\{[^}]*appearance:\s*none[^}]*border-radius:\s*999px/s);
+  assert.match(styles, /\.settings-check input\[type="checkbox"\]:checked[^{]*\{[^}]*background:\s*var\(--accent\)/s);
+  assert.match(styles, /\.settings-check input\[type="checkbox"\]:checked::before[^{]*\{[^}]*transform:\s*translateX/s);
+  assert.match(styles, /\.settings-check input\[type="checkbox"\]:disabled[^{]*\{[^}]*opacity/s);
 });
 
 test('settings fields that hold long text span both columns and stretch', () => {
@@ -2010,16 +2030,17 @@ test('settings rows stay one column with full-size hit targets on mobile', () =>
   assert.match(mobile, /\.settings-grid label:not\(\.settings-wide\) > \.field-hint\s*\{[^}]*grid-column:\s*1 \/ -1/s);
 });
 
-test('settings apply stays open while save closes the dialog', () => {
-  assert.match(appSource, /data-settings-apply title="Save and keep this dialog open">Apply<\/button>/);
+test('settings has Cancel and Save only, and save closes the dialog', () => {
+  // Apply differed from Save only in leaving the dialog open, which nobody
+  // could tell from the label.
+  assert.doesNotMatch(appSource, /data-settings-apply/);
   assert.match(appSource, /data-settings-save title="Save and close">Save<\/button>/);
-  assert.match(appSource, /const keepSettingsOpen = event\.submitter\?\.hasAttribute\('data-settings-apply'\) === true/);
-  assert.match(appSource, /if \(!keepSettingsOpen\) \{\s*state\.customThemeDraft = null;\s*closeSettings\(false\);\s*\}/);
+  assert.match(appSource, /showToast\(status\.textContent, 'success'\);\s*state\.customThemeDraft = null;\s*closeSettings\(false\);/);
 });
 
 test('settings save keeps its form reference across a notification permission prompt', () => {
   const submitHandler = coreAppSource.slice(coreAppSource.indexOf("overlay.querySelector('form').addEventListener('submit'"), coreAppSource.indexOf('function settingsPayload'));
-  assert.match(submitHandler, /const settingsForm = event\.currentTarget;/);
+  assert.match(coreAppSource, /const settingsForm = overlay\.querySelector\('form'\);/);
   assert.match(submitHandler, /new FormData\(settingsForm\), settingsForm/);
   assert.doesNotMatch(submitHandler.slice(submitHandler.indexOf('await requestBrowserNotificationPermission()')), /event\.currentTarget/);
 });
@@ -2045,7 +2066,7 @@ test('single-field settings sections are folded into the section they belong to'
   assert.match(server, /name="auth\.password"/);
   assert.match(server, /<h2>Server &amp; security<\/h2>/);
   // Grouped rows carry a subhead saying what the group is for.
-  for (const subhead of ['Board grid', 'New panes', 'Saving', 'Provider cards', 'Quota windows']) {
+  for (const subhead of ['Board grid', 'New panes', 'Saving', 'Shell', 'Usage cards', 'AI panes']) {
     assert.match(appSource, new RegExp(`<h3 class="settings-subhead">${subhead}`));
   }
   assert.match(styles, /\.settings-subhead small\s*\{[^}]*display:\s*block/s);
@@ -2053,13 +2074,15 @@ test('single-field settings sections are folded into the section they belong to'
 
 test('rarely used settings sit behind an Advanced disclosure', () => {
   assert.match(settingsSection('settings-server'), /<details class="settings-advanced">\s*<summary>Advanced<\/summary>[\s\S]*name="server\.allowed_hosts"/);
-  assert.match(settingsSection('settings-usage'), /<details class="settings-advanced">\s*<summary>Advanced<\/summary>[\s\S]*name="usage\.codex_home"/);
+  assert.match(settingsSection('settings-ai'), /<details class="settings-advanced">\s*<summary>Advanced<\/summary>[\s\S]*name="ai\.claude_args"[\s\S]*name="usage\.show_codex"[\s\S]*name="usage\.codex_home"[\s\S]*name="ai\.debug_log"/);
+  // Per-CLI model and effort are folded away unless one of them is set.
+  assert.match(settingsSection('settings-ai'), /<details class="settings-advanced settings-models" \$\{settings\.ai\?\.claude_model \|\| settings\.ai\?\.claude_effort/);
   assert.match(styles, /\.settings-advanced > summary\s*\{[^}]*cursor:\s*pointer/s);
   assert.match(styles, /\.settings-advanced > summary:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--accent\)/s);
 });
 
 test('MiniMax credentials only appear while its provider card is shown', () => {
-  const usage = settingsSection('settings-usage');
+  const usage = settingsSection('settings-ai');
   assert.match(usage, /<div data-minimax-setting class="minimax-setting \$\{settings\.usage\?\.show_minimax !== false \? '' : 'hidden'\}">/);
   assert.match(usage, /name="usage\.minimax_api_key"/);
   assert.match(appSource, /minimaxToggle\.onchange = \(\) => \{\s*overlay\.querySelector\('\[data-minimax-setting\]'\)\.classList\.toggle\('hidden', !minimaxToggle\.checked\);/);
@@ -2068,11 +2091,23 @@ test('MiniMax credentials only appear while its provider card is shown', () => {
   assert.match(usage, /settings\.usage\?\.minimax_configured \? '<label class="settings-check"><input name="usage\.clear_minimax_api_key"/);
 });
 
-test('the upload limit shows the size its byte count allows', () => {
-  assert.match(appSource, /function uploadLimitHint\(bytes\)/);
-  assert.match(appSource, /Largest single upload: \$\{formatBytes\(size\)\}/);
-  assert.match(appSource, /'No limit\. Enter a size in bytes to cap a single upload\.'/);
-  assert.match(appSource, /uploadLimitInput\.oninput = \(\) => \{\s*overlay\.querySelector\('\[data-upload-limit-hint\]'\)\.textContent = uploadLimitHint\(uploadLimitInput\.value\);/);
+test('the upload limit is entered as a number and a KB, MB or GB unit', () => {
+  assert.match(appSource, /name="file_manager\.max_upload_value" type="number"/);
+  assert.match(appSource, /name="file_manager\.max_upload_unit"/);
+  assert.match(appSource, /max_upload_bytes: uploadLimitBytes\(form\.get\('file_manager\.max_upload_value'\), form\.get\('file_manager\.max_upload_unit'\)\)/);
+  const helpers = coreAppSource.slice(coreAppSource.indexOf('const uploadLimitUnits'), coreAppSource.indexOf('function uploadLimitBytes'));
+  const bytesFn = coreAppSource.slice(coreAppSource.indexOf('function uploadLimitBytes'));
+  const { uploadLimitParts, uploadLimitBytes } = new Function(`${helpers}\n${bytesFn.slice(0, bytesFn.indexOf('\n  }\n') + 4)}\nreturn { uploadLimitParts, uploadLimitBytes };`)();
+  assert.deepEqual(uploadLimitParts(0), { value: 0, unit: 'MB' });
+  assert.deepEqual(uploadLimitParts(100 * 1024 ** 2), { value: 100, unit: 'MB' });
+  assert.deepEqual(uploadLimitParts(2 * 1024 ** 3), { value: 2, unit: 'GB' });
+  assert.deepEqual(uploadLimitParts(1536), { value: 1.5, unit: 'KB' });
+  // Old byte counts that are not whole kilobytes round to two places.
+  assert.deepEqual(uploadLimitParts(1000), { value: 0.98, unit: 'KB' });
+  assert.equal(uploadLimitBytes('1.5', 'GB'), 1.5 * 1024 ** 3);
+  assert.equal(uploadLimitBytes('250', 'MB'), 250 * 1024 ** 2);
+  assert.equal(uploadLimitBytes('', 'MB'), 0);
+  assert.equal(uploadLimitBytes('-3', 'KB'), 0);
 });
 
 test('path dropdown combines current, history, and bookmarked paths', () => {
@@ -2139,7 +2174,7 @@ test('appearance stores separate light and dark choices with separate custom pal
   assert.match(mainSource, /if \(updates\.custom_theme\)/);
   assert.match(styles, /\.theme-preset-grid\s*\{/);
   assert.match(styles, /\.custom-theme-grid\s*\{/);
-  assert.match(appSource, /applyTheme\(selectedThemeForMode\(state\.config\.custom_theme\?\.mode \|\| 'dark'\)\)/);
+  assert.match(appSource, /applyTheme\(selectedThemeForMode\(resolveThemeMode\(state\.config\.custom_theme\?\.mode\)\)\)/);
   assert.match(appSource, /JSON\.stringify\(\{ custom_theme: \{ mode: themeMode\(\) \} \}\)/);
 });
 

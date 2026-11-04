@@ -19,6 +19,7 @@ const { startTray } = require('./tray');
 const { loadOrCreateControlToken, requireRuntimeControl } = require('./runtime-control');
 const { createUploadParser } = require('./upload');
 const usage = require('./usage');
+const { version: PANEBOARD_VERSION } = require('../package.json');
 const { getPluginPane, listPluginPanes, loadAiPluginPanes, pluginPaneUrl, resolvePluginPaneAsset, resolveTrustedPluginPaneAsset } = require('./plugin-panes');
 const { BrowserManager, isOwnServerWebsite } = require('./browser');
 const { createRateLimiter, isSameOrigin, isTrustedHost } = require('./request-guard');
@@ -245,6 +246,7 @@ function publicConfig(config, shell, restartRequired, reloadError) {
 
 function settingsConfig(config, runtimeConfig) {
   return {
+    version: PANEBOARD_VERSION,
     server: {
       host: typeof config.server.host === 'string' ? config.server.host : runtimeConfig.server.host,
       port: validPort(config.server.port) ? Number(config.server.port) : Number(runtimeConfig.server.port),
@@ -613,10 +615,10 @@ function sanitizeSettingsUpdates(updates) {
         throw new Error(`Unknown ${key === 'selected_light' ? 'light' : 'dark'} theme selection.`);
       }
     }
-    if (updates.custom_theme.mode === 'dark' || updates.custom_theme.mode === 'light') {
+    if (['dark', 'light', 'system'].includes(updates.custom_theme.mode)) {
       next.custom_theme.mode = updates.custom_theme.mode;
     } else if (Object.prototype.hasOwnProperty.call(updates.custom_theme, 'mode')) {
-      throw new Error('Custom theme mode must be dark or light.');
+      throw new Error('Custom theme mode must be dark, light or system.');
     }
     for (const key of ['ink', 'panel', 'rail', 'surface', 'line', 'text', 'muted', 'accent', 'warn', 'danger', 'terminal_bg', 'terminal_fg', 'light_ink', 'light_panel', 'light_rail', 'light_surface', 'light_line', 'light_text', 'light_muted', 'light_accent', 'light_warn', 'light_danger', 'light_terminal_bg', 'light_terminal_fg']) {
       if (Object.prototype.hasOwnProperty.call(updates.custom_theme, key)) {
