@@ -74,7 +74,7 @@
     "@eslint/js": "^10.0.1",
     "@yao-pkg/pkg": "^6.22.0",
     "eslint": "^10.8.0",
-    "globals": "^17.9.0",
+    "globals": "^17.14.0",
     "playwright": "^1.62.1"
   }
 }
